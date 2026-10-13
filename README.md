@@ -28,3 +28,7 @@ The [WebView2 security guidance](https://learn.microsoft.com/en-us/microsoft-edg
 ## Verification status
 
 The focused offline library tests passed **8/8**, including ZIP file/directory conflicts and excessive expansion. The latest focused Windows player tests passed **5/5**, and `cargo check` passed after the native frame and external-URI handler additions. An **earlier** guarded player build ran the exact first-party `fixtures/save-counter.html` and reported launch **4** from one persistent profile; the other game ID separately reported launch **2**. Successful fixture loading confirmed the WebView2 restriction calls returned success before content loaded. The new `fixtures/boundary-smoke.html` and native handlers have **not** been exercised in a newly built player: a test-profile compilation exceeded this task's 512 MiB incremental disk-growth cap, so further builds stopped. C: remained above the 20 GiB floor. This is not a real elevated-token run or an exhaustive browser security test. IndexedDB, broader HTML game compatibility, native library UI, and the remaining browser boundary checks are not yet verified. No third-party games or assets are bundled.
+
+## Branding and next steps
+
+The approved original GameStrike logo is pending source integration. This source package includes no third-party game art or logo placeholder. Next, build the trusted library UI, complete the WebView boundary checks with controlled fixtures, and validate actual downloaded games before distributing a player.
