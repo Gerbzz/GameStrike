@@ -10,7 +10,7 @@
 
 GameStrike is building a local collection for HTML games you choose to keep. The current CLI imports supported HTML files and game ZIPs, lists the collection, and opens an imported title in a separate Windows player with storage kept per game.
 
-### Highlights
+## Highlights
 
 - Bring an HTML file or a ZIP with a root `index.html` into the collection.
 - Keep imported game files and browser storage separate by game.
