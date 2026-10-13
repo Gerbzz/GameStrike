@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>GameStrike save fixture</title>
+<h1>GameStrike save fixture</h1>
+<p id="count"></p>
+<script>
+  const count = Number(localStorage.getItem("launch-count") || "0") + 1;
+  localStorage.setItem("launch-count", String(count));
+  document.getElementById("count").textContent = `Launch ${count}`;
+  document.title = `GameStrike fixture launch ${count}`;
+</script>
+</html>

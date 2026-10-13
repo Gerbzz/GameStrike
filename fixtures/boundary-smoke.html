@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>GameStrike boundary fixture starting</title>
+<h1>GameStrike boundary fixture</h1>
+<p>First party browser probe. It uses no third party content or registered external URI scheme.</p>
+<pre id="results"></pre>
+<script>
+  const results = [];
+  const record = (name, value) => results.push(`${name}=${value}`);
+  const count = Number(localStorage.getItem("gamestrike-boundary-launches") || 0) + 1;
+  localStorage.setItem("gamestrike-boundary-launches", String(count));
+  record("launch", count);
+
+  const popup = window.open("about:blank", "_blank");
+  record("popup", popup === null ? "null" : "handle");
+  if (popup) popup.close();
+
+  const missingFile = "file:///C:/GameStrike-fixture-does-not-exist.txt";
+  for (const [name, url] of [
+    ["file-frame", missingFile],
+    ["other-frame", "https://gamestrike-other.localhost/index.html"],
+  ]) {
+    const frame = document.createElement("iframe");
+    frame.title = name;
+    frame.src = url;
+    document.body.append(frame);
+  }
+
+  fetch(missingFile).then(
+    () => record("file-fetch", "resolved"),
+    () => record("file-fetch", "rejected"),
+  );
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      () => record("location", "granted"),
+      () => record("location", "denied"),
+      { timeout: 1000, maximumAge: 0 },
+    );
+  } else {
+    record("location", "unavailable");
+  }
+
+  const download = document.createElement("a");
+  download.href = "data:text/plain,GameStrike%20fixture";
+  download.download = "gamestrike-boundary-fixture.txt";
+  document.body.append(download);
+  download.click();
+  download.remove();
+
+  setTimeout(() => {
+    document.getElementById("results").textContent = results.join("\n");
+    document.title = `GameStrike boundary fixture ${results.join(";")}`;
+  }, 1800);
+</script>
+</html>

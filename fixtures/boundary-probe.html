@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>GameStrike boundary probe</title>
+<h1>GameStrike boundary probe</h1>
+<p>First-party test fixture. Each button makes one controlled browser request; no probe runs automatically.</p>
+<button id="local">Attempt nonexistent local file read</button>
+<button id="popup">Attempt a new window</button>
+<button id="navigate">Attempt top-level file navigation</button>
+<button id="other">Attempt a different game origin</button>
+<pre id="log"></pre>
+<script>
+  const log = (message) => {
+    document.getElementById("log").textContent += `${message}\n`;
+  };
+  const missingFile = "file:///C:/GameStrike-fixture-does-not-exist.txt";
+  document.getElementById("local").addEventListener("click", async () => {
+    try {
+      const response = await fetch(missingFile);
+      log(`Local file fetch response: ${response.status}. Inspect manually; this alone proves no security property.`);
+    } catch (error) {
+      log(`Local file fetch failed: ${String(error)}`);
+    }
+  });
+  document.getElementById("popup").addEventListener("click", () => {
+    const opened = window.open("about:blank", "_blank");
+    log(`New window request returned: ${opened === null ? "null" : "a window handle"}`);
+  });
+  document.getElementById("navigate").addEventListener("click", () => {
+    location.href = missingFile;
+    setTimeout(() => log("Still on fixture after file navigation attempt."), 300);
+  });
+  document.getElementById("other").addEventListener("click", async () => {
+    try {
+      const response = await fetch("https://gamestrike-other.localhost/index.html");
+      log(`Other-origin fetch response: ${response.status}. Inspect manually.`);
+    } catch (error) {
+      log(`Other-origin fetch failed: ${String(error)}`);
+    }
+  });
+</script>
+</html>
