@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/branding/gamestrike-fox-icon.png" alt="GameStrike fox logo" width="160" height="160">
+</p>
+
 # GameStrike
 
 GameStrike is a proposed local library and player for downloaded HTML games, part of the Strike family **by PWDS**. It has no website upload, hosted catalog, or account service. Imported games may contain JavaScript; Rust is used for this library foundation, not as a claim that HTML games become Rust programs.
@@ -31,4 +35,4 @@ The focused offline library tests passed **8/8**, including ZIP file/directory c
 
 ## Branding and next steps
 
-The approved original GameStrike logo is pending source integration. This source package includes no third-party game art or logo placeholder. Next, build the trusted library UI, complete the WebView boundary checks with controlled fixtures, and validate actual downloaded games before distributing a player.
+Original GameStrike logo artwork is included in [assets/branding](assets/branding) and displayed above. Native app-icon and packaging integration remain pending. This source package includes no third-party game art or logo placeholder. Next, build the trusted library UI, complete the WebView boundary checks with controlled fixtures, and validate actual downloaded games before distributing a player.
