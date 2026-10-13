@@ -1,52 +1,59 @@
 <p align="center">
-  <img src="assets/branding/gamestrike-fox-icon.png" alt="GameStrike fox logo" width="160" height="160">
+  <img src="assets/branding/gamestrike-fox-icon.png" alt="Original GameStrike fox logo" width="160" height="160">
 </p>
 
 # GameStrike
 
 **by PWDS**
 
-**A home for your downloaded HTML games.**
+**A local home for HTML games you choose to keep.** GameStrike is building a collection for imported HTML titles. Today it has a command-line importer and a separate Windows player for controlled fixtures; the visual library is still a [source design](docs/LAUNCHER_UI.md).
 
-GameStrike is building a local collection for HTML games you choose to keep. The current CLI imports supported HTML files and game ZIPs, lists the collection, and opens an imported title in a separate Windows player with storage kept per game.
+[Import and launch](#try-the-current-cli) · [Player security and open checks](docs/PLAYER_SECURITY.md) · [Original artwork](assets/branding)
 
-## Highlights
+## What the current foundation does
 
-- Bring an HTML file or a ZIP with a root `index.html` into the collection.
-- Keep imported game files and browser storage separate by game.
-- Open a selected title in its dedicated Windows player.
+### Import a game without running package scripts
+
+Import one HTML file or a ZIP with a root `index.html`. GameStrike copies bounded content into `LIBRARY/games/<id>/content`, assigns an ID, and writes its own `game.json`. It rejects traversal, absolute and device paths, links and special files, case-insensitive duplicates, unsupported compression, and archives that exceed its size or entry limits. Formats with a nested or nonstandard entry point are not supported yet.
+
+### Keep each title's browser data separate
+
+The Windows player opens one imported ID at a time. Each game gets its own UUID-derived HTTPS-mapped origin and persistent WebView profile under `LIBRARY/profiles/<id>`. A first-party save fixture reopened with its state intact, while a second ID used separate storage. A separate process is an application boundary, **not an OS sandbox**.
+
+### Build a controller-friendly library
+
+The planned trusted UI has a game row, clear import and error states, and visible keyboard/controller focus. That launcher is **not implemented** in this checkpoint. Its controller navigation would not make an imported game's own JavaScript gamepad-aware. Network and controller requirements remain **unknown** until each game is checked.
+
+## Try the current CLI
+
+These commands describe the source preview, not a finished console interface:
+
+```text
+gamestrike --library LIBRARY import GAME.html
+gamestrike --library LIBRARY import GAME.zip
+gamestrike --library LIBRARY list
+gamestrike-player --library LIBRARY --id GAME_UUID --allow-network
+```
+
+Normal player launch requires the explicit `--allow-network` choice. **Strict offline play is unavailable.** Game JavaScript may still contact local or remote services, and some titles need remote assets to work. Do not treat arbitrary downloaded games as safe under this checkpoint; use only controlled fixtures until the [browser boundary checks](docs/PLAYER_SECURITY.md) are complete. No third-party games or assets are bundled.
+
+## Build from source
+
+On Windows, use a Rust toolchain that supports edition 2024 and an available WebView2 runtime. From the repository root:
+
+```powershell
+cargo build --locked --bin gamestrike
+cargo build --locked --features player-windows --bin gamestrike-player
+```
+
+These commands describe how to build the source; the latest player source has not been validated as a newly built runnable executable. Check disk headroom before building.
 
 ## Current status
 
-Early CLI and player foundation. A benign fixture has been launched and reopened with isolated storage, but the visual console library, controller navigation, broad compatibility, and strict offline play are unfinished. Browser security validation is incomplete: arbitrary downloaded games are not ready for general use, and the separate player is not an OS sandbox.
+This is an **early CLI and player foundation**. Focused offline library tests passed 8/8, focused Windows player tests passed 5/5, and the latest source passed `cargo check`. An **earlier guarded player build** launched and reopened only the bundled first-party save fixture with isolated storage. The newer frame and external-URI handlers compiled and passed focused tests but have **not** been exercised in a freshly built player. There is no native visual library, general-game safety validation, strict offline mode, or release installer.
 
-## Import and launch
+The separate Wry/system-WebView player is designed to have no Tauri commands, launcher credentials, game-to-host message bridge, or unrestricted file access. It limits local assets to the selected game's content root and registers navigation, download, window, and permission restrictions. Those checks still need controlled runtime validation across frames, protocols, workers, and network paths. Read [PLAYER_SECURITY.md](docs/PLAYER_SECURITY.md) before widening use; [LAUNCHER_UI.md](docs/LAUNCHER_UI.md) describes the planned trusted library.
 
-Choose a library folder, import a single HTML file or a ZIP with a root `index.html`, and list the assigned game IDs. The Windows player opens one imported ID at a time; each ID has separate browser storage. The commands below describe the verified CLI path, not a finished console interface. Review the security limits before running any game content.
+The original [fox artwork](assets/branding) is included. Native app-icon and packaging work remain. Next steps are to finish the browser boundary tests with benign fixtures, implement the trusted library UI, and validate real game compatibility before distribution.
 
-```text
-gamestrike --library PATH import GAME.html
-gamestrike --library PATH import GAME.zip
-gamestrike --library PATH list
-gamestrike-player --library PATH --id GAME_UUID --allow-network
-```
-
-`PATH/games/<id>/content` contains copied game files; `game.json` beside `content` is generated by GameStrike. Importing never executes package scripts. A ZIP must have a root `index.html`; package formats that need a nested or nonstandard entry point are rejected for now. The importer rejects traversal, absolute or Windows device paths, links and special files, duplicate case-insensitive paths, unsupported compression, and oversized or excessively expanding archives. The cap is 256 MiB source, 512 MiB total expanded, 128 MiB per file, and 4096 entries. Browser storage lives under `PATH/profiles/<id>`, separate from imported content.
-
-See the [trusted launcher UI design](docs/LAUNCHER_UI.md) for the planned visual library. Controller support and remote asset requirements are recorded as **unknown** at import. Controller-friendly launcher navigation will not make a game's own JavaScript gamepad-aware. Some games need remote assets or services and may not work without them. Strict offline play is not yet available. The Windows player now checks its process token before creating a WebView and accepts only medium integrity; a failed query or any other level blocks launch. Normal launch requires explicit `--allow-network`. Treat arbitrary downloaded games as untrusted and not ready for general play under the current boundary.
-
-## Player boundary and remaining checks
-
-The trusted future library UI may use Tauri 2. Imported HTML loads only in the separate Wry / system-WebView player process. The player has no Tauri IPC, host objects, generic game-to-host message handler, launcher credentials, or unrestricted filesystem API. It serves only canonical paths inside the selected game's content root, denies top-level navigation away from that game's origin, new windows, downloads, and browser permission requests. Each game ID gets a stable HTTPS-mapped origin and a persistent WebView data directory. Moving packages to different filesystem folders alone would not separate browser origins. A separate process is an application boundary, not by itself an OS sandbox; game JavaScript still has normal browser network capabilities.
-
-The opt-in network policy permits browser subresource requests, including remote assets and services; it is **not an offline or air-gapped sandbox**. Before loading game content, the player explicitly disables WebView2 host objects, web messages, and default script dialogs. It denies top-level navigation away from the selected game origin, new windows, downloads, and permission requests. Source-checked native handlers now also target cross-origin frame navigation and registered external URI launches; their runtime behavior is not yet verified. Before wider use, verify frames, external protocols, service workers, device permissions, download denial, and network behavior with controlled fixtures. [Wry's current builder documentation](https://docs.rs/wry/latest/wry/struct.WebViewBuilder.html) says downloads are allowed by default, so explicit denial matters. Do not run build scripts or executables from imported packages. See [player security work](docs/PLAYER_SECURITY.md).
-
-The [WebView2 security guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/security) calls for treating hosted content as insecure, restricting host objects and web messages, checking navigation origins, and using a standard-integrity host process. [Tauri capabilities](https://v2.tauri.app/security/capabilities/) apply to trusted Tauri windows, so untrusted game content must never inherit that surface. ZIP handling uses the [zip crate](https://crates.io/crates/zip) rather than a custom archive decoder. Inspect license and notice obligations for any runtime components before distribution.
-
-## Verification status
-
-The focused offline library tests passed **8/8**, including ZIP file/directory conflicts and excessive expansion. The latest focused Windows player tests passed **5/5**, and `cargo check` passed after the native frame and external-URI handler additions. An **earlier** guarded player build ran the exact first-party `fixtures/save-counter.html` and reported launch **4** from one persistent profile; the other game ID separately reported launch **2**. Successful fixture loading confirmed the WebView2 restriction calls returned success before content loaded. The new `fixtures/boundary-smoke.html` and native handlers have **not** been exercised in a newly built player: a fresh test-profile build was deferred for disk budget. This is not an elevated-token run or an exhaustive browser security test. IndexedDB, broader HTML game compatibility, native library UI, and the remaining browser boundary checks are not yet verified. No third-party games or assets are bundled.
-
-## Branding and next steps
-
-Original GameStrike logo artwork is included in [assets/branding](assets/branding) and displayed above. Native app-icon and packaging integration remain pending. This source package includes no third-party game art or logo placeholder. Next, build the trusted library UI, complete the WebView boundary checks with controlled fixtures, and validate actual downloaded games before distributing a player.
+Explore the other [PWDS Strike repositories](https://github.com/Gerbzz?tab=repositories&q=Strike).
