@@ -4,7 +4,25 @@
 
 # GameStrike
 
-GameStrike is a proposed local library and player for downloaded HTML games, part of the Strike family **by PWDS**. It has no website upload, hosted catalog, or account service. Imported games may contain JavaScript; Rust is used for this library foundation, not as a claim that HTML games become Rust programs.
+**by PWDS**
+
+**A home for your downloaded HTML games.**
+
+GameStrike is building a local collection for HTML games you choose to keep. The current CLI imports supported HTML files and game ZIPs, lists the collection, and opens an imported title in a separate Windows player with storage kept per game.
+
+### Highlights
+
+- Bring an HTML file or a ZIP with a root `index.html` into the collection.
+- Keep imported game files and browser storage separate by game.
+- Open a selected title in its dedicated Windows player.
+
+## Current status
+
+Early CLI and player foundation. A benign fixture has been launched and reopened with isolated storage, but the visual console library, controller navigation, broad compatibility, and strict offline play are unfinished. Browser security validation is incomplete: arbitrary downloaded games are not ready for general use, and the separate player is not an OS sandbox.
+
+## Grow a local collection
+
+Import a single `.html` or `.htm` file, or a ZIP whose `index.html` is at its root. List the games in a chosen library and launch one by ID in the separate Windows player. Each game receives its own browser storage. The security and compatibility limits below apply before trying any game content.
 
 ## Current checkpoint
 
