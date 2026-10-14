@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>GameStrike</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="identity"><img class="brand-fox" src="/fox.png" alt=""><div><div class="brand-name">GAME<span>STRIKE</span></div><div class="brand-sub">YOUR LOCAL ARCADE</div></div></div>
+      <div class="top-right"><span class="local-chip"><span class="live-dot"></span>LOCAL LIBRARY</span><img class="pwds" src="/pwds.svg" alt="PWDS"></div>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="eyebrow-line"></span> THE COLLECTION <span id="hero-index">/ 00</span></div>
+          <h1 id="hero-title">Your games.<br><em>Right here.</em></h1>
+          <p id="hero-description">A home for the HTML games you keep. Add a downloaded HTML file or ZIP archive, then launch it in its own player window.</p>
+          <div class="hero-actions"><button id="primary-action" class="button primary" type="button">+ Add a game <span aria-hidden="true">↗</span></button><span class="hint">HTML · HTM · ZIP</span></div>
+        </div>
+        <div class="hero-art" aria-hidden="true"><div class="art-grid"></div><div class="halo"></div><div class="fox-frame"><img src="/fox.png" alt=""></div><div class="art-caption">PLAY FROM YOUR COLLECTION <span>01 / ∞</span></div></div>
+      </section>
+
+      <section class="collection" aria-labelledby="library-title">
+        <div class="section-head"><div><div class="kicker">01 — YOUR SHELF</div><h2 id="library-title">Library <span id="game-count">0 games</span></h2></div><button id="add-button" class="button secondary" type="button">+ Add game</button></div>
+        <div id="library-content" class="library-content"><div class="loading">Opening your local library…</div></div>
+      </section>
+    </main>
+
+    <footer class="footer"><div><span class="keycap">←</span><span class="keycap">→</span> Browse <span class="footer-gap"></span><span class="keycap">Enter</span> Select <span class="footer-gap"></span><span class="keycap">Esc</span> Back</div><div>GameStrike <span class="footer-divider">/</span> by PWDS</div></footer>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <div id="launch-dialog" class="dialog-backdrop" hidden>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-copy">
+      <div class="dialog-kicker">READY TO LAUNCH</div>
+      <h2 id="dialog-title">Open this game?</h2>
+      <p id="dialog-copy">This game can contact local or remote services while it runs. Only open games you trust. Strict offline play is not available yet.</p>
+      <div class="dialog-meta"><span>Controller support</span><strong>Unknown</strong><span>Network requirement</span><strong>Unknown</strong></div>
+      <div class="dialog-actions"><button id="cancel-launch" class="button secondary" type="button">Go back</button><button id="confirm-launch" class="button primary" type="button">Allow network &amp; launch <span aria-hidden="true">↗</span></button></div>
+    </section>
+  </div>
+</body>
+</html>

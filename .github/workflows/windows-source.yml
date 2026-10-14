@@ -1,0 +1,23 @@
+name: Windows source checks
+
+on:
+  pull_request:
+
+jobs:
+  launcher:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: JavaScript syntax
+        run: node --check ui/app.js
+      - name: Source tests
+        run: cargo test --locked --features launcher-windows --lib --bin gamestrike-launcher -j 2
+      - name: Build launcher and player
+        run: cargo build --locked --features launcher-windows --bin gamestrike-launcher --bin gamestrike-player -j 2
