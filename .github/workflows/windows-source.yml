@@ -17,7 +17,9 @@ jobs:
         run: cargo fmt --all -- --check
       - name: JavaScript syntax
         run: node --check ui/app.js
+      - name: Launcher input regression
+        run: node --test ui/app.test.cjs
       - name: Source tests
-        run: cargo test --locked --features launcher-windows --lib --bin gamestrike-launcher -j 2
+        run: cargo test --locked --features launcher-windows --lib --bin gamestrike-launcher --bin gamestrike-player -j 2
       - name: Build launcher and player
         run: cargo build --locked --features launcher-windows --bin gamestrike-launcher --bin gamestrike-player -j 2

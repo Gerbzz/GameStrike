@@ -24,12 +24,12 @@
 
   function openLaunch(id) {
     const game = state.games.find((entry) => entry.id === id);
-    if (!game) return;
+    if (!game || state.importing || state.launchingId) return;
     state.pendingId = id;
     state.lastFocus = document.activeElement;
     $("dialog-title").textContent = `Open ${game.title}?`;
     dialog.hidden = false;
-    $("confirm-launch").focus();
+    $("cancel-launch").focus();
   }
 
   function closeLaunch() {
@@ -110,7 +110,7 @@
       case "imported": state.importing = false; primary.disabled = false; add.disabled = false; state.selectedId = message.game.id; status(`${message.game.title} added to your library.`); break;
       case "player_started": state.launchingId = message.id; status("Game opened in its own player window."); break;
       case "player_exited": state.launchingId = null; status(message.message, !message.message.startsWith("Player closed")); break;
-      case "error": state.importing = false; primary.disabled = false; add.disabled = false; status(message.message, true); break;
+      case "error": state.importing = false; state.launchingId = null; primary.disabled = false; add.disabled = false; status(message.message, true); break;
     }
   }});
 
@@ -118,7 +118,10 @@
   add.addEventListener("click", importGame);
   $("cancel-launch").addEventListener("click", closeLaunch);
   $("confirm-launch").addEventListener("click", () => {
-    if (state.pendingId) send({ type: "launch_game", id: state.pendingId, allow_network: true });
+    if (state.pendingId) {
+      state.launchingId = state.pendingId;
+      send({ type: "launch_game", id: state.pendingId, allow_network: true });
+    }
     closeLaunch();
   });
   dialog.addEventListener("click", (event) => { if (event.target === dialog) closeLaunch(); });
@@ -140,21 +143,31 @@
   });
 
   // Launcher navigation only. Games decide their own controller support.
-  let lastPad = "", lastPadAt = 0;
+  let previousA = false, previousB = false, lastDirection = "", lastDirectionAt = 0;
   function pollGamepad() {
-    const pad = navigator.getGamepads?.().find((entry) => entry);
+    const pad = Array.from(navigator.getGamepads?.() || []).find((entry) => entry);
     if (pad) {
       const pressed = (i) => Boolean(pad.buttons[i]?.pressed);
-      const action = pressed(14) || pad.axes[0] < -0.6 ? "left" : pressed(15) || pad.axes[0] > 0.6 ? "right" : pressed(0) ? "a" : pressed(1) ? "b" : "";
+      const a = pressed(0), b = pressed(1);
+      const direction = pressed(14) || pad.axes[0] < -0.6 ? "left" : pressed(15) || pad.axes[0] > 0.6 ? "right" : "";
       const now = performance.now();
-      if (action && (action !== lastPad || now - lastPadAt > 250)) {
-        lastPadAt = now;
-        if (action === "left") moveSelection(-1);
-        if (action === "right") moveSelection(1);
-        if (action === "a") { if (!dialog.hidden) $("confirm-launch").click(); else if (state.selectedId) openLaunch(state.selectedId); else importGame(); }
-        if (action === "b" && !dialog.hidden) closeLaunch();
+      if (direction && (direction !== lastDirection || now - lastDirectionAt > 250)) {
+        lastDirectionAt = now;
+        moveSelection(direction === "left" ? -1 : 1);
       }
-      lastPad = action;
+      if (b && !previousB && !dialog.hidden) closeLaunch();
+      else if (a && !previousA) {
+        if (!dialog.hidden) $("confirm-launch").click();
+        else if (state.selectedId) openLaunch(state.selectedId);
+        else importGame();
+      }
+      previousA = a;
+      previousB = b;
+      lastDirection = direction;
+    } else {
+      previousA = false;
+      previousB = false;
+      lastDirection = "";
     }
     requestAnimationFrame(pollGamepad);
   }
