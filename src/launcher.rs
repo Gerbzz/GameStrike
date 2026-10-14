@@ -64,8 +64,16 @@ mod windows_launcher {
         },
     }
 
+    #[derive(Clone, Copy)]
+    enum CaptureView {
+        Library,
+        LongTitle,
+        Launch,
+        About,
+    }
+
     pub fn run() -> Result<(), Box<dyn Error>> {
-        let (root, mut capture_path, window_size) = launch_options()?;
+        let (root, mut capture_path, window_size, capture_view) = launch_options()?;
         let library = Arc::new(Library::open(&root)?);
         let root = fs::canonicalize(root)?;
         let event_loop = EventLoopBuilder::<UiEvent>::with_user_event().build();
@@ -96,6 +104,7 @@ mod windows_launcher {
             })
             .build(&window)?;
 
+        let mut view_prepared = false;
         event_loop.run(move |event, _, flow| {
             let _keep_alive = (&window, &webview);
             *flow = ControlFlow::Wait;
@@ -111,10 +120,33 @@ mod windows_launcher {
                     }
                 }
                 Event::UserEvent(UiEvent::CapturePreview) => {
-                    if let Some(path) = capture_path.take() {
-                        if let Err(error) =
-                            capture_preview(&webview, path, background_proxy.clone())
-                        {
+                    let prepare = if view_prepared {
+                        None
+                    } else {
+                        match capture_view {
+                            CaptureView::Library => None,
+                            CaptureView::LongTitle => Some("const card = document.querySelector('.game-card:last-child'); card?.focus(); card?.scrollIntoView({ block: 'nearest', inline: 'nearest' })"),
+                            CaptureView::Launch => {
+                                Some("document.querySelector('.game-card')?.click()")
+                            }
+                            CaptureView::About => {
+                                Some("document.getElementById('about-button').click()")
+                            }
+                        }
+                    };
+                    if let Some(script) = prepare {
+                        view_prepared = true;
+                        if let Err(error) = webview.evaluate_script(script) {
+                            eprintln!("Could not prepare launcher preview: {error}");
+                            std::process::exit(2);
+                        }
+                        let proxy = background_proxy.clone();
+                        thread::spawn(move || {
+                            thread::sleep(Duration::from_millis(350));
+                            let _ = proxy.send_event(UiEvent::CapturePreview);
+                        });
+                    } else if let Some(path) = capture_path.take() {
+                        if let Err(error) = capture_preview(&webview, path, background_proxy.clone()) {
                             eprintln!("Could not capture launcher: {error}");
                             std::process::exit(2);
                         }
@@ -199,7 +231,8 @@ mod windows_launcher {
         })
     }
 
-    fn launch_options() -> Result<(PathBuf, Option<PathBuf>, LogicalSize<f64>), Box<dyn Error>> {
+    fn launch_options()
+    -> Result<(PathBuf, Option<PathBuf>, LogicalSize<f64>, CaptureView), Box<dyn Error>> {
         let args: Vec<_> = env::args_os().collect();
         let default_size = LogicalSize::new(1250.0, 800.0);
         match args.as_slice() {
@@ -209,14 +242,22 @@ mod windows_launcher {
                     .join("Library"),
                 None,
                 default_size,
+                CaptureView::Library,
             )),
             [_, flag, root] if flag == "--library" => {
-                Ok((PathBuf::from(root), None, default_size))
+                Ok((PathBuf::from(root), None, default_size, CaptureView::Library))
             }
             [_, flag, root, capture_flag, output]
                 if flag == "--library" && capture_flag == "--capture-preview" =>
             {
-                Ok((PathBuf::from(root), Some(PathBuf::from(output)), default_size))
+                Ok((PathBuf::from(root), Some(PathBuf::from(output)), default_size, CaptureView::Library))
+            }
+            [_, flag, root, capture_flag, output, view_flag, view]
+                if flag == "--library"
+                    && capture_flag == "--capture-preview"
+                    && view_flag == "--capture-view" =>
+            {
+                Ok((PathBuf::from(root), Some(PathBuf::from(output)), default_size, parse_capture_view(view)?))
             }
             [_, flag, root, capture_flag, output, size_flag, width, height]
                 if flag == "--library"
@@ -232,11 +273,22 @@ mod windows_launcher {
                     PathBuf::from(root),
                     Some(PathBuf::from(output)),
                     LogicalSize::new(width as f64, height as f64),
+                    CaptureView::Library,
                 ))
             }
             _ => Err(
-                "usage: gamestrike-launcher [--library DIRECTORY [--capture-preview PNG [--window-size WIDTH HEIGHT]]]".into(),
+                "usage: gamestrike-launcher [--library DIRECTORY [--capture-preview PNG [--capture-view library|long|launch|about | --window-size WIDTH HEIGHT]]]".into(),
             ),
+        }
+    }
+
+    fn parse_capture_view(raw: &OsString) -> Result<CaptureView, Box<dyn Error>> {
+        match raw.to_str() {
+            Some("library") => Ok(CaptureView::Library),
+            Some("long") => Ok(CaptureView::LongTitle),
+            Some("launch") => Ok(CaptureView::Launch),
+            Some("about") => Ok(CaptureView::About),
+            _ => Err("capture view must be library, long, launch, or about".into()),
         }
     }
 

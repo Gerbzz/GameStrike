@@ -82,8 +82,7 @@
       const number = document.createElement("div"); number.className = "empty-number"; number.textContent = "01";
       const heading = document.createElement("h3"); heading.textContent = "Your shelf starts here";
       const body = document.createElement("p"); body.textContent = "Choose a downloaded HTML file or a ZIP with an index.html at its root. Your files stay on this PC.";
-      const button = document.createElement("button"); button.type = "button"; button.className = "button outline"; button.textContent = "+ Add your first game"; button.addEventListener("click", importGame);
-      empty.append(number, heading, body, button); shelf.append(empty);
+      empty.append(number, heading, body); shelf.append(empty);
       state.selectedId = null;
       $("hero-title").innerHTML = "Your games.<br><em>Right here.</em>";
       $("hero-description").textContent = "A home for the HTML games you keep. Add a downloaded HTML file or ZIP archive, then launch it in its own player window.";
