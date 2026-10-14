@@ -2,7 +2,7 @@
   <img src="assets/branding/gamestrike-fox-icon.png" alt="Original GameStrike fox logo" width="160" height="160">
 </p>
 
-# GameStrike
+<h1 align="center">GameStrike</h1>
 
 <p align="center">
   <a href="https://prowebdevsolutions.com"><picture>
