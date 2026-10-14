@@ -8,6 +8,7 @@
   const add = $("add-button");
   const shelf = $("library-content");
   const dialog = $("launch-dialog");
+  const about = $("about-dialog");
   const toast = $("toast");
 
   function status(message, isError = false) {
@@ -24,7 +25,7 @@
 
   function openLaunch(id) {
     const game = state.games.find((entry) => entry.id === id);
-    if (!game || state.importing || state.launchingId) return;
+    if (!game || state.importing || state.launchingId || !about.hidden) return;
     state.pendingId = id;
     state.lastFocus = document.activeElement;
     $("dialog-title").textContent = `Open ${game.title}?`;
@@ -35,6 +36,18 @@
   function closeLaunch() {
     dialog.hidden = true;
     state.pendingId = null;
+    if (state.lastFocus && document.contains(state.lastFocus)) state.lastFocus.focus();
+  }
+
+  function openAbout() {
+    if (!dialog.hidden || !about.hidden) return;
+    state.lastFocus = document.activeElement;
+    about.hidden = false;
+    $("close-about").focus();
+  }
+
+  function closeAbout() {
+    about.hidden = true;
     if (state.lastFocus && document.contains(state.lastFocus)) state.lastFocus.focus();
   }
 
@@ -97,7 +110,7 @@
   }
 
   function moveSelection(direction) {
-    if (dialog.hidden && state.games.length) {
+    if (dialog.hidden && about.hidden && state.games.length) {
       const index = Math.max(0, state.games.findIndex((game) => game.id === state.selectedId));
       choose(state.games[(index + direction + state.games.length) % state.games.length].id, true);
     }
@@ -116,6 +129,9 @@
 
   primary.onclick = importGame;
   add.addEventListener("click", importGame);
+  $("about-button").addEventListener("click", openAbout);
+  $("close-about").addEventListener("click", closeAbout);
+  about.addEventListener("click", (event) => { if (event.target === about) closeAbout(); });
   $("cancel-launch").addEventListener("click", closeLaunch);
   $("confirm-launch").addEventListener("click", () => {
     if (state.pendingId) {
@@ -126,6 +142,11 @@
   });
   dialog.addEventListener("click", (event) => { if (event.target === dialog) closeLaunch(); });
   document.addEventListener("keydown", (event) => {
+    if (!about.hidden) {
+      if (event.key === "Escape") { event.preventDefault(); closeAbout(); }
+      if (event.key === "Tab") { event.preventDefault(); $("close-about").focus(); }
+      return;
+    }
     if (!dialog.hidden) {
       if (event.key === "Escape") { event.preventDefault(); closeLaunch(); }
       if (event.key === "Tab") {
@@ -155,9 +176,11 @@
         lastDirectionAt = now;
         moveSelection(direction === "left" ? -1 : 1);
       }
-      if (b && !previousB && !dialog.hidden) closeLaunch();
+      if (b && !previousB && !about.hidden) closeAbout();
+      else if (b && !previousB && !dialog.hidden) closeLaunch();
       else if (a && !previousA) {
-        if (!dialog.hidden) $("confirm-launch").click();
+        if (!about.hidden) closeAbout();
+        else if (!dialog.hidden) $("confirm-launch").click();
         else if (state.selectedId) openLaunch(state.selectedId);
         else importGame();
       }

@@ -11,7 +11,7 @@
   </picture></a>
 </p>
 
-**A local home for HTML games you choose to keep.** GameStrike has a Windows library launcher, a bounded HTML/ZIP importer, and a separate player for each selected title. Your game files stay on this PC. Windows CI builds the launcher and player; local interaction and screenshots are still pending.
+**A local home for HTML games you choose to keep.** GameStrike has a Windows library launcher, a bounded HTML/ZIP importer, and a separate player for each selected title. Your game files stay on this PC. Windows CI builds the launcher and player; verified screenshots are still pending.
 
 [How it works](#how-it-works) · [Build and run](#build-and-run) · [Player security](docs/PLAYER_SECURITY.md) · [Original artwork](assets/branding)
 
@@ -23,7 +23,7 @@
 
 Arrow keys, Enter, and Escape navigate the library. The launcher also polls a connected controller for D-pad/left-stick navigation, A to choose, and B to back out of the launch dialog. Those controls apply to the library only; each imported game's own controller support is **unknown**.
 
-The original GameStrike fox and official PWDS logo are embedded in the launcher. The UI uses only generated manifest titles rendered as text, without importing game HTML into its trusted window.
+The original GameStrike fox anchors the library. Its About panel carries the official PWDS publisher logo, keeping the working view focused on GameStrike. The UI uses only generated manifest titles rendered as text, without importing game HTML into its trusted window.
 
 ## Import and player foundation
 
@@ -63,11 +63,11 @@ gamestrike-player --library LIBRARY --id GAME_UUID --allow-network
 
 ## Current status
 
-The launcher source provides an empty shelf, real game cards, importing and rejected-import states, network consent, keyboard/controller navigation, and player start/exit feedback. [Windows source checks](https://github.com/Gerbzz/GameStrike/actions/runs/38642248551) built the launcher and player, passed 8 importer tests and 1 launcher origin test, and passed formatting and JavaScript syntax checks. **The launcher has not yet been opened and inspected on the Office PC or captured in an actual screenshot.** An earlier guarded player build reopened the bundled save fixture; the current player and controlled browser-boundary checks still need local runtime validation before general-game safety claims.
+The launcher source provides an empty shelf, real game cards, importing and rejected-import states, network consent, keyboard/controller navigation, and player start/exit feedback. [Windows source checks](https://github.com/Gerbzz/GameStrike/actions/runs/38647452488) built both binaries and passed the importer, launcher origin, player, and input regression tests. The CI-built launcher opened a native window with a controlled local fixture on the Office PC, and the player ran that fixture at standard Windows integrity (`GameStrike fixture launch 1`, exit 0). **The current library has not yet been visually inspected or captured in an actual screenshot.** Controlled browser-boundary checks still need local runtime validation before general-game safety claims.
 
 The separate Wry/system-WebView player is designed to have no Tauri commands, launcher credentials, game-to-host message bridge, or unrestricted file access. It limits local assets to the selected game's content root and registers navigation, download, window, and permission restrictions. Those checks still need controlled runtime validation across frames, protocols, workers, and network paths. Read [PLAYER_SECURITY.md](docs/PLAYER_SECURITY.md) before widening use; [LAUNCHER_UI.md](docs/LAUNCHER_UI.md) records the launcher implementation.
 
-Native app-icon and packaging work remain. The next verification is to build both binaries, import a benign fixture through the launcher, reopen it in the player, check the visible UI and capture real screenshots, and then repeat the browser boundary tests. No screenshots are presented as app captures until that run succeeds.
+Native app-icon and packaging work remain. The next verification is to exercise the file picker and import flow, inspect the visible UI, capture real screenshots, and repeat the browser boundary tests. No screenshots are presented as app captures until that run succeeds.
 
 Explore the other [PWDS Strike repositories](https://github.com/Gerbzz?tab=repositories&q=Strike).
 

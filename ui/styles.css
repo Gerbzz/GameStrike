@@ -15,7 +15,9 @@ button:disabled { cursor: wait; opacity: .55; }
 .top-right { display: flex; align-items: center; gap: 32px; }
 .local-chip { display: inline-flex; align-items: center; gap: 9px; border: 1px solid #37332c; border-radius: 100px; padding: 9px 13px; color: #c9c0b5; font-size: 10px; font-weight: 800; letter-spacing: .12em; }
 .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #ff843c; box-shadow: 0 0 12px #ff843c; }
-.pwds { display: block; width: 119px; max-height: 37px; object-fit: contain; }
+.about-link { border: 0; background: transparent; color: #b8a99a; font-size: 12px; font-weight: 750; padding: 9px 3px; }
+.about-link:hover { color: #ffad75; }
+.about-link:focus-visible { outline: 3px solid #ffd2a9; outline-offset: 4px; }
 main { flex: 1; }
 .hero { min-height: 390px; display: grid; grid-template-columns: minmax(420px, 47%) 1fr; margin-top: 28px; background: linear-gradient(105deg, #1c1916 0%, #211c18 41%, #3f271c 100%); border: 1px solid #3f3127; border-radius: 16px; overflow: hidden; box-shadow: 0 22px 70px #0007; }
 .hero-copy { padding: 45px 18px 42px 49px; position: relative; z-index: 2; }
@@ -79,5 +81,7 @@ h2 span { color: #8f867d; font-size: 12px; letter-spacing: 0; font-weight: 650; 
 .dialog-meta { display: grid; grid-template-columns: 1fr auto; gap: 11px; padding: 17px 0; margin: 18px 0; border-top: 1px solid #554334; border-bottom: 1px solid #554334; color: #aa9a8a; font-size: 12px; }
 .dialog-meta strong { color: #f0c294; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 11px; }
+.publisher { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin: 24px 0; padding: 20px 0; border-top: 1px solid #554334; border-bottom: 1px solid #554334; color: #aa9a8a; font-size: 12px; }
+.publisher img { display: block; width: 145px; max-height: 48px; object-fit: contain; }
 @media (max-width: 1050px) { .shell { padding: 0 27px; } .hero { grid-template-columns: minmax(400px, 56%) 1fr; } .hero-copy { padding-left: 31px; } .fox-frame { width: 205px; height: 205px; } .halo { width: 260px; height: 260px; } .top-right { gap: 15px; } }
 @media (max-width: 790px) { .hero-art { display: none; } .hero { grid-template-columns: 1fr; min-height: 330px; } .hero-copy { padding: 36px; } .empty-state { grid-template-columns: 65px 1fr; } .empty-state button { grid-column: 2; grid-row: 3; justify-self: start; } .top-right .local-chip { display: none; } }

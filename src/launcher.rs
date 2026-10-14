@@ -62,7 +62,7 @@ mod windows_launcher {
         let root = fs::canonicalize(root)?;
         let event_loop = EventLoopBuilder::<UiEvent>::with_user_event().build();
         let window = WindowBuilder::new()
-            .with_title("GameStrike | by PWDS")
+            .with_title("GameStrike")
             .with_inner_size(LogicalSize::new(1250.0, 800.0))
             .with_min_inner_size(LogicalSize::new(880.0, 620.0))
             .build(&event_loop)?;

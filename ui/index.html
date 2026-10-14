@@ -12,7 +12,7 @@
   <div class="shell">
     <header class="topbar">
       <div class="identity"><img class="brand-fox" src="/fox.png" alt=""><div><div class="brand-name">GAME<span>STRIKE</span></div><div class="brand-sub">YOUR LOCAL ARCADE</div></div></div>
-      <div class="top-right"><span class="local-chip"><span class="live-dot"></span>LOCAL LIBRARY</span><img class="pwds" src="/pwds.svg" alt="PWDS"></div>
+      <div class="top-right"><span class="local-chip"><span class="live-dot"></span>LOCAL LIBRARY</span><button id="about-button" class="about-link" type="button">About</button></div>
     </header>
 
     <main>
@@ -32,7 +32,7 @@
       </section>
     </main>
 
-    <footer class="footer"><div><span class="keycap">←</span><span class="keycap">→</span> Browse <span class="footer-gap"></span><span class="keycap">Enter</span> Select <span class="footer-gap"></span><span class="keycap">Esc</span> Back</div><div>GameStrike <span class="footer-divider">/</span> by PWDS</div></footer>
+    <footer class="footer"><div><span class="keycap">←</span><span class="keycap">→</span> Browse <span class="footer-gap"></span><span class="keycap">Enter</span> Select <span class="footer-gap"></span><span class="keycap">Esc</span> Back</div><div>YOUR LOCAL COLLECTION</div></footer>
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
@@ -43,6 +43,15 @@
       <p id="dialog-copy">This game can contact local or remote services while it runs. Only open games you trust. Strict offline play is not available yet.</p>
       <div class="dialog-meta"><span>Controller support</span><strong>Unknown</strong><span>Network requirement</span><strong>Unknown</strong></div>
       <div class="dialog-actions"><button id="cancel-launch" class="button secondary" type="button">Go back</button><button id="confirm-launch" class="button primary" type="button">Allow network &amp; launch <span aria-hidden="true">↗</span></button></div>
+    </section>
+  </div>
+  <div id="about-dialog" class="dialog-backdrop" hidden>
+    <section class="dialog about-dialog" role="dialog" aria-modal="true" aria-labelledby="about-title" aria-describedby="about-copy">
+      <div class="dialog-kicker">ABOUT GAMESTRIKE</div>
+      <h2 id="about-title">Your games, on your PC.</h2>
+      <p id="about-copy">GameStrike is a local library for HTML games you choose to keep. Games open in their own player window.</p>
+      <div class="publisher"><span>Published by</span><img src="/pwds.svg" alt="PWDS"></div>
+      <div class="dialog-actions"><button id="close-about" class="button secondary" type="button">Back to library</button></div>
     </section>
   </div>
 </body>

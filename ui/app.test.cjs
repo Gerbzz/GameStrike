@@ -17,7 +17,7 @@ function launcherHarness(games = [{ id: "game-1", title: "Safe Fixture", source_
       className: "",
       dataset: {},
       children: [],
-      hidden: id === "launch-dialog" || id === "toast",
+      hidden: id === "launch-dialog" || id === "about-dialog" || id === "toast",
       disabled: false,
       classList: { toggle() {} },
       addEventListener(type, callback) { listeners.set(type, callback); },
@@ -39,7 +39,7 @@ function launcherHarness(games = [{ id: "game-1", title: "Safe Fixture", source_
     };
   }
 
-  const ids = ["primary-action", "add-button", "library-content", "launch-dialog", "toast", "hero-index", "hero-title", "hero-description", "game-count", "dialog-title", "confirm-launch", "cancel-launch"];
+  const ids = ["primary-action", "add-button", "about-button", "about-dialog", "close-about", "library-content", "launch-dialog", "toast", "hero-index", "hero-title", "hero-description", "game-count", "dialog-title", "confirm-launch", "cancel-launch"];
   for (const id of ids) nodes.set(id, node(id));
   const document = {
     activeElement: nodes.get("primary-action"),
@@ -106,5 +106,17 @@ test("holding a direction repeats shelf movement without repeating A", () => {
   assert.equal(app.nodes.get("hero-title").children[0].textContent, "Second");
   app.frame(300);
   assert.equal(app.nodes.get("hero-title").children[0].textContent, "First");
+  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 0);
+});
+
+test("About keeps publisher credit away from play and controller A only closes it", () => {
+  const app = launcherHarness();
+  app.nodes.get("about-button").click();
+  assert.equal(app.nodes.get("about-dialog").hidden, false);
+  assert.equal(app.document.activeElement, app.nodes.get("close-about"));
+  app.pad.buttons[0].pressed = true;
+  app.frame(0);
+  assert.equal(app.nodes.get("about-dialog").hidden, true);
+  assert.equal(app.nodes.get("launch-dialog").hidden, true);
   assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 0);
 });
