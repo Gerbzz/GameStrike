@@ -23,3 +23,12 @@ jobs:
         run: cargo test --locked --features launcher-windows --lib --bin gamestrike-launcher --bin gamestrike-player -j 2
       - name: Build launcher and player
         run: cargo build --locked --features launcher-windows --bin gamestrike-launcher --bin gamestrike-player -j 2
+      - name: Preserve test binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamestrike-windows-debug
+          path: |
+            target/debug/gamestrike-launcher.exe
+            target/debug/gamestrike-player.exe
+          if-no-files-found: error
+          retention-days: 1
