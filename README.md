@@ -4,7 +4,12 @@
 
 # GameStrike
 
-**by PWDS**
+<p align="center">
+  <a href="https://prowebdevsolutions.com"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/PWDS-logo-orange.svg">
+    <img src="assets/branding/PWDS-logo.png" alt="PWDS company logo" width="120">
+  </picture></a>
+</p>
 
 **A local home for HTML games you choose to keep.** GameStrike is building a collection for imported HTML titles. Today it has a command-line importer and a separate Windows player for controlled fixtures; the visual library is still a [source design](docs/LAUNCHER_UI.md).
 
@@ -57,3 +62,7 @@ The separate Wry/system-WebView player is designed to have no Tauri commands, la
 The original [fox artwork](assets/branding) is included. Native app-icon and packaging work remain. Next steps are to finish the browser boundary tests with benign fixtures, implement the trusted library UI, and validate real game compatibility before distribution.
 
 Explore the other [PWDS Strike repositories](https://github.com/Gerbzz?tab=repositories&q=Strike).
+
+## PWDS brand artwork
+
+The company mark in this masthead is the existing [official PWDS logo](https://github.com/Gerbzz/PWDS-Website/blob/main/public/prowebdevsolutions-logo.png), with the [official orange display asset](https://prowebdevsolutions.com/images/prowebdevsolutions-logo-orange.svg) for dark backgrounds. Any app logo above it remains the original Strike suite artwork.
