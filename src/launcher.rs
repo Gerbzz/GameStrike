@@ -21,15 +21,21 @@ mod windows_launcher {
         process::{Command, ExitStatus},
         sync::Arc,
         thread,
+        time::Duration,
     };
     use tao::{
         dpi::LogicalSize,
         event::{Event, WindowEvent},
-        event_loop::{ControlFlow, EventLoopBuilder},
+        event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy},
         platform::windows::WindowExtWindows,
         window::WindowBuilder,
     };
     use uuid::Uuid;
+    use webview2_com::{
+        CapturePreviewCompletedHandler,
+        Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+    };
+    use windows::Win32::System::Com::{STREAM_SEEK_SET, StructuredStorage::CreateStreamOnHGlobal};
     use windows_sys::Win32::UI::Controls::Dialogs::{
         CommDlgExtendedError, GetOpenFileNameW, OFN_EXPLORER, OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR,
         OFN_PATHMUSTEXIST, OPENFILENAMEW,
@@ -49,6 +55,8 @@ mod windows_launcher {
 
     enum UiEvent {
         Command(CommandMessage),
+        CapturePreview,
+        CaptureComplete(std::result::Result<(), String>),
         ImportResult(std::result::Result<Game, String>),
         PlayerExited {
             id: Uuid,
@@ -57,7 +65,7 @@ mod windows_launcher {
     }
 
     pub fn run() -> Result<(), Box<dyn Error>> {
-        let root = library_root()?;
+        let (root, mut capture_path) = launch_options()?;
         let library = Arc::new(Library::open(&root)?);
         let root = fs::canonicalize(root)?;
         let event_loop = EventLoopBuilder::<UiEvent>::with_user_event().build();
@@ -94,6 +102,30 @@ mod windows_launcher {
             match event {
                 Event::UserEvent(UiEvent::Command(CommandMessage::Ready)) => {
                     send_library(&webview, &library);
+                    if capture_path.is_some() {
+                        let proxy = background_proxy.clone();
+                        thread::spawn(move || {
+                            thread::sleep(Duration::from_millis(1600));
+                            let _ = proxy.send_event(UiEvent::CapturePreview);
+                        });
+                    }
+                }
+                Event::UserEvent(UiEvent::CapturePreview) => {
+                    if let Some(path) = capture_path.take() {
+                        if let Err(error) =
+                            capture_preview(&webview, path, background_proxy.clone())
+                        {
+                            eprintln!("Could not capture launcher: {error}");
+                            *flow = ControlFlow::Exit;
+                        }
+                    }
+                }
+                Event::UserEvent(UiEvent::CaptureComplete(result)) => {
+                    match result {
+                        Ok(()) => println!("Launcher preview captured."),
+                        Err(error) => eprintln!("Could not capture launcher: {error}"),
+                    }
+                    *flow = ControlFlow::Exit;
                 }
                 Event::UserEvent(UiEvent::Command(CommandMessage::PickAndImport)) => {
                     match pick_game_file(window.hwnd()) {
@@ -164,17 +196,77 @@ mod windows_launcher {
         })
     }
 
-    fn library_root() -> Result<PathBuf, Box<dyn Error>> {
+    fn launch_options() -> Result<(PathBuf, Option<PathBuf>), Box<dyn Error>> {
         let args: Vec<_> = env::args_os().collect();
         match args.as_slice() {
-            [_] => Ok(PathBuf::from(
-                env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is unavailable")?,
-            )
-            .join("GameStrike")
-            .join("Library")),
-            [_, flag, root] if flag == "--library" => Ok(PathBuf::from(root)),
-            _ => Err("usage: gamestrike-launcher [--library DIRECTORY]".into()),
+            [_] => Ok((
+                PathBuf::from(env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is unavailable")?)
+                    .join("GameStrike")
+                    .join("Library"),
+                None,
+            )),
+            [_, flag, root] if flag == "--library" => Ok((PathBuf::from(root), None)),
+            [_, flag, root, capture_flag, output]
+                if flag == "--library" && capture_flag == "--capture-preview" =>
+            {
+                Ok((PathBuf::from(root), Some(PathBuf::from(output))))
+            }
+            _ => Err(
+                "usage: gamestrike-launcher [--library DIRECTORY [--capture-preview PNG]]".into(),
+            ),
         }
+    }
+
+    fn capture_preview(
+        webview: &wry::WebView,
+        path: PathBuf,
+        proxy: EventLoopProxy<UiEvent>,
+    ) -> Result<(), Box<dyn Error>> {
+        // WebView2 captures the rendered library, rather than a staged HTML mock.
+        let stream = unsafe { CreateStreamOnHGlobal(Default::default(), true)? };
+        let output = stream.clone();
+        let handler = CapturePreviewCompletedHandler::create(Box::new(move |completed| {
+            let result = (|| -> std::result::Result<(), String> {
+                completed.map_err(|error| error.to_string())?;
+                unsafe { output.Seek(0, STREAM_SEEK_SET, None) }
+                    .map_err(|error| error.to_string())?;
+                let mut png = Vec::new();
+                let mut chunk = [0u8; 8192];
+                loop {
+                    let mut count = 0u32;
+                    unsafe {
+                        output.Read(
+                            chunk.as_mut_ptr().cast(),
+                            chunk.len() as u32,
+                            Some(&mut count),
+                        )
+                    }
+                    .ok()
+                    .map_err(|error| error.to_string())?;
+                    if count == 0 {
+                        break;
+                    }
+                    png.extend_from_slice(&chunk[..count as usize]);
+                    if png.len() > 16 * 1024 * 1024 {
+                        return Err("launcher preview exceeds 16 MiB".to_owned());
+                    }
+                }
+                if !png.starts_with(b"\x89PNG\r\n\x1a\n") {
+                    return Err("launcher preview is not a PNG".to_owned());
+                }
+                fs::write(path, png).map_err(|error| error.to_string())
+            })();
+            let _ = proxy.send_event(UiEvent::CaptureComplete(result));
+            Ok(())
+        }));
+        unsafe {
+            webview.webview().CapturePreview(
+                COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+                &stream,
+                &handler,
+            )?;
+        }
+        Ok(())
     }
 
     fn launch(
