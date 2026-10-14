@@ -39,7 +39,7 @@ function launcherHarness(games = [{ id: "game-1", title: "Safe Fixture", source_
     };
   }
 
-  const ids = ["primary-action", "add-button", "about-button", "about-dialog", "close-about", "library-content", "launch-dialog", "toast", "hero-index", "hero-title", "hero-description", "game-count", "dialog-title", "confirm-launch", "cancel-launch"];
+  const ids = ["shell", "primary-action", "add-button", "about-button", "about-dialog", "close-about", "library-content", "launch-dialog", "toast", "hero-index", "hero-label", "hero-title", "hero-description", "game-count", "dialog-title", "confirm-launch", "cancel-launch"];
   for (const id of ids) nodes.set(id, node(id));
   const document = {
     activeElement: nodes.get("primary-action"),
@@ -72,7 +72,7 @@ function launcherHarness(games = [{ id: "game-1", title: "Safe Fixture", source_
   };
 }
 
-test("a held controller A cannot accept network access or relaunch", () => {
+test("a held controller A cannot accept network access and a fresh A activates Go back", () => {
   const app = launcherHarness();
   app.pad.buttons[0].pressed = true;
   app.frame(0);
@@ -87,11 +87,40 @@ test("a held controller A cannot accept network access or relaunch", () => {
   app.frame(620);
   app.pad.buttons[0].pressed = true;
   app.frame(680);
-  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 1);
+  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 0);
   assert.equal(app.nodes.get("launch-dialog").hidden, true);
   app.frame(1000);
-  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 1);
+  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 0);
   assert.equal(app.nodes.get("launch-dialog").hidden, true);
+});
+
+test("controller direction focuses Allow network and a separate fresh A confirms it", () => {
+  const app = launcherHarness();
+  app.pad.buttons[0].pressed = true;
+  app.frame(0);
+  app.pad.buttons[0].pressed = false;
+  app.frame(20);
+  app.pad.buttons[15].pressed = true;
+  app.frame(40);
+  assert.equal(app.document.activeElement, app.nodes.get("confirm-launch"));
+  app.pad.buttons[0].pressed = true;
+  app.frame(60);
+  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 1);
+  app.frame(400);
+  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 1);
+});
+
+test("pressing A and right together cannot skip the default Go back choice", () => {
+  const app = launcherHarness();
+  app.pad.buttons[0].pressed = true;
+  app.frame(0);
+  app.pad.buttons[0].pressed = false;
+  app.frame(20);
+  app.pad.buttons[0].pressed = true;
+  app.pad.buttons[15].pressed = true;
+  app.frame(40);
+  assert.equal(app.nodes.get("launch-dialog").hidden, true);
+  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 0);
 });
 
 test("holding a direction repeats shelf movement without repeating A", () => {

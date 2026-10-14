@@ -4,6 +4,7 @@
   const $ = (id) => document.getElementById(id);
   const state = { games: [], selectedId: null, launchingId: null, importing: false, pendingId: null, lastFocus: null };
   const send = (message) => window.ipc.postMessage(JSON.stringify(message));
+  const shell = $("shell");
   const primary = $("primary-action");
   const add = $("add-button");
   const shelf = $("library-content");
@@ -56,10 +57,11 @@
     state.selectedId = id;
     const index = state.games.findIndex((game) => game.id === id);
     $("hero-index").textContent = `/ ${String(index + 1).padStart(2, "0")}`;
+    $("hero-label").textContent = "SELECTED GAME";
     const selected = state.games[index];
     $("hero-title").replaceChildren(document.createTextNode(selected.title));
     $("hero-description").textContent = "Ready in your local collection. Controller support and network requirements are unknown until this game is checked.";
-    primary.innerHTML = "Play game <span aria-hidden=\"true\">↗</span>";
+    primary.innerHTML = "Review launch <span aria-hidden=\"true\">↗</span>";
     primary.onclick = () => openLaunch(id);
     for (const card of shelf.querySelectorAll(".game-card")) {
       const active = card.dataset.id === id;
@@ -72,6 +74,7 @@
 
   function renderLibrary() {
     const games = state.games;
+    shell.classList.toggle("has-games", games.length > 0);
     $("game-count").textContent = `${games.length} ${games.length === 1 ? "game" : "games"}`;
     shelf.replaceChildren();
     if (!games.length) {
@@ -85,6 +88,7 @@
       $("hero-title").innerHTML = "Your games.<br><em>Right here.</em>";
       $("hero-description").textContent = "A home for the HTML games you keep. Add a downloaded HTML file or ZIP archive, then launch it in its own player window.";
       $("hero-index").textContent = "/ 00";
+      $("hero-label").textContent = "WELCOME";
       primary.innerHTML = "+ Add a game <span aria-hidden=\"true\">↗</span>";
       primary.onclick = importGame;
       return;
@@ -92,13 +96,12 @@
     const row = document.createElement("div"); row.className = "game-row";
     games.forEach((game, index) => {
       const card = document.createElement("button"); card.type = "button"; card.className = "game-card"; card.dataset.id = game.id;
-      card.setAttribute("aria-label", `${game.title}, controller support unknown, network requirement unknown`);
-      const art = document.createElement("span"); art.className = `card-art tone-${index % 4}`;
-      const motif = document.createElement("span"); motif.className = "card-motif"; motif.textContent = game.title.trim().charAt(0).toUpperCase() || "G";
-      const indexText = document.createElement("span"); indexText.className = "card-index"; indexText.textContent = String(index + 1).padStart(2, "0");
+      card.setAttribute("aria-label", `${game.title}, review launch, controller support unknown, network requirement unknown`);
+      const indexText = document.createElement("span"); indexText.className = "card-index"; indexText.textContent = `GAME ${String(index + 1).padStart(2, "0")}`;
       const name = document.createElement("span"); name.className = "card-name"; name.textContent = game.title;
-      const details = document.createElement("span"); details.className = "card-details"; details.textContent = `${game.source_kind === "zip" ? "ZIP GAME" : "HTML GAME"} · LOCAL`;
-      art.append(motif, indexText); card.append(art, name, details);
+      const details = document.createElement("span"); details.className = "card-details"; details.textContent = `${game.source_kind === "zip" ? "ZIP game" : "HTML game"} · Stored locally`;
+      const status = document.createElement("span"); status.className = "card-status"; status.textContent = "Controller unknown · Network unknown";
+      card.append(indexText, name, details, status);
       card.addEventListener("focus", () => choose(game.id));
       card.addEventListener("click", () => { choose(game.id); openLaunch(game.id); });
       row.append(card);
@@ -114,6 +117,20 @@
       const index = Math.max(0, state.games.findIndex((game) => game.id === state.selectedId));
       choose(state.games[(index + direction + state.games.length) % state.games.length].id, true);
     }
+  }
+
+  function moveDirection(direction) {
+    if (!about.hidden) return;
+    if (!dialog.hidden) {
+      $(direction < 0 ? "cancel-launch" : "confirm-launch").focus();
+    } else {
+      moveSelection(direction);
+    }
+  }
+
+  function activateLaunchChoice() {
+    const focused = document.activeElement;
+    (focused === $("confirm-launch") ? $("confirm-launch") : $("cancel-launch")).click();
   }
 
   window.GameStrike = Object.freeze({ receive(message) {
@@ -149,6 +166,9 @@
     }
     if (!dialog.hidden) {
       if (event.key === "Escape") { event.preventDefault(); closeLaunch(); }
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault(); moveDirection(event.key === "ArrowLeft" ? -1 : 1);
+      }
       if (event.key === "Tab") {
         const back = $("cancel-launch"), confirm = $("confirm-launch");
         if (event.shiftKey && document.activeElement === back) { event.preventDefault(); confirm.focus(); }
@@ -157,7 +177,7 @@
       return;
     }
     if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
-      event.preventDefault(); moveSelection(event.key === "ArrowRight" ? 1 : -1);
+      event.preventDefault(); moveDirection(event.key === "ArrowRight" ? 1 : -1);
     } else if (event.key === "Escape") {
       if (state.games.length) { event.preventDefault(); primary.focus(); }
     }
@@ -172,21 +192,21 @@
       const a = pressed(0), b = pressed(1);
       const direction = pressed(14) || pad.axes[0] < -0.6 ? "left" : pressed(15) || pad.axes[0] > 0.6 ? "right" : "";
       const now = performance.now();
-      if (direction && (direction !== lastDirection || now - lastDirectionAt > 250)) {
-        lastDirectionAt = now;
-        moveSelection(direction === "left" ? -1 : 1);
-      }
       if (b && !previousB && !about.hidden) closeAbout();
       else if (b && !previousB && !dialog.hidden) closeLaunch();
       else if (a && !previousA) {
         if (!about.hidden) closeAbout();
-        else if (!dialog.hidden) $("confirm-launch").click();
+        else if (!dialog.hidden) activateLaunchChoice();
         else if (state.selectedId) openLaunch(state.selectedId);
         else importGame();
+      } else if (direction && (direction !== lastDirection || now - lastDirectionAt > 250)) {
+        lastDirectionAt = now;
+        lastDirection = direction;
+        moveDirection(direction === "left" ? -1 : 1);
       }
       previousA = a;
       previousB = b;
-      lastDirection = direction;
+      if (!direction) lastDirection = "";
     } else {
       previousA = false;
       previousB = false;

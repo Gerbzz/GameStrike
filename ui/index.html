@@ -9,7 +9,7 @@
   <script src="/app.js" defer></script>
 </head>
 <body>
-  <div class="shell">
+  <div id="shell" class="shell">
     <header class="topbar">
       <div class="identity"><img class="brand-fox" src="/fox.png" alt=""><div><div class="brand-name">GAME<span>STRIKE</span></div><div class="brand-sub">YOUR LOCAL ARCADE</div></div></div>
       <div class="top-right"><span class="local-chip"><span class="live-dot"></span>LOCAL LIBRARY</span><button id="about-button" class="about-link" type="button">About</button></div>
@@ -18,7 +18,7 @@
     <main>
       <section class="hero" aria-labelledby="hero-title">
         <div class="hero-copy">
-          <div class="eyebrow"><span class="eyebrow-line"></span> THE COLLECTION <span id="hero-index">/ 00</span></div>
+          <div class="eyebrow"><span class="eyebrow-line"></span> <span id="hero-label">WELCOME</span> <span id="hero-index">/ 00</span></div>
           <h1 id="hero-title">Your games.<br><em>Right here.</em></h1>
           <p id="hero-description">A home for the HTML games you keep. Add a downloaded HTML file or ZIP archive, then launch it in its own player window.</p>
           <div class="hero-actions"><button id="primary-action" class="button primary" type="button">+ Add a game <span aria-hidden="true">↗</span></button><span class="hint">HTML · HTM · ZIP</span></div>
@@ -32,7 +32,7 @@
       </section>
     </main>
 
-    <footer class="footer"><div><span class="keycap">←</span><span class="keycap">→</span> Browse <span class="footer-gap"></span><span class="keycap">Enter</span> Select <span class="footer-gap"></span><span class="keycap">Esc</span> Back</div><div>YOUR LOCAL COLLECTION</div></footer>
+    <footer class="footer"><div><span class="keycap">←</span><span class="keycap">→</span> Browse <span class="footer-gap"></span><span class="keycap">Enter</span> Review launch <span class="footer-gap"></span><span class="keycap">Esc</span> Back</div><div>YOUR LOCAL COLLECTION</div></footer>
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

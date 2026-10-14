@@ -41,7 +41,7 @@ mod windows_launcher {
         OFN_PATHMUSTEXIST, OPENFILENAMEW,
     };
     use wry::{
-        WebViewBuilder, WebViewBuilderExtWindows,
+        WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows,
         http::{Request, Response, StatusCode, header},
     };
 
@@ -65,13 +65,13 @@ mod windows_launcher {
     }
 
     pub fn run() -> Result<(), Box<dyn Error>> {
-        let (root, mut capture_path) = launch_options()?;
+        let (root, mut capture_path, window_size) = launch_options()?;
         let library = Arc::new(Library::open(&root)?);
         let root = fs::canonicalize(root)?;
         let event_loop = EventLoopBuilder::<UiEvent>::with_user_event().build();
         let window = WindowBuilder::new()
             .with_title("GameStrike")
-            .with_inner_size(LogicalSize::new(1250.0, 800.0))
+            .with_inner_size(window_size)
             .with_min_inner_size(LogicalSize::new(880.0, 620.0))
             .build(&event_loop)?;
         let proxy = event_loop.create_proxy();
@@ -196,23 +196,43 @@ mod windows_launcher {
         })
     }
 
-    fn launch_options() -> Result<(PathBuf, Option<PathBuf>), Box<dyn Error>> {
+    fn launch_options() -> Result<(PathBuf, Option<PathBuf>, LogicalSize<f64>), Box<dyn Error>> {
         let args: Vec<_> = env::args_os().collect();
+        let default_size = LogicalSize::new(1250.0, 800.0);
         match args.as_slice() {
             [_] => Ok((
                 PathBuf::from(env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is unavailable")?)
                     .join("GameStrike")
                     .join("Library"),
                 None,
+                default_size,
             )),
-            [_, flag, root] if flag == "--library" => Ok((PathBuf::from(root), None)),
+            [_, flag, root] if flag == "--library" => {
+                Ok((PathBuf::from(root), None, default_size))
+            }
             [_, flag, root, capture_flag, output]
                 if flag == "--library" && capture_flag == "--capture-preview" =>
             {
-                Ok((PathBuf::from(root), Some(PathBuf::from(output))))
+                Ok((PathBuf::from(root), Some(PathBuf::from(output)), default_size))
+            }
+            [_, flag, root, capture_flag, output, size_flag, width, height]
+                if flag == "--library"
+                    && capture_flag == "--capture-preview"
+                    && size_flag == "--window-size" =>
+            {
+                let width = width.to_str().ok_or("window width is not UTF-8")?.parse::<u32>()?;
+                let height = height.to_str().ok_or("window height is not UTF-8")?.parse::<u32>()?;
+                if !(880..=3840).contains(&width) || !(620..=2160).contains(&height) {
+                    return Err("capture window size must be between 880x620 and 3840x2160".into());
+                }
+                Ok((
+                    PathBuf::from(root),
+                    Some(PathBuf::from(output)),
+                    LogicalSize::new(width as f64, height as f64),
+                ))
             }
             _ => Err(
-                "usage: gamestrike-launcher [--library DIRECTORY [--capture-preview PNG]]".into(),
+                "usage: gamestrike-launcher [--library DIRECTORY [--capture-preview PNG [--window-size WIDTH HEIGHT]]]".into(),
             ),
         }
     }

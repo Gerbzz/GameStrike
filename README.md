@@ -17,11 +17,11 @@
 
 ## How it works
 
-1. Open the **GameStrike library**. It starts empty until you import a game, then displays your actual local collection. Cards use generated typography because imported games do not provide verified cover art.
+1. Open the **GameStrike library**. It starts with a welcome view until you import a game, then puts your actual local collection first. Title-led cards show source format and unknown controller/network status without inventing cover art.
 2. Choose **Add game** and select a `.html`, `.htm`, or `.zip` file from the Windows file picker. A ZIP needs `index.html` at its root. The library copies and validates the source; it does not run install scripts or upload the file.
 3. Choose a card to review the launch warning. **Allow network & launch** opens that game's generated ID in the separate `gamestrike-player.exe` process. The library reports a missing player or a player exit instead of pretending launch succeeded.
 
-Arrow keys, Enter, and Escape navigate the library. The launcher also polls a connected controller for D-pad/left-stick navigation, A to choose, and B to back out of the launch dialog. Those controls apply to the library only; each imported game's own controller support is **unknown**.
+Arrow keys, Enter, and Escape navigate the library. The launcher also polls a connected controller for D-pad/left-stick navigation, A to activate the focused choice, and B to back out of the launch dialog. The launch dialog starts on **Go back**; moving right focuses **Allow network & launch** before a fresh A can approve it. Those controls apply to the library only; each imported game's own controller support is **unknown**.
 
 The original GameStrike fox anchors the library. Its About panel carries the official PWDS publisher logo, keeping the working view focused on GameStrike. The UI uses only generated manifest titles rendered as text, without importing game HTML into its trusted window.
 
