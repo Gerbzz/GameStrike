@@ -116,14 +116,17 @@ mod windows_launcher {
                             capture_preview(&webview, path, background_proxy.clone())
                         {
                             eprintln!("Could not capture launcher: {error}");
-                            *flow = ControlFlow::Exit;
+                            std::process::exit(2);
                         }
                     }
                 }
                 Event::UserEvent(UiEvent::CaptureComplete(result)) => {
                     match result {
                         Ok(()) => println!("Launcher preview captured."),
-                        Err(error) => eprintln!("Could not capture launcher: {error}"),
+                        Err(error) => {
+                            eprintln!("Could not capture launcher: {error}");
+                            std::process::exit(2);
+                        }
                     }
                     *flow = ControlFlow::Exit;
                 }

@@ -11,9 +11,23 @@
   </picture></a>
 </p>
 
-**A local home for HTML games you choose to keep.** GameStrike has a Windows library launcher, a bounded HTML/ZIP importer, and a separate player for each selected title. Your game files stay on this PC. Windows CI builds the launcher and player; verified screenshots are still pending.
+**A local home for HTML games you choose to keep.** GameStrike has a Windows library launcher, a bounded HTML/ZIP importer, and a separate player for each selected title. Your game files stay on this PC. The screenshots below come from the running Windows launcher.
 
-[How it works](#how-it-works) · [Build and run](#build-and-run) · [Player security](docs/PLAYER_SECURITY.md) · [Original artwork](assets/branding)
+[Actual screenshots](#actual-windows-captures) · [How it works](#how-it-works) · [Build and run](#build-and-run) · [Player security](docs/PLAYER_SECURITY.md) · [Original artwork](assets/branding)
+
+## Actual Windows captures
+
+These are PNGs captured from the rendered WebView2 window of the [CI-built Windows launcher](https://github.com/Gerbzz/GameStrike/actions/runs/38650007764) on the Office PC. The populated library contains only the bundled benign `save-counter.html` fixture, imported into an isolated test library. The images have not been composited or retouched.
+
+**Your empty library, 1250 × 800**
+
+![Actual GameStrike empty library window with original fox artwork and Add game controls](docs/screenshots/empty-library.png)
+
+**A local game in the library, 1250 × 800**
+
+![Actual GameStrike library window with one locally imported save-counter fixture](docs/screenshots/local-library.png)
+
+The [880 × 620 minimum-window capture](docs/screenshots/local-library-minimum.png) shows the same shelf, selected-game panel, and controls fitting above the footer. [Capture provenance](docs/screenshots/README.md) records the exact source commit and method.
 
 ## How it works
 
@@ -63,11 +77,11 @@ gamestrike-player --library LIBRARY --id GAME_UUID --allow-network
 
 ## Current status
 
-The launcher source provides an empty shelf, real game cards, importing and rejected-import states, network consent, keyboard/controller navigation, and player start/exit feedback. [Windows source checks](https://github.com/Gerbzz/GameStrike/actions/runs/38647452488) built both binaries and passed the importer, launcher origin, player, and input regression tests. The CI-built launcher opened a native window with a controlled local fixture on the Office PC, and the player ran that fixture at standard Windows integrity (`GameStrike fixture launch 1`, exit 0). **The current library has not yet been visually inspected or captured in an actual screenshot.** Controlled browser-boundary checks still need local runtime validation before general-game safety claims.
+The launcher provides an empty shelf, real title-led game cards, importing and rejected-import states, network consent, keyboard/controller navigation, and player start/exit feedback. [Windows source checks](https://github.com/Gerbzz/GameStrike/actions/runs/38650007764) built both binaries and passed 8 importer tests, 1 launcher origin test, 5 player tests, 5 input regressions, formatting, and JavaScript syntax. The actual library was captured and inspected at normal and minimum sizes; the player ran the controlled fixture at standard Windows integrity (`GameStrike fixture launch 1`, exit 0). The native file picker and player round trip through the launcher still need hands-on checks. Controlled browser-boundary tests remain before general-game safety claims.
 
 The separate Wry/system-WebView player is designed to have no Tauri commands, launcher credentials, game-to-host message bridge, or unrestricted file access. It limits local assets to the selected game's content root and registers navigation, download, window, and permission restrictions. Those checks still need controlled runtime validation across frames, protocols, workers, and network paths. Read [PLAYER_SECURITY.md](docs/PLAYER_SECURITY.md) before widening use; [LAUNCHER_UI.md](docs/LAUNCHER_UI.md) records the launcher implementation.
 
-Native app-icon and packaging work remain. The next verification is to exercise the file picker and import flow, inspect the visible UI, capture real screenshots, and repeat the browser boundary tests. No screenshots are presented as app captures until that run succeeds.
+Native app-icon and packaging work remain. The next verification is to exercise file picker cancellation, benign import and rejected archive through the launcher, keyboard/controller focus, player return, and browser-boundary fixtures.
 
 Explore the other [PWDS Strike repositories](https://github.com/Gerbzz?tab=repositories&q=Strike).
 
