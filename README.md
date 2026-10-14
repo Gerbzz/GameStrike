@@ -11,7 +11,7 @@
   </picture></a>
 </p>
 
-**A local home for HTML games you choose to keep.** GameStrike has a Windows library launcher, a bounded HTML/ZIP importer, and a separate player for each selected title. Your game files stay on this PC. The launcher source is implemented; a fresh Windows build and end-to-end capture are still pending.
+**A local home for HTML games you choose to keep.** GameStrike has a Windows library launcher, a bounded HTML/ZIP importer, and a separate player for each selected title. Your game files stay on this PC. Windows CI builds the launcher and player; local interaction and screenshots are still pending.
 
 [How it works](#how-it-works) · [Build and run](#build-and-run) · [Player security](docs/PLAYER_SECURITY.md) · [Original artwork](assets/branding)
 
@@ -63,7 +63,7 @@ gamestrike-player --library LIBRARY --id GAME_UUID --allow-network
 
 ## Current status
 
-The launcher source provides an empty shelf, real game cards, importing and rejected-import states, network consent, keyboard/controller navigation, and player start/exit feedback. **This new launcher has not yet been compiled or captured on Windows.** The previously reported importer tests passed 8/8 and player tests passed 5/5; those results predate this launcher and are not evidence of a working new window. A freshly built player and controlled browser-boundary checks remain necessary before general-game safety claims.
+The launcher source provides an empty shelf, real game cards, importing and rejected-import states, network consent, keyboard/controller navigation, and player start/exit feedback. [Windows source checks](https://github.com/Gerbzz/GameStrike/actions/runs/38642248551) built the launcher and player, passed 8 importer tests and 1 launcher origin test, and passed formatting and JavaScript syntax checks. **The launcher has not yet been opened and inspected on the Office PC or captured in an actual screenshot.** An earlier guarded player build reopened the bundled save fixture; the current player and controlled browser-boundary checks still need local runtime validation before general-game safety claims.
 
 The separate Wry/system-WebView player is designed to have no Tauri commands, launcher credentials, game-to-host message bridge, or unrestricted file access. It limits local assets to the selected game's content root and registers navigation, download, window, and permission restrictions. Those checks still need controlled runtime validation across frames, protocols, workers, and network paths. Read [PLAYER_SECURITY.md](docs/PLAYER_SECURITY.md) before widening use; [LAUNCHER_UI.md](docs/LAUNCHER_UI.md) records the launcher implementation.
 

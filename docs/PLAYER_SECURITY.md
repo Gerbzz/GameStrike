@@ -16,7 +16,7 @@ Before offering offline play, implement and verify a policy that covers main fra
 
 ## Trusted launcher path
 
-The launcher source uses bundled assets in its own Wry view with a fixed origin and a narrow IPC command set. The file picker supplies import paths; the UI only supplies a validated game UUID and explicit network choice to launch the separate player. Game HTML must never be put in the launcher view or given its IPC access. Launch controls display unknown controller and network requirements and provide visible keyboard and gamepad focus states. Launcher gamepad navigation does not imply a game's controls support gamepads. The launcher still requires a fresh Windows build and runtime check.
+The launcher source uses bundled assets in its own Wry view with a fixed origin and a narrow IPC command set. The file picker supplies import paths; the UI only supplies a validated game UUID and explicit network choice to launch the separate player. Game HTML must never be put in the launcher view or given its IPC access. Launch controls display unknown controller and network requirements and provide visible keyboard and gamepad focus states. Launcher gamepad navigation does not imply a game's controls support gamepads. Windows CI built both binaries and passed the launcher origin test; a local runtime check is still required.
 
 ## Remaining controlled checks
 
