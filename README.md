@@ -17,17 +17,23 @@
 
 ## Actual Windows captures
 
-These are PNGs captured from the rendered WebView2 window of the [CI-built Windows launcher](https://github.com/Gerbzz/GameStrike/actions/runs/38650007764) on the Office PC. The populated library contains only the bundled benign `save-counter.html` fixture, imported into an isolated test library. The images have not been composited or retouched.
+These are PNGs captured from the rendered WebView2 window of the [CI-built Windows launcher](https://github.com/Gerbzz/GameStrike/actions/runs/38651373781) on the Office PC. The populated library contains five tiny synthetic local HTML fixtures, including a long title, imported into an isolated test library. The images have not been composited or retouched.
 
 **Your empty library, 1250 × 800**
 
 ![Actual GameStrike empty library window with original fox artwork and Add game controls](docs/screenshots/empty-library.png)
 
-**A local game in the library, 1250 × 800**
+**Local test games in the library, 1250 × 800**
 
-![Actual GameStrike library window with one locally imported save-counter fixture](docs/screenshots/local-library.png)
+![Actual GameStrike library window with five locally imported synthetic HTML games](docs/screenshots/local-library.png)
 
-The [880 × 620 minimum-window capture](docs/screenshots/local-library-minimum.png) shows the same shelf, selected-game panel, and controls fitting above the footer. [Capture provenance](docs/screenshots/README.md) records the exact source commit and method.
+The [880 × 620 minimum-window capture](docs/screenshots/local-library-minimum.png) shows the shelf and controls fitting above the footer. A [selected long title](docs/screenshots/long-title.png) remains readable, while the [launch warning](docs/screenshots/launch-warning.png) keeps **Go back** focused by default.
+
+**Publisher credit in About**
+
+![Actual GameStrike About dialog with the authentic PWDS publisher logo](docs/screenshots/about-publisher.png)
+
+[Capture provenance](docs/screenshots/README.md) records the source commit, controlled fixtures, and capture method.
 
 ## How it works
 
@@ -77,7 +83,7 @@ gamestrike-player --library LIBRARY --id GAME_UUID --allow-network
 
 ## Current status
 
-The launcher provides an empty shelf, real title-led game cards, importing and rejected-import states, network consent, keyboard/controller navigation, and player start/exit feedback. [Windows source checks](https://github.com/Gerbzz/GameStrike/actions/runs/38650007764) built both binaries and passed 8 importer tests, 1 launcher origin test, 5 player tests, 5 input regressions, formatting, and JavaScript syntax. The actual library was captured and inspected at normal and minimum sizes; the player ran the controlled fixture at standard Windows integrity (`GameStrike fixture launch 1`, exit 0). The native file picker and player round trip through the launcher still need hands-on checks. Controlled browser-boundary tests remain before general-game safety claims.
+The launcher provides an empty shelf, real title-led game cards, importing and rejected-import states, network consent, keyboard/controller navigation, and player start/exit feedback. [Windows source checks](https://github.com/Gerbzz/GameStrike/actions/runs/38651373781) built both binaries and passed 8 importer tests, 1 launcher origin test, 5 player tests, 5 input regressions, formatting, and JavaScript syntax. The actual empty, multi-game, long-title, launch-dialog, and About surfaces were captured and inspected; the player ran the controlled save fixture at standard Windows integrity (`GameStrike fixture launch 1`, exit 0). The native file picker, physical controller, and player round trip through the launcher still need hands-on checks. Controlled browser-boundary tests remain before general-game safety claims.
 
 The separate Wry/system-WebView player is designed to have no Tauri commands, launcher credentials, game-to-host message bridge, or unrestricted file access. It limits local assets to the selected game's content root and registers navigation, download, window, and permission restrictions. Those checks still need controlled runtime validation across frames, protocols, workers, and network paths. Read [PLAYER_SECURITY.md](docs/PLAYER_SECURITY.md) before widening use; [LAUNCHER_UI.md](docs/LAUNCHER_UI.md) records the launcher implementation.
 
