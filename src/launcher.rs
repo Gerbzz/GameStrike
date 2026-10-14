@@ -25,7 +25,7 @@ mod windows_launcher {
     use tao::{
         dpi::LogicalSize,
         event::{Event, WindowEvent},
-        event_loop::{ControlFlow, EventLoop},
+        event_loop::{ControlFlow, EventLoopBuilder},
         platform::windows::WindowExtWindows,
         window::WindowBuilder,
     };
@@ -35,9 +35,8 @@ mod windows_launcher {
         OFN_PATHMUSTEXIST, OPENFILENAMEW,
     };
     use wry::{
-        WebViewBuilder,
+        WebViewBuilder, WebViewBuilderExtWindows,
         http::{Request, Response, StatusCode, header},
-        platform::windows::WebViewBuilderExtWindows,
     };
 
     #[derive(Deserialize)]
@@ -61,7 +60,7 @@ mod windows_launcher {
         let root = library_root()?;
         let library = Arc::new(Library::open(&root)?);
         let root = fs::canonicalize(root)?;
-        let event_loop = EventLoop::<UiEvent>::with_user_event();
+        let event_loop = EventLoopBuilder::<UiEvent>::with_user_event().build();
         let window = WindowBuilder::new()
             .with_title("GameStrike | by PWDS")
             .with_inner_size(LogicalSize::new(1250.0, 800.0))
@@ -162,7 +161,7 @@ mod windows_launcher {
                 } => *flow = ControlFlow::Exit,
                 _ => {}
             }
-        });
+        })
     }
 
     fn library_root() -> Result<PathBuf, Box<dyn Error>> {
