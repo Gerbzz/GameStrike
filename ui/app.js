@@ -91,6 +91,7 @@
 
   function renderLibrary() {
     const games = state.visibleGames = visibleGames();
+    const restoreCardFocus = document.activeElement?.className?.split(" ").includes("game-card") || false;
     shell.classList.toggle("has-games", state.games.length > 0);
     $("game-count").textContent = `${state.games.length} ${state.games.length === 1 ? "game" : "games"}`;
     $("visible-count").textContent = games.length === state.games.length ? "" : `${games.length} of ${state.games.length} shown`;
@@ -110,6 +111,7 @@
       primary.innerHTML = "+ Add a game <span aria-hidden=\"true\">↗</span>";
       if (state.games.length) primary.textContent = "Clear search";
       primary.onclick = state.games.length ? () => { search.value = ""; renderLibrary(); search.focus(); } : importGame;
+      if (restoreCardFocus) primary.focus();
       return;
     }
     const row = document.createElement("div"); row.className = "game-row";
@@ -128,7 +130,7 @@
     shelf.append(row);
     let previous = state.selectedId;
     if (!previous) { try { previous = sessionStorage.getItem("gamestrike-last-game"); } catch (_) {} }
-    choose(games.some((game) => game.id === previous) ? previous : games[0].id);
+    choose(games.some((game) => game.id === previous) ? previous : games[0].id, restoreCardFocus);
   }
 
   function moveSelection(direction) {
@@ -163,8 +165,20 @@
         status(message.already_present ? `${message.game.title} is already in your library. Its saves were kept.` : `${message.game.title} added to your library.`);
         break;
       case "player_started": state.launchingId = message.id; status("Game opened in its own player window."); break;
-      case "player_exited": state.launchingId = null; status(message.message, !message.message.startsWith("Player closed")); break;
-      case "error": state.importing = false; state.launchingId = null; primary.disabled = false; add.disabled = false; status(message.message, true); break;
+      case "player_exited":
+        if (message.id === state.launchingId) {
+          state.launchingId = null;
+          status(message.message, !message.message.startsWith("Player closed"));
+        }
+        break;
+      case "error":
+        if (message.operation === "import") {
+          state.importing = false; primary.disabled = false; add.disabled = false;
+        } else if (message.operation === "launch" && message.id === state.launchingId) {
+          state.launchingId = null;
+        }
+        status(message.message, true);
+        break;
     }
   }});
 

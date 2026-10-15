@@ -203,3 +203,44 @@ test("duplicate import reports the existing game and clears a hiding search", ()
   assert.match(app.nodes.get("toast").textContent, /already in your library/);
   assert.equal(app.nodes.get("library-content").querySelectorAll(".game-card").length, 1);
 });
+
+test("an import error cannot unlock another launch while a player is running", () => {
+  const app = launcherHarness([
+    { id: "game-1", title: "First", source_kind: "single_html" },
+    { id: "game-2", title: "Second", source_kind: "zip" },
+  ]);
+  const cards = app.nodes.get("library-content").querySelectorAll(".game-card");
+  cards[0].click();
+  app.nodes.get("confirm-launch").click();
+  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 1);
+  app.receive({ type: "error", operation: "import", message: "Import rejected: unsafe ZIP" });
+  cards[1].click();
+  assert.equal(app.nodes.get("launch-dialog").hidden, true);
+  app.receive({ type: "player_exited", id: "game-1", message: "Player closed. Your library is ready." });
+  cards[1].click();
+  assert.equal(app.nodes.get("launch-dialog").hidden, false);
+});
+
+test("a stale player-exited event cannot unlock the active player", () => {
+  const app = launcherHarness([
+    { id: "game-1", title: "First", source_kind: "single_html" },
+    { id: "game-2", title: "Second", source_kind: "zip" },
+  ]);
+  const cards = app.nodes.get("library-content").querySelectorAll(".game-card");
+  cards[0].click();
+  app.nodes.get("confirm-launch").click();
+  app.receive({ type: "player_exited", id: "other-game", message: "Player closed. Your library is ready." });
+  cards[1].click();
+  assert.equal(app.nodes.get("launch-dialog").hidden, true);
+});
+
+test("a library refresh restores focus to the selected replacement card", () => {
+  const games = [{ id: "game-1", title: "First", source_kind: "single_html" }];
+  const app = launcherHarness(games);
+  const oldCard = app.nodes.get("library-content").querySelectorAll(".game-card")[0];
+  oldCard.focus();
+  app.receive({ type: "library", games });
+  const newCard = app.nodes.get("library-content").querySelectorAll(".game-card")[0];
+  assert.notEqual(newCard, oldCard);
+  assert.equal(app.document.activeElement, newCard);
+});

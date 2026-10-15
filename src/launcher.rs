@@ -178,7 +178,7 @@ mod windows_launcher {
                             });
                         }
                         Ok(None) => {}
-                        Err(error) => send(&webview, json!({"type":"error", "message":error})),
+                        Err(error) => send(&webview, json!({"type":"error", "operation":"import", "message":error})),
                     }
                 }
                 Event::UserEvent(UiEvent::ImportResult(result)) => {
@@ -186,7 +186,7 @@ mod windows_launcher {
                         Ok(outcome) => send(&webview, json!({"type":"imported", "game":outcome.game, "already_present":outcome.already_present})),
                         Err(error) => send(
                             &webview,
-                            json!({"type":"error", "message":format!("Import rejected: {error}")}),
+                            json!({"type":"error", "operation":"import", "message":format!("Import rejected: {error}")}),
                         ),
                     }
                     send_library(&webview, &library);
@@ -204,7 +204,7 @@ mod windows_launcher {
                             let _ = proxy.send_event(UiEvent::PlayerExited { id, result });
                         });
                     }
-                    Err(error) => send(&webview, json!({"type":"error", "message":error})),
+                    Err(error) => send(&webview, json!({"type":"error", "operation":"launch", "id":id, "message":error})),
                 },
                 Event::UserEvent(UiEvent::PlayerExited { id, result }) => {
                     let message = match result {
@@ -379,7 +379,7 @@ mod windows_launcher {
             Ok(games) => send(webview, json!({"type":"library", "games":games})),
             Err(error) => send(
                 webview,
-                json!({"type":"error", "message":format!("Library could not be read: {error}")}),
+                json!({"type":"error", "operation":"library", "message":format!("Library could not be read: {error}")}),
             ),
         }
     }
