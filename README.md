@@ -11,9 +11,23 @@
   </picture></a>
 </p>
 
-**A local home for HTML games you choose to keep.** GameStrike is building a collection for imported HTML titles. Today it has a command-line importer and a separate Windows player for controlled fixtures; the visual library is still a [source design](docs/LAUNCHER_UI.md).
+**A local home for HTML games you choose to keep.** The default branch contains a command-line importer and a separate Windows player for controlled fixtures. A working visual library is under review in [draft PR #1](https://github.com/Gerbzz/GameStrike/pull/1); the captures below show that development branch, not the current default-branch binary.
 
-[Import and launch](#try-the-current-cli) · [Player security and open checks](docs/PLAYER_SECURITY.md) · [Original artwork](assets/branding)
+[Development previews](#development-previews) · [Import and launch](#try-the-current-cli) · [Player security and open checks](docs/PLAYER_SECURITY.md) · [Original artwork](assets/branding)
+
+## Development previews
+
+These are unedited WebView2 captures of the running Windows launcher built from draft-branch commit [`175016d`](https://github.com/Gerbzz/GameStrike/commit/175016d86c62460e17f1342af687958b772c96c0). The [Windows build and tests passed](https://github.com/Gerbzz/GameStrike/actions/runs/38665296183). The library contains five small synthetic local HTML fixtures; no downloaded third-party game appears. **The visual launcher and these workflows are not in `main` yet.**
+
+**Five-game local library**
+
+![Development preview of the running GameStrike library showing five local synthetic games, search, sort, and selected-game details](docs/screenshots/local-library.png)
+
+**First launch, before adding a game**
+
+![Development preview of the empty GameStrike library with the original fox artwork](docs/screenshots/empty-library.png)
+
+The [minimum-window view](docs/screenshots/local-library-minimum.png), [long-title selection](docs/screenshots/long-title.png), [network launch warning](docs/screenshots/launch-warning.png), and [About panel with the authentic PWDS logo](docs/screenshots/about-publisher.png) are also current captures from that tested build. [Capture provenance and testing limits](docs/screenshots/README.md) explain exactly how they were made.
 
 ## What the current foundation does
 
@@ -27,7 +41,7 @@ The Windows player opens one imported ID at a time. Each game gets its own UUID-
 
 ### Build a controller-friendly library
 
-The planned trusted UI has a game row, clear import and error states, and visible keyboard/controller focus. That launcher is **not implemented** in this checkpoint. Its controller navigation would not make an imported game's own JavaScript gamepad-aware. Network and controller requirements remain **unknown** until each game is checked.
+The trusted visual launcher is being developed in [draft PR #1](https://github.com/Gerbzz/GameStrike/pull/1) and is **not implemented on `main`**. Its controller navigation does not make an imported game's own JavaScript gamepad-aware. Network and controller requirements remain **unknown** until each game is checked.
 
 ## Try the current CLI
 
@@ -55,11 +69,11 @@ These commands describe how to build the source; the latest player source has no
 
 ## Current status
 
-This is an **early CLI and player foundation**. Focused offline library tests passed 8/8, focused Windows player tests passed 5/5, and the latest source passed `cargo check`. An **earlier guarded player build** launched and reopened only the bundled first-party save fixture with isolated storage. The newer frame and external-URI handlers compiled and passed focused tests but have **not** been exercised in a freshly built player. There is no native visual library, general-game safety validation, strict offline mode, or release installer.
+The default branch remains an **early CLI and player foundation**. Focused offline library tests passed 8/8, focused Windows player tests passed 5/5, and its source passed `cargo check`. An earlier guarded player build launched and reopened the bundled first-party save fixture with isolated storage. The newer frame and external-URI handlers on this branch compiled and passed focused tests but have **not** been exercised in a freshly built player. There is no visual launcher on `main`, general-game safety validation, strict offline mode, or release installer.
 
 The separate Wry/system-WebView player is designed to have no Tauri commands, launcher credentials, game-to-host message bridge, or unrestricted file access. It limits local assets to the selected game's content root and registers navigation, download, window, and permission restrictions. Those checks still need controlled runtime validation across frames, protocols, workers, and network paths. Read [PLAYER_SECURITY.md](docs/PLAYER_SECURITY.md) before widening use; [LAUNCHER_UI.md](docs/LAUNCHER_UI.md) describes the planned trusted library.
 
-The original [fox artwork](assets/branding) is included. Native app-icon and packaging work remain. Next steps are to finish the browser boundary tests with benign fixtures, implement the trusted library UI, and validate real game compatibility before distribution.
+The original [fox artwork](assets/branding) is included. Native app-icon and packaging work remain on `main`. Next steps are to finish the browser boundary tests with benign fixtures, review the [draft library UI](https://github.com/Gerbzz/GameStrike/pull/1), and validate real game compatibility before distribution.
 
 Explore the other [PWDS Strike repositories](https://github.com/Gerbzz?tab=repositories&q=Strike).
 
