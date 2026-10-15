@@ -1,6 +1,6 @@
 # Screenshot provenance
 
-**Development preview:** these screenshots come from [draft PR #1](https://github.com/Gerbzz/GameStrike/pull/1), specifically the tested source commit below. The visual launcher and its workflows are not in the current `main` binary.
+These development previews document the tested source commit below. They are app-window captures, not a binary release.
 
 These PNGs are captures of the running Windows `gamestrike-launcher.exe` WebView2 surface, produced with its explicit `--capture-preview` option. They are not HTML mockups, browser recreations, composited images, or retouched renders.
 

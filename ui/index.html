@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>GameStrike</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div id="shell" class="shell">
+    <header class="topbar">
+      <div class="identity"><img class="brand-fox" src="/fox.png" alt=""><div><div class="brand-name">GAME<span>STRIKE</span></div><div class="brand-sub">YOUR LOCAL ARCADE</div></div></div>
+      <div class="top-right"><span class="local-chip"><span class="live-dot"></span>LOCAL LIBRARY</span><button id="about-button" class="about-link" type="button">About</button></div>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="eyebrow-line"></span> <span id="hero-label">WELCOME</span> <span id="hero-index">/ 00</span></div>
+          <h1 id="hero-title">Your games.<br><em>Right here.</em></h1>
+          <p id="hero-description">A home for the HTML games you keep. Add a downloaded HTML file or ZIP archive, then launch it in its own player window.</p>
+          <dl id="selected-details" class="selected-details" hidden>
+            <div><dt>Added from</dt><dd id="detail-format">—</dd></div>
+            <div><dt>Entry point</dt><dd id="detail-entry">—</dd></div>
+            <div><dt>Game saves</dt><dd>Kept in this game's local browser profile</dd></div>
+            <div><dt>Controller / network need</dt><dd>Not checked</dd></div>
+          </dl>
+          <div class="hero-actions"><button id="primary-action" class="button primary" type="button">+ Add a game <span aria-hidden="true">↗</span></button><span class="hint">HTML · HTM · ZIP</span></div>
+        </div>
+        <div class="hero-art" aria-hidden="true"><div class="art-grid"></div><div class="halo"></div><div class="fox-frame"><img src="/fox.png" alt=""></div><div class="art-caption">PLAY FROM YOUR COLLECTION <span>01 / ∞</span></div></div>
+      </section>
+
+      <section class="collection" aria-labelledby="library-title">
+        <div class="section-head"><div><div class="kicker">01 — YOUR SHELF</div><h2 id="library-title">Library <span id="game-count">0 games</span></h2></div><button id="add-button" class="button secondary" type="button">+ Add game</button></div>
+        <div class="library-tools" aria-label="Library controls">
+          <label class="search-field" for="library-search"><span>Find a game</span><input id="library-search" type="search" placeholder="Search your collection" autocomplete="off" spellcheck="false"></label>
+          <label class="sort-field" for="library-sort"><span>Sort</span><select id="library-sort"><option value="title-asc">Title A to Z</option><option value="title-desc">Title Z to A</option><option value="format">File format</option></select></label>
+          <span id="visible-count" class="visible-count" role="status" aria-live="polite"></span>
+        </div>
+        <div id="library-content" class="library-content"><div class="loading">Opening your local library…</div></div>
+      </section>
+    </main>
+
+    <footer class="footer"><div><span class="keycap">←</span><span class="keycap">→</span> Browse <span class="footer-gap"></span><span class="keycap">Enter</span> Review launch <span class="footer-gap"></span><span class="keycap">Esc</span> Back</div><div>YOUR LOCAL COLLECTION</div></footer>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <div id="launch-dialog" class="dialog-backdrop" hidden>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-copy">
+      <div class="dialog-kicker">READY TO LAUNCH</div>
+      <h2 id="dialog-title">Open this game?</h2>
+      <p id="dialog-copy">This game can contact local or remote services while it runs. Only open games you trust. Strict offline play is not available yet.</p>
+      <div class="dialog-meta"><span>Controller support</span><strong>Unknown</strong><span>Network requirement</span><strong>Unknown</strong></div>
+      <div class="dialog-actions"><button id="cancel-launch" class="button secondary" type="button">Go back</button><button id="confirm-launch" class="button primary" type="button">Allow network &amp; launch <span aria-hidden="true">↗</span></button></div>
+    </section>
+  </div>
+  <div id="about-dialog" class="dialog-backdrop" hidden>
+    <section class="dialog about-dialog" role="dialog" aria-modal="true" aria-labelledby="about-title" aria-describedby="about-copy">
+      <div class="dialog-kicker">ABOUT GAMESTRIKE</div>
+      <h2 id="about-title">Your games, on your PC.</h2>
+      <p id="about-copy">GameStrike is a local library for HTML games you choose to keep. Games open in their own player window.</p>
+      <div class="publisher"><span>Published by</span><img src="/pwds.svg" alt="PWDS"></div>
+      <div class="dialog-actions"><button id="close-about" class="button secondary" type="button">Back to library</button></div>
+    </section>
+  </div>
+</body>
+</html>

@@ -1,25 +1,17 @@
-# Trusted library launcher: source design
+# GameStrike trusted library
 
-This is the next UI slice, not an implemented native launcher. Use the cached Tauri 2 stack for the trusted library window and keep the existing Wry game player as a separate executable. The Tauri window must never navigate to imported HTML. Its capability set should be limited to the library window and the small commands below; imported game JavaScript gets none of those commands.
+## Implemented source
 
-## First screen
+`gamestrike-launcher` is a Windows Tao/Wry window built from bundled `ui/` assets. It uses the already pinned Wry stack, without adding a second browser framework. The fixed `gamestrikeui` custom protocol serves only five bundled paths: HTML, CSS, JavaScript, the original GameStrike fox, and the official PWDS display logo. PWDS appears in About as publisher attribution; the working library uses GameStrike branding. Navigation is constrained to this origin, new windows and downloads are denied, and the response includes a restrictive Content Security Policy. Game titles enter the UI as JSON data and are rendered as text.
 
-The first screen has an original `GAMESTRIKE` text mark, with `by PWDS` as a separate publisher mark. It shows a large focused game card, a horizontal library row, and a simple `Add game` action. Empty, importing, rejected archive, ready, and player-exit states need clear messages. A game card shows `Controller support: unknown` and `Network requirement: unknown` until the game is verified; the shell's controller support must not be presented as gamepad support in the game.
+The empty library has a welcome panel with the original fox. A populated library puts title-led manifest cards first, without fabricated cover art, followed by a compact selected-game panel. It also has visible focus, a native HTML/ZIP file picker, import progress and errors, an explicit network launch warning, and player start/exit messages. Arrow keys and a connected controller's D-pad/left stick move between game cards or dialog choices. Enter reviews a card's launch warning. Controller A activates the focused dialog choice, initially **Go back**; a directional move must focus **Allow network & launch** before a fresh A approves it. Escape or controller B closes the launch dialog. Launcher input is never injected into an imported game.
 
-Keyboard arrows and a controller D-pad move focus between cards. Enter / controller A activates the focused action. Escape / controller B returns to the previous launcher panel. Focus must remain visible and not depend on hover. The launcher can remember the last focused game ID. Player windows have their own input handling; launcher navigation does not inject controls into imported games.
+The launcher's only IPC messages are `ready`, `pick_and_import`, and `launch_game` with a UUID and explicit `allow_network` flag. The file picker supplies the import path; the web UI never supplies one. Rust validates the UUID against generated manifests, resolves paths via `Library::player_paths`, then starts the sibling `gamestrike-player.exe` with the library root and game ID. Imported HTML runs in that separate player and has no launcher IPC handler. A missing player, rejected archive, or nonzero player exit produces a visible message.
 
-## Narrow native command surface
+## Truthful limits
 
-The trusted UI needs only these Rust operations for the first integrated version:
+Controller support and network requirement are shown as unknown for every imported game. A local import is not a safety verdict. The player does not provide strict offline mode, so the launcher only offers a deliberate network-enabled preview. Imported game JavaScript may reach local or remote services. The separate process is not a Windows sandbox; read [PLAYER_SECURITY.md](PLAYER_SECURITY.md) for open checks.
 
-| Command | Input | Result |
-| --- | --- | --- |
-| `list_games` | none | Generated manifest summaries: ID, title, controller/network unknown fields |
-| `pick_and_import` | user-selected local HTML/ZIP file | Game summary or bounded import error |
-| `launch_game` | validated game UUID and explicit network choice | Separate player process started or actionable error |
+## Verification still needed
 
-The frontend must render game titles as text, never as HTML. `launch_game` must resolve content and profile paths from the library's generated UUID, not accept a path from web content. The current player has no strict offline mode, so the first trusted UI must not show an `Offline play` button. Network-enabled preview launch should require a deliberate choice and plainly state that the game may contact local or remote services. Until the player boundary checks in [PLAYER_SECURITY.md](PLAYER_SECURITY.md) are complete, arbitrary downloaded games remain an experimental input, not a general-safe catalog.
-
-## Integration gate
-
-Do not label this a native launcher until the Tauri window, capabilities, import dialog, library list, player launch, controller focus, and error flows are built and exercised on Windows. The existing CLI and player fixture checks are separate evidence. The next native build should inspect Tauri capability defaults, preserve a distinct Wry player executable, and repeat the save-counter reopen test through a click or controller action in the trusted launcher.
+The launcher passed formatting, JavaScript syntax, Rust source tests, and eight input regressions in [Windows CI](https://github.com/Gerbzz/GameStrike/actions/runs/38665296183). The CI-built launcher rendered and captured the actual empty, five-game, long-title, launch-dialog, and About surfaces on the Office PC. The five-game shelf, selected details, launch action, and footer fit at the 880 × 620 minimum size. Its matching player reopened the bundled save fixture through launch 5 and completed the controlled browser-boundary fixture at standard Windows integrity. The image files and source provenance are in [screenshots](screenshots/README.md). The native file picker, successful and rejected imports through the launcher, dialog focus with a physical controller, and player return still need interactive checks. The supported Windows computer-use helper failed to initialize on this host (`HRESULT 0x80070003`); no alternative desktop input path was used. Keep strict offline play unavailable while the broader browser network policy remains unverified.

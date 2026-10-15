@@ -2,14 +2,16 @@
 name = "gamestrike"
 version = "0.1.0"
 edition = "2024"
-description = "Local GameStrike library import foundation"
+description = "Local GameStrike HTML game library and Windows player"
 
 [features]
 player-windows = ["dep:wry", "dep:tao", "dep:percent-encoding", "dep:windows-sys", "dep:windows", "dep:webview2-com"]
+launcher-windows = ["player-windows"]
 
 [dependencies]
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.149"
+sha2 = "=0.10.9"
 uuid = { version = "=1.24.0", features = ["v4", "serde"] }
 zip = { version = "=3.0.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 percent-encoding = { version = "=2.3.2", optional = true }
@@ -17,8 +19,8 @@ percent-encoding = { version = "=2.3.2", optional = true }
 [target.'cfg(windows)'.dependencies]
 wry = { version = "=0.57.0", default-features = false, features = ["os-webview"], optional = true }
 tao = { version = "=0.37.1", optional = true }
-windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"], optional = true }
-windows = { version = "=0.62.2", optional = true }
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_UI_Controls_Dialogs"], optional = true }
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage"], optional = true }
 webview2-com = { version = "=0.39.1", optional = true }
 
 [dev-dependencies]
@@ -28,3 +30,8 @@ tempfile = "=3.27.0"
 name = "gamestrike-player"
 path = "src/player.rs"
 required-features = ["player-windows"]
+
+[[bin]]
+name = "gamestrike-launcher"
+path = "src/launcher.rs"
+required-features = ["launcher-windows"]

@@ -199,11 +199,7 @@ mod windows_player {
             .with_devtools(false);
         if smoke {
             builder = builder.with_document_title_changed_handler(move |title| {
-                if title.starts_with(if boundary_smoke {
-                    "GameStrike boundary fixture "
-                } else {
-                    "GameStrike fixture launch "
-                }) {
+                if fixture_reported(&title, boundary_smoke) {
                     let _ = title_sender.send(title);
                 }
             });
@@ -253,6 +249,14 @@ mod windows_player {
 
     fn player_usage() -> &'static str {
         "usage: gamestrike-player --library DIRECTORY --id GAME_UUID --allow-network\nStrict offline play is not available yet; imported games require explicit network opt-in."
+    }
+
+    fn fixture_reported(title: &str, boundary: bool) -> bool {
+        if boundary {
+            title.starts_with("GameStrike boundary fixture launch=")
+        } else {
+            title.starts_with("GameStrike fixture launch ")
+        }
     }
 
     fn require_medium_integrity(rid: Option<u32>) -> Result<(), &'static str> {
@@ -485,6 +489,20 @@ mod windows_player {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn boundary_probe_waits_for_results_instead_of_initial_title() {
+            assert!(!fixture_reported(
+                "GameStrike boundary fixture starting",
+                true
+            ));
+            assert!(fixture_reported(
+                "GameStrike boundary fixture launch=2;popup=null",
+                true
+            ));
+            assert!(fixture_reported("GameStrike fixture launch 3", false));
+            assert!(!fixture_reported("GameStrike save fixture", false));
+        }
 
         #[test]
         fn asset_handler_serves_only_a_game_content_root() {
