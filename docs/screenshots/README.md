@@ -1,5 +1,7 @@
 # Screenshot provenance
 
+These development previews document the tested source commit below. They are app-window captures, not a binary release.
+
 These PNGs are captures of the running Windows `gamestrike-launcher.exe` WebView2 surface, produced with its explicit `--capture-preview` option. They are not HTML mockups, browser recreations, composited images, or retouched renders.
 
 - Source: commit `175016d86c62460e17f1342af687958b772c96c0`

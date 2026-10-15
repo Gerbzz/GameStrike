@@ -13,27 +13,25 @@
 
 **A local home for HTML games you choose to keep.** GameStrike has a Windows library launcher, a bounded HTML/ZIP importer, and a separate player for each selected title. Your game files stay on this PC. The screenshots below come from the running Windows launcher.
 
-[Actual screenshots](#actual-windows-captures) · [How it works](#how-it-works) · [Build and run](#build-and-run) · [Player security](docs/PLAYER_SECURITY.md) · [Original artwork](assets/branding)
+[Windows previews](#windows-development-previews) · [How it works](#how-it-works) · [Build and run](#build-and-run) · [Player security](docs/PLAYER_SECURITY.md) · [Original artwork](assets/branding)
 
-## Actual Windows captures
+## Windows development previews
 
-These are PNGs captured from the rendered WebView2 window of the [CI-built Windows launcher](https://github.com/Gerbzz/GameStrike/actions/runs/38665296183) on the Office PC. The populated library contains five tiny synthetic local HTML fixtures, including a long title, imported into an isolated test library. The images have not been composited or retouched.
+These unedited PNGs capture the rendered WebView2 app window from the [CI-built Windows launcher](https://github.com/Gerbzz/GameStrike/actions/runs/38665296183) at [source commit `175016d`](https://github.com/Gerbzz/GameStrike/commit/175016d86c62460e17f1342af687958b772c96c0). The populated library contains five small synthetic local HTML fixtures, including a long title. No downloaded third-party game appears. [Capture provenance and testing limits](docs/screenshots/README.md) record the method and source.
 
-**Your empty library, 1250 × 800**
+**Five-game local library, 1250 × 800**
 
-![Actual GameStrike empty library window with original fox artwork and Add game controls](docs/screenshots/empty-library.png)
+![Development preview of the running GameStrike library showing five local synthetic games, search, sort, and selected-game details](docs/screenshots/local-library.png)
 
-**Local test games in the library, 1250 × 800**
+**First launch before adding a game, 1250 × 800**
 
-![Actual GameStrike library window with five locally imported synthetic HTML games](docs/screenshots/local-library.png)
+![Development preview of the empty GameStrike library with the original fox artwork](docs/screenshots/empty-library.png)
 
-The [880 × 620 minimum-window capture](docs/screenshots/local-library-minimum.png) shows the shelf and controls fitting above the footer. A [selected long title](docs/screenshots/long-title.png) remains readable, while the [launch warning](docs/screenshots/launch-warning.png) keeps **Go back** focused by default.
+The [880 × 620 minimum-window capture](docs/screenshots/local-library-minimum.png) shows the shelf and controls above the footer. A [selected long title](docs/screenshots/long-title.png) remains readable, while the [launch warning](docs/screenshots/launch-warning.png) keeps **Go back** focused by default.
 
 **Publisher credit in About**
 
 ![Actual GameStrike About dialog with the authentic PWDS publisher logo](docs/screenshots/about-publisher.png)
-
-[Capture provenance](docs/screenshots/README.md) records the source commit, controlled fixtures, and capture method.
 
 ## How it works
 
