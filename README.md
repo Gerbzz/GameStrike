@@ -11,7 +11,7 @@
   </picture></a>
 </p>
 
-**A local home for HTML games you choose to keep.** GameStrike has a Windows library launcher, a bounded HTML/ZIP importer, and a separate player for each selected title. Your game files stay on this PC. The screenshots below come from the running Windows launcher.
+**A local home for HTML games you choose to keep.** GameStrike has a Windows library launcher, a bounded HTML/ZIP importer, and a separate player for each selected title. Imported files are stored in a local library; launching a game can allow network access after your consent. The screenshots below come from the running Windows launcher.
 
 [Windows previews](#windows-development-previews) · [How it works](#how-it-works) · [Build and run](#build-and-run) · [Player security](docs/PLAYER_SECURITY.md) · [Original artwork](assets/branding)
 
@@ -62,7 +62,7 @@ The launcher serves only bundled HTML, CSS, JavaScript, fox artwork, and PWDS ar
 On Windows, use Rust with edition 2024 support and the WebView2 runtime. Build both executable files into the same Cargo output directory:
 
 ```powershell
-cargo build --locked --offline --features launcher-windows --bin gamestrike-launcher --bin gamestrike-player
+cargo build --locked --features launcher-windows --bin gamestrike-launcher --bin gamestrike-player
 ./target/debug/gamestrike-launcher.exe
 ```
 
