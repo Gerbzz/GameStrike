@@ -6,7 +6,7 @@ fn main() {
 
 #[cfg(windows)]
 mod windows_launcher {
-    use gamestrike::{Game, Library};
+    use gamestrike::{ImportOutcome, Library};
     use serde::Deserialize;
     use serde_json::{Value, json};
     use std::{
@@ -57,7 +57,7 @@ mod windows_launcher {
         Command(CommandMessage),
         CapturePreview,
         CaptureComplete(std::result::Result<(), String>),
-        ImportResult(std::result::Result<Game, String>),
+        ImportResult(std::result::Result<ImportOutcome, String>),
         PlayerExited {
             id: Uuid,
             result: std::result::Result<ExitStatus, String>,
@@ -173,8 +173,7 @@ mod windows_launcher {
                             let library = Arc::clone(&library);
                             let proxy = background_proxy.clone();
                             thread::spawn(move || {
-                                let result =
-                                    library.import(path).map_err(|error| error.to_string());
+                                let result = library.import_with_result(path).map_err(|error| error.to_string());
                                 let _ = proxy.send_event(UiEvent::ImportResult(result));
                             });
                         }
@@ -184,7 +183,7 @@ mod windows_launcher {
                 }
                 Event::UserEvent(UiEvent::ImportResult(result)) => {
                     match result {
-                        Ok(game) => send(&webview, json!({"type":"imported", "game":game})),
+                        Ok(outcome) => send(&webview, json!({"type":"imported", "game":outcome.game, "already_present":outcome.already_present})),
                         Err(error) => send(
                             &webview,
                             json!({"type":"error", "message":format!("Import rejected: {error}")}),

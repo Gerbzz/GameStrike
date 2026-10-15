@@ -612,6 +612,7 @@ dependencies = [
  "percent-encoding",
  "serde",
  "serde_json",
+ "sha2",
  "tao",
  "tempfile",
  "uuid",

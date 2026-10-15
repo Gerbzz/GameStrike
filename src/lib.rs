@@ -3,12 +3,14 @@
 //! Import-only foundation. This crate never interprets imported HTML or JavaScript.
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     error::Error,
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     path::{Path, PathBuf},
+    sync::Mutex,
 };
 use uuid::Uuid;
 use zip::{CompressionMethod, ZipArchive};
@@ -38,10 +40,18 @@ pub struct Game {
     pub entry: String,
     pub controller_support: String,
     pub network_requirement: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_sha256: Option<String>,
+}
+
+pub struct ImportOutcome {
+    pub game: Game,
+    pub already_present: bool,
 }
 
 pub struct Library {
     root: PathBuf,
+    import_lock: Mutex<()>,
 }
 
 impl Library {
@@ -49,10 +59,17 @@ impl Library {
         let root = root.as_ref().to_path_buf();
         fs::create_dir_all(root.join("games"))?;
         fs::create_dir_all(root.join("incoming"))?;
-        Ok(Self { root })
+        Ok(Self {
+            root,
+            import_lock: Mutex::new(()),
+        })
     }
 
     pub fn import(&self, source: impl AsRef<Path>) -> Result<Game> {
+        Ok(self.import_with_result(source)?.game)
+    }
+
+    pub fn import_with_result(&self, source: impl AsRef<Path>) -> Result<ImportOutcome> {
         let source = source.as_ref();
         let metadata = fs::symlink_metadata(source)?;
         if !metadata.is_file() || metadata.file_type().is_symlink() {
@@ -71,6 +88,21 @@ impl Library {
             Some(value) if value.eq_ignore_ascii_case("zip") => SourceKind::Zip,
             _ => return Err(invalid("supported sources are .html, .htm, and .zip").into()),
         };
+        // Keep the duplicate decision and final install together for this library instance.
+        let _guard = self
+            .import_lock
+            .lock()
+            .map_err(|_| invalid("import lock is unavailable"))?;
+        let source_sha256 = hash_source(source, metadata.len())?;
+        if let Some(game) = self.list()?.into_iter().find(|game| {
+            game.source_kind == kind
+                && game.source_sha256.as_deref() == Some(source_sha256.as_str())
+        }) {
+            return Ok(ImportOutcome {
+                game,
+                already_present: true,
+            });
+        }
         let id = Uuid::new_v4();
         let game = Game {
             id,
@@ -79,6 +111,7 @@ impl Library {
             entry: "index.html".to_owned(),
             controller_support: "unknown".to_owned(),
             network_requirement: "unknown".to_owned(),
+            source_sha256: Some(source_sha256.clone()),
         };
         let stage = self.root.join("incoming").join(id.to_string());
         fs::create_dir(&stage)?;
@@ -94,6 +127,9 @@ impl Library {
                 }
                 SourceKind::Zip => import_zip(source, &content)?,
             }
+            if hash_source(source, metadata.len())? != source_sha256 {
+                return Err(invalid("source changed while importing").into());
+            }
             let mut manifest = new_file(&stage.join("game.json"))?;
             serde_json::to_writer_pretty(&mut manifest, &game)?;
             manifest.sync_all()?;
@@ -106,7 +142,10 @@ impl Library {
             let _ = fs::remove_dir_all(&stage);
         }
         result?;
-        Ok(game)
+        Ok(ImportOutcome {
+            game,
+            already_present: false,
+        })
     }
 
     pub fn list(&self) -> Result<Vec<Game>> {
@@ -156,6 +195,30 @@ impl Library {
         }
         Ok((fs::canonicalize(content)?, fs::canonicalize(profile)?))
     }
+}
+
+fn hash_source(source: &Path, expected_len: u64) -> Result<String> {
+    let mut file = File::open(source)?;
+    let mut digest = Sha256::new();
+    let mut size = 0u64;
+    let mut buffer = [0u8; 32 * 1024];
+    loop {
+        let count = file.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        size = size
+            .checked_add(count as u64)
+            .ok_or_else(|| invalid("source size overflow"))?;
+        if size > MAX_SOURCE_BYTES {
+            return Err(invalid("source exceeds 256 MiB").into());
+        }
+        digest.update(&buffer[..count]);
+    }
+    if size != expected_len {
+        return Err(invalid("source changed while importing").into());
+    }
+    Ok(format!("{:x}", digest.finalize()))
 }
 
 fn import_zip(source: &Path, content: &Path) -> Result<()> {
@@ -371,6 +434,61 @@ mod tests {
             .unwrap(),
             fs::read(source).unwrap()
         );
+    }
+
+    #[test]
+    fn exact_reimport_reuses_game_and_preserves_its_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("Puzzle.html");
+        fs::write(&source, b"<!doctype html><title>Puzzle</title>").unwrap();
+        let library = Library::open(dir.path().join("library")).unwrap();
+        let first = library.import_with_result(&source).unwrap();
+        assert!(!first.already_present);
+        let (_, profile) = library.player_paths(first.game.id).unwrap();
+        fs::write(profile.join("save-marker"), b"keep this save").unwrap();
+        let second = library.import_with_result(&source).unwrap();
+        assert!(second.already_present);
+        assert_eq!(second.game.id, first.game.id);
+        assert_eq!(library.list().unwrap().len(), 1);
+        assert_eq!(
+            fs::read(profile.join("save-marker")).unwrap(),
+            b"keep this save"
+        );
+        fs::write(&source, b"<!doctype html><title>Another game</title>").unwrap();
+        assert!(!library.import_with_result(&source).unwrap().already_present);
+        assert_eq!(library.list().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn manifests_without_fingerprints_remain_readable() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("Legacy.html");
+        fs::write(&source, b"<html>legacy</html>").unwrap();
+        let library = Library::open(dir.path().join("library")).unwrap();
+        let game = library.import(&source).unwrap();
+        let manifest = dir
+            .path()
+            .join("library/games")
+            .join(game.id.to_string())
+            .join("game.json");
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        value.as_object_mut().unwrap().remove("source_sha256");
+        fs::write(manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert_eq!(library.list().unwrap()[0].source_sha256, None);
+    }
+
+    #[test]
+    fn exact_zip_reimport_does_not_extract_another_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("Puzzle.zip");
+        archive(&source, &[("index.html", b"<html>puzzle</html>")]);
+        let library = Library::open(dir.path().join("library")).unwrap();
+        let first = library.import_with_result(&source).unwrap();
+        let second = library.import_with_result(&source).unwrap();
+        assert!(second.already_present);
+        assert_eq!(first.game.id, second.game.id);
+        assert_eq!(library.list().unwrap().len(), 1);
     }
 
     #[test]

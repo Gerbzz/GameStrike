@@ -10,8 +10,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let library = Library::open(root)?;
     match args[3].to_str() {
         Some("import") if args.len() == 5 => {
-            let game = library.import(PathBuf::from(&args[4]))?;
-            println!("Imported {} ({})", game.title, game.id);
+            let outcome = library.import_with_result(PathBuf::from(&args[4]))?;
+            println!(
+                "{} {} ({})",
+                if outcome.already_present {
+                    "Already in library:"
+                } else {
+                    "Imported"
+                },
+                outcome.game.title,
+                outcome.game.id
+            );
         }
         Some("list") if args.len() == 4 => {
             for game in library.list()? {

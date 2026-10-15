@@ -2,12 +2,14 @@
   "use strict";
 
   const $ = (id) => document.getElementById(id);
-  const state = { games: [], selectedId: null, launchingId: null, importing: false, pendingId: null, lastFocus: null };
+  const state = { games: [], visibleGames: [], selectedId: null, launchingId: null, importing: false, pendingId: null, lastFocus: null };
   const send = (message) => window.ipc.postMessage(JSON.stringify(message));
   const shell = $("shell");
   const primary = $("primary-action");
   const add = $("add-button");
   const shelf = $("library-content");
+  const search = $("library-search");
+  const sort = $("library-sort");
   const dialog = $("launch-dialog");
   const about = $("about-dialog");
   const toast = $("toast");
@@ -53,14 +55,17 @@
   }
 
   function choose(id, focus = false) {
-    if (!state.games.some((game) => game.id === id)) return;
+    if (!state.visibleGames.some((game) => game.id === id)) return;
     state.selectedId = id;
-    const index = state.games.findIndex((game) => game.id === id);
+    const index = state.visibleGames.findIndex((game) => game.id === id);
     $("hero-index").textContent = `/ ${String(index + 1).padStart(2, "0")}`;
     $("hero-label").textContent = "SELECTED GAME";
-    const selected = state.games[index];
+    const selected = state.visibleGames[index];
     $("hero-title").replaceChildren(document.createTextNode(selected.title));
-    $("hero-description").textContent = "Ready in your local collection. Controller support and network requirements are unknown until this game is checked.";
+    $("hero-description").textContent = "Stored on this PC. Review access before opening this game in its own player window.";
+    $("selected-details").hidden = false;
+    $("detail-format").textContent = selected.source_kind === "zip" ? "ZIP archive" : "Single HTML file";
+    $("detail-entry").textContent = selected.entry || "index.html";
     primary.innerHTML = "Review launch <span aria-hidden=\"true\">↗</span>";
     primary.onclick = () => openLaunch(id);
     for (const card of shelf.querySelectorAll(".game-card")) {
@@ -72,24 +77,39 @@
     try { sessionStorage.setItem("gamestrike-last-game", id); } catch (_) { /* optional preference */ }
   }
 
+  function visibleGames() {
+    const query = search.value.trim().toLocaleLowerCase();
+    const games = state.games.filter((game) => game.title.toLocaleLowerCase().includes(query));
+    games.sort((a, b) => {
+      const titles = a.title.localeCompare(b.title, undefined, { sensitivity: "base" }) || a.id.localeCompare(b.id);
+      if (sort.value === "title-desc") return -titles;
+      if (sort.value === "format") return a.source_kind.localeCompare(b.source_kind) || titles;
+      return titles;
+    });
+    return games;
+  }
+
   function renderLibrary() {
-    const games = state.games;
-    shell.classList.toggle("has-games", games.length > 0);
-    $("game-count").textContent = `${games.length} ${games.length === 1 ? "game" : "games"}`;
+    const games = state.visibleGames = visibleGames();
+    shell.classList.toggle("has-games", state.games.length > 0);
+    $("game-count").textContent = `${state.games.length} ${state.games.length === 1 ? "game" : "games"}`;
+    $("visible-count").textContent = games.length === state.games.length ? "" : `${games.length} of ${state.games.length} shown`;
     shelf.replaceChildren();
     if (!games.length) {
       const empty = document.createElement("div"); empty.className = "empty-state";
       const number = document.createElement("div"); number.className = "empty-number"; number.textContent = "01";
-      const heading = document.createElement("h3"); heading.textContent = "Your shelf starts here";
-      const body = document.createElement("p"); body.textContent = "Choose a downloaded HTML file or a ZIP with an index.html at its root. Your files stay on this PC.";
+      const heading = document.createElement("h3"); heading.textContent = state.games.length ? "No matching games" : "Your shelf starts here";
+      const body = document.createElement("p"); body.textContent = state.games.length ? "Try a different title, or clear the search to see your collection." : "Choose a downloaded HTML file or a ZIP with an index.html at its root. Your files stay on this PC.";
       empty.append(number, heading, body); shelf.append(empty);
       state.selectedId = null;
-      $("hero-title").innerHTML = "Your games.<br><em>Right here.</em>";
-      $("hero-description").textContent = "A home for the HTML games you keep. Add a downloaded HTML file or ZIP archive, then launch it in its own player window.";
+      $("hero-title").innerHTML = state.games.length ? "Nothing found." : "Your games.<br><em>Right here.</em>";
+      $("hero-description").textContent = state.games.length ? "Your collection is still here. Clear the search to browse every game." : "A home for the HTML games you keep. Add a downloaded HTML file or ZIP archive, then launch it in its own player window.";
+      $("selected-details").hidden = true;
       $("hero-index").textContent = "/ 00";
       $("hero-label").textContent = "WELCOME";
       primary.innerHTML = "+ Add a game <span aria-hidden=\"true\">↗</span>";
-      primary.onclick = importGame;
+      if (state.games.length) primary.textContent = "Clear search";
+      primary.onclick = state.games.length ? () => { search.value = ""; renderLibrary(); search.focus(); } : importGame;
       return;
     }
     const row = document.createElement("div"); row.className = "game-row";
@@ -112,9 +132,9 @@
   }
 
   function moveSelection(direction) {
-    if (dialog.hidden && about.hidden && state.games.length) {
-      const index = Math.max(0, state.games.findIndex((game) => game.id === state.selectedId));
-      choose(state.games[(index + direction + state.games.length) % state.games.length].id, true);
+    if (dialog.hidden && about.hidden && state.visibleGames.length) {
+      const index = Math.max(0, state.visibleGames.findIndex((game) => game.id === state.selectedId));
+      choose(state.visibleGames[(index + direction + state.visibleGames.length) % state.visibleGames.length].id, true);
     }
   }
 
@@ -136,7 +156,12 @@
     switch (message.type) {
       case "library": state.games = Array.isArray(message.games) ? message.games : []; renderLibrary(); break;
       case "importing": state.importing = true; primary.disabled = true; add.disabled = true; status(`Importing ${message.name}…`); break;
-      case "imported": state.importing = false; primary.disabled = false; add.disabled = false; state.selectedId = message.game.id; status(`${message.game.title} added to your library.`); break;
+      case "imported":
+        state.importing = false; primary.disabled = false; add.disabled = false;
+        search.value = "";
+        state.selectedId = message.game.id;
+        status(message.already_present ? `${message.game.title} is already in your library. Its saves were kept.` : `${message.game.title} added to your library.`);
+        break;
       case "player_started": state.launchingId = message.id; status("Game opened in its own player window."); break;
       case "player_exited": state.launchingId = null; status(message.message, !message.message.startsWith("Player closed")); break;
       case "error": state.importing = false; state.launchingId = null; primary.disabled = false; add.disabled = false; status(message.message, true); break;
@@ -145,6 +170,8 @@
 
   primary.onclick = importGame;
   add.addEventListener("click", importGame);
+  search.addEventListener("input", renderLibrary);
+  sort.addEventListener("change", renderLibrary);
   $("about-button").addEventListener("click", openAbout);
   $("close-about").addEventListener("click", closeAbout);
   about.addEventListener("click", (event) => { if (event.target === about) closeAbout(); });
@@ -172,6 +199,12 @@
         const back = $("cancel-launch"), confirm = $("confirm-launch");
         if (event.shiftKey && document.activeElement === back) { event.preventDefault(); confirm.focus(); }
         else if (!event.shiftKey && document.activeElement === confirm) { event.preventDefault(); back.focus(); }
+      }
+      return;
+    }
+    if (document.activeElement === search || document.activeElement === sort) {
+      if (event.key === "Escape" && document.activeElement === search && search.value) {
+        event.preventDefault(); search.value = ""; renderLibrary();
       }
       return;
     }

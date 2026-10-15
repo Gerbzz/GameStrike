@@ -21,6 +21,12 @@
           <div class="eyebrow"><span class="eyebrow-line"></span> <span id="hero-label">WELCOME</span> <span id="hero-index">/ 00</span></div>
           <h1 id="hero-title">Your games.<br><em>Right here.</em></h1>
           <p id="hero-description">A home for the HTML games you keep. Add a downloaded HTML file or ZIP archive, then launch it in its own player window.</p>
+          <dl id="selected-details" class="selected-details" hidden>
+            <div><dt>Added from</dt><dd id="detail-format">—</dd></div>
+            <div><dt>Entry point</dt><dd id="detail-entry">—</dd></div>
+            <div><dt>Game saves</dt><dd>Kept in this game's local browser profile</dd></div>
+            <div><dt>Controller / network need</dt><dd>Not checked</dd></div>
+          </dl>
           <div class="hero-actions"><button id="primary-action" class="button primary" type="button">+ Add a game <span aria-hidden="true">↗</span></button><span class="hint">HTML · HTM · ZIP</span></div>
         </div>
         <div class="hero-art" aria-hidden="true"><div class="art-grid"></div><div class="halo"></div><div class="fox-frame"><img src="/fox.png" alt=""></div><div class="art-caption">PLAY FROM YOUR COLLECTION <span>01 / ∞</span></div></div>
@@ -28,6 +34,11 @@
 
       <section class="collection" aria-labelledby="library-title">
         <div class="section-head"><div><div class="kicker">01 — YOUR SHELF</div><h2 id="library-title">Library <span id="game-count">0 games</span></h2></div><button id="add-button" class="button secondary" type="button">+ Add game</button></div>
+        <div class="library-tools" aria-label="Library controls">
+          <label class="search-field" for="library-search"><span>Find a game</span><input id="library-search" type="search" placeholder="Search your collection" autocomplete="off" spellcheck="false"></label>
+          <label class="sort-field" for="library-sort"><span>Sort</span><select id="library-sort"><option value="title-asc">Title A to Z</option><option value="title-desc">Title Z to A</option><option value="format">File format</option></select></label>
+          <span id="visible-count" class="visible-count" role="status" aria-live="polite"></span>
+        </div>
         <div id="library-content" class="library-content"><div class="loading">Opening your local library…</div></div>
       </section>
     </main>

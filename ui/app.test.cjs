@@ -19,8 +19,10 @@ function launcherHarness(games = [{ id: "game-1", title: "Safe Fixture", source_
       children: [],
       hidden: id === "launch-dialog" || id === "about-dialog" || id === "toast",
       disabled: false,
+      value: id === "library-sort" ? "title-asc" : "",
       classList: { toggle() {} },
       addEventListener(type, callback) { listeners.set(type, callback); },
+      dispatch(type) { listeners.get(type)?.({ target: this }); },
       append(...children) { this.children.push(...children); },
       replaceChildren(...children) { this.children = children; },
       setAttribute() {},
@@ -39,7 +41,7 @@ function launcherHarness(games = [{ id: "game-1", title: "Safe Fixture", source_
     };
   }
 
-  const ids = ["shell", "primary-action", "add-button", "about-button", "about-dialog", "close-about", "library-content", "launch-dialog", "toast", "hero-index", "hero-label", "hero-title", "hero-description", "game-count", "dialog-title", "confirm-launch", "cancel-launch"];
+  const ids = ["shell", "primary-action", "add-button", "about-button", "about-dialog", "close-about", "library-content", "library-search", "library-sort", "visible-count", "launch-dialog", "toast", "hero-index", "hero-label", "hero-title", "hero-description", "selected-details", "detail-format", "detail-entry", "game-count", "dialog-title", "confirm-launch", "cancel-launch"];
   for (const id of ids) nodes.set(id, node(id));
   const document = {
     activeElement: nodes.get("primary-action"),
@@ -68,6 +70,7 @@ function launcherHarness(games = [{ id: "game-1", title: "Safe Fixture", source_
     nodes,
     pad,
     messages,
+    receive: context.window.GameStrike.receive,
     frame(time) { now = time; assert.ok(frames.length, "a gamepad poll must be scheduled"); frames.shift()(); },
   };
 }
@@ -148,4 +151,55 @@ test("About keeps publisher credit away from play and controller A only closes i
   assert.equal(app.nodes.get("about-dialog").hidden, true);
   assert.equal(app.nodes.get("launch-dialog").hidden, true);
   assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 0);
+});
+
+test("search filters real library cards and clearing it restores selection", () => {
+  const app = launcherHarness([
+    { id: "game-1", title: "Asteroid Run", source_kind: "single_html", entry: "index.html" },
+    { id: "game-2", title: "Puzzle Box", source_kind: "zip", entry: "index.html" },
+  ]);
+  const search = app.nodes.get("library-search");
+  search.value = "puzzle";
+  search.dispatch("input");
+  assert.equal(app.nodes.get("library-content").querySelectorAll(".game-card").length, 1);
+  assert.equal(app.nodes.get("hero-title").children[0].textContent, "Puzzle Box");
+  assert.equal(app.nodes.get("detail-format").textContent, "ZIP archive");
+  assert.equal(app.nodes.get("visible-count").textContent, "1 of 2 shown");
+  search.value = "missing";
+  search.dispatch("input");
+  assert.equal(app.nodes.get("library-content").querySelectorAll(".game-card").length, 0);
+  assert.equal(app.nodes.get("selected-details").hidden, true);
+  app.nodes.get("primary-action").click();
+  assert.equal(search.value, "");
+  assert.equal(app.nodes.get("library-content").querySelectorAll(".game-card").length, 2);
+});
+
+test("sort changes card order and controller browses the displayed order", () => {
+  const app = launcherHarness([
+    { id: "game-1", title: "Alpha", source_kind: "single_html" },
+    { id: "game-2", title: "Zulu", source_kind: "zip" },
+  ]);
+  const sort = app.nodes.get("library-sort");
+  sort.value = "title-desc";
+  sort.dispatch("change");
+  const cards = app.nodes.get("library-content").querySelectorAll(".game-card");
+  assert.equal(cards[0].dataset.id, "game-2");
+  assert.equal(cards[1].dataset.id, "game-1");
+  app.pad.buttons[15].pressed = true;
+  app.frame(0);
+  assert.equal(app.nodes.get("hero-title").children[0].textContent, "Zulu");
+});
+
+test("duplicate import reports the existing game and clears a hiding search", () => {
+  const app = launcherHarness([{ id: "game-1", title: "Puzzle", source_kind: "zip" }]);
+  const search = app.nodes.get("library-search");
+  search.value = "other";
+  search.dispatch("input");
+  app.nodes.get("add-button").click();
+  assert.equal(app.messages.at(-1).type, "pick_and_import");
+  app.receive({ type: "imported", already_present: true, game: { id: "game-1", title: "Puzzle" } });
+  app.receive({ type: "library", games: [{ id: "game-1", title: "Puzzle", source_kind: "zip" }] });
+  assert.equal(search.value, "");
+  assert.match(app.nodes.get("toast").textContent, /already in your library/);
+  assert.equal(app.nodes.get("library-content").querySelectorAll(".game-card").length, 1);
 });
