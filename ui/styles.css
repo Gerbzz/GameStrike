@@ -82,7 +82,7 @@ h2 span { color: #8f867d; font-size: 12px; letter-spacing: 0; font-weight: 650; 
 .shell.has-games .game-row { padding-bottom: 8px; }
 .shell.has-games .hero { order: 2; display: block; min-height: 0; margin-top: 8px; background: linear-gradient(105deg, #201b17, #302116); }
 .shell.has-games .hero-copy { padding: 20px 29px 22px; }
-.shell.has-games .hero h1 { font-size: clamp(30px, 3vw, 40px); margin: 9px 0 8px; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; }
+.shell.has-games .hero h1 { font-size: clamp(30px, 3vw, 40px); margin: 9px 0 8px; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; max-width: 100%; }
 .shell.has-games .hero-copy p { max-width: 740px; margin-bottom: 14px; font-size: 12px; line-height: 1.45; }
 .selected-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 24px; max-width: 760px; margin: 0 0 17px; }
 .selected-details div { min-width: 0; }
