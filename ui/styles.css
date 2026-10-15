@@ -54,6 +54,7 @@ h1 em { font-style: normal; color: #ff8140; }
 .library-tools input:focus-visible, .library-tools select:focus-visible { outline: 3px solid #ffd2a9; outline-offset: 2px; }
 .library-tools input::placeholder { color: #a29386; }
 .visible-count { margin-left: auto; padding-bottom: 11px; color: #a29386; font-size: 11px; white-space: nowrap; }
+.visible-count:empty { display: none; }
 .kicker { color: #a67d60; }
 h2 { font-size: 28px; letter-spacing: -.05em; margin: 6px 0 0; }
 h2 span { color: #8f867d; font-size: 12px; letter-spacing: 0; font-weight: 650; padding-left: 8px; }
@@ -105,3 +106,25 @@ h2 span { color: #8f867d; font-size: 12px; letter-spacing: 0; font-weight: 650; 
 @media (max-width: 1050px) { .shell { padding: 0 27px; } .hero { grid-template-columns: minmax(400px, 56%) 1fr; } .hero-copy { padding-left: 31px; } .fox-frame { width: 205px; height: 205px; } .halo { width: 260px; height: 260px; } .top-right { gap: 15px; } }
 @media (max-width: 790px) { .hero-art { display: none; } .hero { grid-template-columns: 1fr; min-height: 330px; } .hero-copy { padding: 36px; } .empty-state { grid-template-columns: 65px 1fr; } .top-right .local-chip { display: none; } }
 @media (max-width: 950px) { .library-tools { flex-wrap: wrap; } .visible-count { width: 100%; padding: 0; } }
+@media (max-width: 950px) and (max-height: 700px) {
+  .topbar { height: 54px; flex-basis: 54px; }
+  .shell.has-games .collection { padding: 10px 0 4px; }
+  .shell.has-games .section-head { margin-bottom: 5px; }
+  .shell.has-games h2 { font-size: 24px; margin-top: 2px; }
+  .library-tools { gap: 8px 12px; margin-bottom: 6px; }
+  .library-tools label { gap: 2px; }
+  .library-tools input, .library-tools select { height: 34px; }
+  .shell.has-games .game-row { padding-top: 2px; padding-bottom: 4px; }
+  .game-card { min-height: 108px; padding: 10px 12px; }
+  .card-name { margin: 4px 0 2px; font-size: 15px; }
+  .card-status { padding-top: 4px; }
+  .shell.has-games .hero { margin-top: 3px; }
+  .shell.has-games .hero-copy { padding: 12px 20px; }
+  .shell.has-games .hero h1 { font-size: 28px; margin: 4px 0; }
+  .shell.has-games .hero-copy p { margin-bottom: 8px; font-size: 11px; }
+  .selected-details { gap: 4px 16px; margin-bottom: 8px; }
+  .selected-details dt { font-size: 9px; }
+  .selected-details dd { margin-top: 1px; font-size: 11px; }
+  .shell.has-games .button { min-height: 36px; }
+  .footer { padding: 9px 0; }
+}
