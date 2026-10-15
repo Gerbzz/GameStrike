@@ -17,7 +17,7 @@
 
 ## Actual Windows captures
 
-These are PNGs captured from the rendered WebView2 window of the [CI-built Windows launcher](https://github.com/Gerbzz/GameStrike/actions/runs/38651373781) on the Office PC. The populated library contains five tiny synthetic local HTML fixtures, including a long title, imported into an isolated test library. The images have not been composited or retouched.
+These are PNGs captured from the rendered WebView2 window of the [CI-built Windows launcher](https://github.com/Gerbzz/GameStrike/actions/runs/38665296183) on the Office PC. The populated library contains five tiny synthetic local HTML fixtures, including a long title, imported into an isolated test library. The images have not been composited or retouched.
 
 **Your empty library, 1250 × 800**
 
@@ -83,7 +83,7 @@ gamestrike-player --library LIBRARY --id GAME_UUID --allow-network
 
 ## Current status
 
-The launcher provides an empty shelf, real title-led game cards, importing and rejected-import states, network consent, keyboard/controller navigation, and player start/exit feedback. [Windows source checks](https://github.com/Gerbzz/GameStrike/actions/runs/38651373781) built both binaries and passed 8 importer tests, 1 launcher origin test, 5 player tests, 5 input regressions, formatting, and JavaScript syntax. The actual empty, multi-game, long-title, launch-dialog, and About surfaces were captured and inspected; the player ran the controlled save fixture at standard Windows integrity (`GameStrike fixture launch 1`, exit 0). The native file picker, physical controller, and player round trip through the launcher still need hands-on checks. Controlled browser-boundary tests remain before general-game safety claims.
+The launcher provides an empty shelf, searchable and sortable title cards, selected-game details, import and duplicate feedback, network consent, keyboard/controller navigation, and player start/exit messages. [Windows source checks](https://github.com/Gerbzz/GameStrike/actions/runs/38665296183) built both binaries and passed Rust and JavaScript tests. The actual empty, five-game, 880 × 620, long-title, launch-dialog, and About surfaces were captured and inspected. The matching player reopened the controlled save fixture through launch 5 and completed the bundled boundary probe at standard Windows integrity. These fixture results do not establish strict offline play or safety for arbitrary downloaded games. The native file picker, physical controller, and player round trip through the launcher still need hands-on checks; the Windows computer-use helper failed to initialize on this host during this pass.
 
 The separate Wry/system-WebView player is designed to have no Tauri commands, launcher credentials, game-to-host message bridge, or unrestricted file access. It limits local assets to the selected game's content root and registers navigation, download, window, and permission restrictions. Those checks still need controlled runtime validation across frames, protocols, workers, and network paths. Read [PLAYER_SECURITY.md](docs/PLAYER_SECURITY.md) before widening use; [LAUNCHER_UI.md](docs/LAUNCHER_UI.md) records the launcher implementation.
 
