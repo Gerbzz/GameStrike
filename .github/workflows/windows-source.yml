@@ -57,3 +57,11 @@ jobs:
         shell: pwsh
         timeout-minutes: 5
         run: powershell.exe -NoProfile -Sta -File tests/hosted-gui.ps1
+      - name: Keep imported library app-window capture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamestrike-imported-library-window
+          path: ${{ runner.temp }}/gamestrike-interaction-probe/imported-library.png
+          if-no-files-found: warn
+          retention-days: 7
