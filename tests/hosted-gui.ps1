@@ -84,7 +84,14 @@ function Wait-Window([int]$processId, [int]$seconds = 25) {
 }
 
 function Invoke-Element($element) {
-    $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $pattern = $null
+    if ($element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
+        $pattern.Invoke()
+    }
+    else {
+        $element.SetFocus()
+        [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    }
 }
 
 function Show-Tree($window) {
