@@ -75,7 +75,9 @@ function Show-Tree($window) {
 }
 
 $launcher = Join-Path $PWD 'target/debug/gamestrike-launcher.exe'
-$launcherProcess = Start-Process -FilePath $launcher -ArgumentList @('--library', $library) -PassThru -WindowStyle Normal
+$launcherOut = Join-Path $probeRoot 'launcher.out.txt'
+$launcherErr = Join-Path $probeRoot 'launcher.err.txt'
+$launcherProcess = Start-Process -FilePath $launcher -ArgumentList @('--library', $library) -PassThru -WindowStyle Normal -RedirectStandardOutput $launcherOut -RedirectStandardError $launcherErr
 try {
     $launcherWindow = Wait-Window $launcherProcess.Id
     Write-Host 'Launcher UI Automation tree:'
@@ -96,7 +98,24 @@ try {
         if ($null -ne $dialog) { break }
         Start-Sleep -Milliseconds 500
     }
-    if ($null -eq $dialog) { throw 'Native file picker did not appear.' }
+    if ($null -eq $dialog) {
+        Write-Host 'Launcher UI Automation tree after Add game:'
+        Show-Tree $launcherWindow
+        Write-Host 'Other top-level windows owned by launcher:'
+        $root = [System.Windows.Automation.AutomationElement]::RootElement
+        foreach ($element in $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)) {
+            try {
+                if ($element.Current.ProcessId -eq $launcherProcess.Id) {
+                    Write-Host ("Window: " + $element.Current.Name + " | " + $element.Current.ClassName)
+                }
+            } catch {}
+        }
+        Write-Host 'Launcher stdout:'
+        Get-Content $launcherOut -ErrorAction SilentlyContinue
+        Write-Host 'Launcher stderr:'
+        Get-Content $launcherErr -ErrorAction SilentlyContinue
+        throw 'Native file picker did not appear.'
+    }
     Write-Host 'Picker UI Automation tree:'
     Show-Tree $dialog
     $fileName = Find-Named $dialog 'File name' 'Edit'
