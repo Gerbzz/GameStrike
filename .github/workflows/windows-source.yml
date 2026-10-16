@@ -53,3 +53,7 @@ jobs:
           finally {
             if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
+      - name: Hosted interactive import and player probe
+        shell: pwsh
+        timeout-minutes: 5
+        run: powershell.exe -NoProfile -Sta -File tests/hosted-gui.ps1
