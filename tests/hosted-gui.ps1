@@ -156,6 +156,27 @@ try {
         throw
     }
     Write-Host 'Imported game card found after native picker.'
+    $capture = Join-Path $probeRoot 'imported-library.png'
+    $captureOut = Join-Path $probeRoot 'capture.out.txt'
+    $captureErr = Join-Path $probeRoot 'capture.err.txt'
+    $captureProcess = Start-Process -FilePath $launcher -ArgumentList @('--library', $library, '--capture-preview', $capture) -PassThru -WindowStyle Hidden -RedirectStandardOutput $captureOut -RedirectStandardError $captureErr
+    try {
+        for ($attempt = 0; $attempt -lt 40; $attempt++) {
+            if (Test-Path $capture) { break }
+            if ($captureProcess.HasExited) { break }
+            Start-Sleep -Seconds 1
+        }
+        if (Test-Path $capture) {
+            Write-Host ("Imported library app-window capture: " + (Get-Item $capture).Length + " bytes.")
+        }
+        else {
+            Write-Host 'Imported library app-window capture was unavailable.'
+            Get-Content $captureErr -ErrorAction SilentlyContinue
+        }
+    }
+    finally {
+        if (-not $captureProcess.HasExited) { Stop-Process -Id $captureProcess.Id -Force }
+    }
     for ($run = 1; $run -le 2; $run++) {
         Invoke-Element $card
         Invoke-Element (Wait-Named $launcherWindow 'Allow network & launch' 25 'Button')
