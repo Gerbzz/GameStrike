@@ -3,6 +3,14 @@ Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class NativePicker {
+    [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr dialog, int id);
+    [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+}
+'@
 
 $probeRoot = Join-Path $env:RUNNER_TEMP 'gamestrike-interaction-probe'
 $library = Join-Path $probeRoot 'library'
@@ -91,11 +99,34 @@ try {
     $fileName = Find-Named $dialog 'File name' 'Edit'
     if ($null -eq $fileName) { throw 'Picker file-name control was not exposed to UI Automation.' }
     $fileName.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($zipPath)
+    Write-Host ("Picker file name: " + $fileName.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value)
     $fileName.SetFocus()
     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-    Write-Host 'Native picker submitted the wrapped ZIP.'
+    Start-Sleep -Seconds 1
+    if ($null -ne (Find-Named $launcherWindow 'Add a local HTML game' 'Window')) {
+        $openButton = [NativePicker]::GetDlgItem([IntPtr]$dialog.Current.NativeWindowHandle, 1)
+        if ($openButton -eq [IntPtr]::Zero) { throw 'Native picker Open control was unavailable.' }
+        [void][NativePicker]::SendMessage($openButton, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+        Write-Host 'Clicked native picker Open control.'
+    }
+    Write-Host 'Native picker path submitted.'
 
-    $card = Wait-Named $launcherWindow 'Wrapped Probe' 30 'Button'
+    try {
+        $card = Wait-Named $launcherWindow 'Wrapped Probe' 30 'Button'
+    }
+    catch {
+        Write-Host 'Launcher UI Automation tree after picker:'
+        Show-Tree $launcherWindow
+        Write-Host 'Is picker still open:'
+        Write-Host ($null -ne (Find-Named $launcherWindow 'Add a local HTML game' 'Window'))
+        Write-Host 'Isolated library games:'
+        Get-ChildItem (Join-Path $library 'games') -ErrorAction SilentlyContinue | Select-Object Name, Length
+        Write-Host 'Launcher stdout:'
+        Get-Content $launcherOut -ErrorAction SilentlyContinue
+        Write-Host 'Launcher stderr:'
+        Get-Content $launcherErr -ErrorAction SilentlyContinue
+        throw
+    }
     for ($run = 1; $run -le 2; $run++) {
         Invoke-Element $card
         Invoke-Element (Wait-Named $launcherWindow 'Allow network & launch' 25 'Button')
