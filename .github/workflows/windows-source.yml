@@ -23,3 +23,33 @@ jobs:
         run: cargo test --locked --features launcher-windows --lib --bin gamestrike-launcher --bin gamestrike-player -j 2
       - name: Build launcher and player
         run: cargo build --locked --features launcher-windows --bin gamestrike-launcher --bin gamestrike-player -j 2
+      - name: Hosted WebView capture probe
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $probeRoot = Join-Path $env:RUNNER_TEMP 'gamestrike-gui-probe'
+          $library = Join-Path $probeRoot 'library'
+          $capture = Join-Path $probeRoot 'launcher.png'
+          $stdout = Join-Path $probeRoot 'launcher.out.txt'
+          $stderr = Join-Path $probeRoot 'launcher.err.txt'
+          New-Item -ItemType Directory -Force -Path $library | Out-Null
+          $launcher = Join-Path $PWD 'target/debug/gamestrike-launcher.exe'
+          $process = Start-Process -FilePath $launcher -ArgumentList @('--library', $library, '--capture-preview', $capture) -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          try {
+            for ($attempt = 0; $attempt -lt 45; $attempt++) {
+              if (Test-Path $capture) { break }
+              if ($process.HasExited) { break }
+              Start-Sleep -Seconds 1
+            }
+            if (-not (Test-Path $capture)) {
+              Write-Host "Launcher stdout:"; Get-Content $stdout -ErrorAction SilentlyContinue
+              Write-Host "Launcher stderr:"; Get-Content $stderr -ErrorAction SilentlyContinue
+              throw 'Hosted runner could not capture the launcher WebView window.'
+            }
+            $size = (Get-Item $capture).Length
+            if ($size -lt 1000) { throw "Launcher capture was too small: $size bytes" }
+            Write-Host "Hosted launcher WebView capture succeeded: $size bytes."
+          }
+          finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
