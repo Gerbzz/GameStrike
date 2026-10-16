@@ -17,6 +17,8 @@ $probeRoot = Join-Path $env:RUNNER_TEMP 'gamestrike-interaction-probe'
 $library = Join-Path $probeRoot 'library'
 $zipPath = Join-Path $probeRoot 'Wrapped Probe.zip'
 New-Item -ItemType Directory -Force -Path $library | Out-Null
+Write-Host 'Runner mandatory integrity label:'
+whoami /groups | Select-String 'Mandatory Label' | ForEach-Object { Write-Host $_.Line }
 $fixtureZip = [IO.Compression.ZipFile]::Open($zipPath, [IO.Compression.ZipArchiveMode]::Create)
 try {
     foreach ($item in @(
@@ -153,9 +155,11 @@ try {
         Get-Content $launcherErr -ErrorAction SilentlyContinue
         throw
     }
+    Write-Host 'Imported game card found after native picker.'
     for ($run = 1; $run -le 2; $run++) {
         Invoke-Element $card
         Invoke-Element (Wait-Named $launcherWindow 'Allow network & launch' 25 'Button')
+        Write-Host "Launch confirmation activated for run $run."
         $playerProcess = $null
         for ($attempt = 0; $attempt -lt 50; $attempt++) {
             $playerProcess = Get-Process -Name 'gamestrike-player' -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -163,7 +167,19 @@ try {
             Start-Sleep -Milliseconds 500
         }
         if ($null -eq $playerProcess) { throw "Player process did not start on run $run." }
-        $playerWindow = Wait-Window $playerProcess.Id
+        try {
+            $playerWindow = Wait-Window $playerProcess.Id
+        }
+        catch {
+            $playerProcess.Refresh()
+            Write-Host ("Player process exited: " + $playerProcess.HasExited)
+            if ($playerProcess.HasExited) { Write-Host ("Player exit code: " + $playerProcess.ExitCode) }
+            Write-Host 'Launcher stdout:'
+            Get-Content $launcherOut -ErrorAction SilentlyContinue
+            Write-Host 'Launcher stderr:'
+            Get-Content $launcherErr -ErrorAction SilentlyContinue
+            throw
+        }
         Write-Host "Player UI Automation tree on run $run :"
         Show-Tree $playerWindow
         Wait-Named $playerWindow "Relative asset loaded; saved run $run" 25 | Out-Null
