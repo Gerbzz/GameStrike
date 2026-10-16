@@ -22,6 +22,16 @@ New-Item -ItemType Directory -Force -Path $library, $assets | Out-Null
 [IO.File]::WriteAllText((Join-Path $gameRoot 'index.html'), '<!doctype html><title>Wrapped Probe</title><p id="status">Waiting for relative script</p><script defer src="assets/save.js"></script>')
 [IO.File]::WriteAllText((Join-Path $assets 'save.js'), 'const count = Number(localStorage.getItem("probe-runs") || "0") + 1; localStorage.setItem("probe-runs", String(count)); document.getElementById("status").textContent = "Relative asset loaded; saved run " + count;')
 [IO.Compression.ZipFile]::CreateFromDirectory($fixtureRoot, $zipPath)
+$fixtureZip = [IO.Compression.ZipFile]::OpenRead($zipPath)
+try {
+    foreach ($entry in $fixtureZip.Entries) {
+        $codes = ($entry.FullName.ToCharArray() | ForEach-Object { [int][char]$_ }) -join ','
+        Write-Host ("Fixture ZIP member: [" + $entry.FullName + "] codes=" + $codes)
+    }
+}
+finally {
+    $fixtureZip.Dispose()
+}
 
 function Find-Window([int]$processId) {
     $root = [System.Windows.Automation.AutomationElement]::RootElement
