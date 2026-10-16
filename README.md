@@ -33,6 +33,10 @@ The [880 × 620 minimum-window capture](docs/screenshots/local-library-minimum.p
 
 ![Actual GameStrike About dialog with the authentic PWDS publisher logo](docs/screenshots/about-publisher.png)
 
+**Wrapped ZIP import through the native picker (hosted Windows runner)**
+
+[View the imported-library app-window PNG artifact](https://github.com/Gerbzz/GameStrike/actions/runs/38983601475/artifacts/12082207731) from [Windows run 38983601475](https://github.com/Gerbzz/GameStrike/actions/runs/38983601475). This WebView2 capture shows a second real launcher instance reopening the isolated library after the first launcher imported a tiny synthetic ZIP through the native file picker. The ZIP contained `Wrapped Probe/index.html` and a relative `assets/save.js`; the visible card confirms the library entry persisted across launcher instances. The image does not show the picker or player. The diagnostic run used [test-only commit `3692195`](https://github.com/Gerbzz/GameStrike/commit/3692195fcc160844921661b98fc8769a3c6dc5d7), stacked on wrapper-import source commit `9f33113`. Its hosted runner had a high-integrity token, so the player correctly refused to open; asset execution, player return, and save persistence were not verified. The artifact contains only the GameStrike app-window PNG and is retained for seven days.
+
 ## How it works
 
 1. Open the **GameStrike library**. It starts with a welcome view until you import a game, then puts your actual local collection first. Title-led cards show source format and unknown controller/network status without inventing cover art.
