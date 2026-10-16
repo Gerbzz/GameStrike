@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName System.Windows.Forms
 
 $probeRoot = Join-Path $env:RUNNER_TEMP 'gamestrike-interaction-probe'
 $library = Join-Path $probeRoot 'library'
@@ -84,44 +85,14 @@ try {
     Show-Tree $launcherWindow
     Invoke-Element (Wait-Named $launcherWindow 'Add a game' 25 'Button')
 
-    $dialog = $null
-    for ($attempt = 0; $attempt -lt 50; $attempt++) {
-        $root = [System.Windows.Automation.AutomationElement]::RootElement
-        foreach ($element in $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)) {
-            try {
-                if ($element.Current.ProcessId -eq $launcherProcess.Id -and $element.Current.ClassName -eq '#32770') {
-                    $dialog = $element
-                    break
-                }
-            } catch {}
-        }
-        if ($null -ne $dialog) { break }
-        Start-Sleep -Milliseconds 500
-    }
-    if ($null -eq $dialog) {
-        Write-Host 'Launcher UI Automation tree after Add game:'
-        Show-Tree $launcherWindow
-        Write-Host 'Other top-level windows owned by launcher:'
-        $root = [System.Windows.Automation.AutomationElement]::RootElement
-        foreach ($element in $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)) {
-            try {
-                if ($element.Current.ProcessId -eq $launcherProcess.Id) {
-                    Write-Host ("Window: " + $element.Current.Name + " | " + $element.Current.ClassName)
-                }
-            } catch {}
-        }
-        Write-Host 'Launcher stdout:'
-        Get-Content $launcherOut -ErrorAction SilentlyContinue
-        Write-Host 'Launcher stderr:'
-        Get-Content $launcherErr -ErrorAction SilentlyContinue
-        throw 'Native file picker did not appear.'
-    }
+    $dialog = Wait-Named $launcherWindow 'Add a local HTML game' 25 'Window'
     Write-Host 'Picker UI Automation tree:'
     Show-Tree $dialog
     $fileName = Find-Named $dialog 'File name' 'Edit'
     if ($null -eq $fileName) { throw 'Picker file-name control was not exposed to UI Automation.' }
     $fileName.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($zipPath)
-    Invoke-Element (Wait-Named $dialog 'Open' 25 'Button')
+    $fileName.SetFocus()
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
     Write-Host 'Native picker submitted the wrapped ZIP.'
 
     $card = Wait-Named $launcherWindow 'Wrapped Probe' 30 'Button'
