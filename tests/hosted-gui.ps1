@@ -14,14 +14,22 @@ public static class NativePicker {
 
 $probeRoot = Join-Path $env:RUNNER_TEMP 'gamestrike-interaction-probe'
 $library = Join-Path $probeRoot 'library'
-$fixtureRoot = Join-Path $probeRoot 'source'
-$gameRoot = Join-Path $fixtureRoot 'Wrapped Probe'
-$assets = Join-Path $gameRoot 'assets'
 $zipPath = Join-Path $probeRoot 'Wrapped Probe.zip'
-New-Item -ItemType Directory -Force -Path $library, $assets | Out-Null
-[IO.File]::WriteAllText((Join-Path $gameRoot 'index.html'), '<!doctype html><title>Wrapped Probe</title><p id="status">Waiting for relative script</p><script defer src="assets/save.js"></script>')
-[IO.File]::WriteAllText((Join-Path $assets 'save.js'), 'const count = Number(localStorage.getItem("probe-runs") || "0") + 1; localStorage.setItem("probe-runs", String(count)); document.getElementById("status").textContent = "Relative asset loaded; saved run " + count;')
-[IO.Compression.ZipFile]::CreateFromDirectory($fixtureRoot, $zipPath)
+New-Item -ItemType Directory -Force -Path $library | Out-Null
+$fixtureZip = [IO.Compression.ZipFile]::Open($zipPath, [IO.Compression.ZipArchiveMode]::Create)
+try {
+    foreach ($item in @(
+        @{ Name = 'Wrapped Probe/index.html'; Body = '<!doctype html><title>Wrapped Probe</title><p id="status">Waiting for relative script</p><script defer src="assets/save.js"></script>' },
+        @{ Name = 'Wrapped Probe/assets/save.js'; Body = 'const count = Number(localStorage.getItem("probe-runs") || "0") + 1; localStorage.setItem("probe-runs", String(count)); document.getElementById("status").textContent = "Relative asset loaded; saved run " + count;' }
+    )) {
+        $entry = $fixtureZip.CreateEntry($item.Name)
+        $writer = [IO.StreamWriter]::new($entry.Open(), [Text.UTF8Encoding]::new($false))
+        try { $writer.Write($item.Body) } finally { $writer.Dispose() }
+    }
+}
+finally {
+    $fixtureZip.Dispose()
+}
 $fixtureZip = [IO.Compression.ZipFile]::OpenRead($zipPath)
 try {
     foreach ($entry in $fixtureZip.Entries) {
