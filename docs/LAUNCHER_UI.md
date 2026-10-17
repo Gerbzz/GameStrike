@@ -1,17 +1,52 @@
-# GameStrike trusted library
+# GameStrike launcher
 
-## Implemented source
+`gamestrike-launcher` is a Tao/Wry window that shows only bundled files from `ui/`. Imported game HTML never loads in it.
 
-`gamestrike-launcher` is a Windows Tao/Wry window built from bundled `ui/` assets. It uses the already pinned Wry stack, without adding a second browser framework. The fixed `gamestrikeui` custom protocol serves only five bundled paths: HTML, CSS, JavaScript, the original GameStrike fox, and the official PWDS display logo. PWDS appears in About as publisher attribution; the working library uses GameStrike branding. Navigation is constrained to this origin, new windows and downloads are denied, and the response includes a restrictive Content Security Policy. Game titles enter the UI as JSON data and are rendered as text.
+## Trusted surface
 
-The empty library has a welcome panel with the original fox. A populated library puts title-led manifest cards first, without fabricated cover art, followed by a compact selected-game panel. It also has visible focus, a native HTML/ZIP file picker, import progress and errors, an explicit network launch warning, and player start/exit messages. Arrow keys and a connected controller's D-pad/left stick move between game cards or dialog choices. Enter reviews a card's launch warning. Controller A activates the focused dialog choice, initially **Go back**; a directional move must focus **Allow network & launch** before a fresh A approves it. Escape or controller B closes the launch dialog. Launcher input is never injected into an imported game.
+The fixed `gamestrikeui` origin serves exactly six bundled files: `index.html` (also at `/`), `app.js`, `core.js`, `styles.css`, the GameStrike mark, and the PWDS publisher logo. Every response carries `default-src 'none'` with only `'self'` scripts, styles, and images, plus `connect-src 'none'` and `nosniff`. Navigation is limited to this origin; new windows, downloads, devtools, and the default context menu are disabled.
 
-The launcher's only IPC messages are `ready`, `pick_and_import`, and `launch_game` with a UUID and explicit `allow_network` flag. The file picker supplies the import path; the web UI never supplies one. Rust validates the UUID against generated manifests, resolves paths via `Library::player_paths`, then starts the sibling `gamestrike-player.exe` with the library root and game ID. Imported HTML runs in that separate player and has no launcher IPC handler. A missing player, rejected archive, or nonzero player exit produces a visible message.
+The page can send only these IPC messages, as JSON of at most 1 KiB from the exact UI origin:
 
-## Truthful limits
+| Message | Rust action |
+| --- | --- |
+| `ready` | Send the library scan |
+| `pick_and_import` | Open the native file picker; the page never supplies a path |
+| `launch_game {id, network}` | Validate the UUID and start `gamestrike-player --offline` or `--allow-network`; refused while another game is open |
+| `rename_game {id, title}` | Rename after trimming and length checks |
+| `reset_saves {id}` | Delete that game's browser profile |
+| `remove_game {id, keep_saves}` | Remove the game's copy, optionally keeping saves |
 
-Controller support and network requirement are shown as unknown for every imported game. A local import is not a safety verdict. The player does not provide strict offline mode, so the launcher only offers a deliberate network-enabled preview. Imported game JavaScript may reach local or remote services. The separate process is not a Windows sandbox; read [PLAYER_SECURITY.md](PLAYER_SECURITY.md) for open checks.
+Unknown message types and unknown fields are rejected. Game titles reach the page as JSON and are rendered with `textContent`.
 
-## Verification still needed
+## Layout
 
-The launcher passed formatting, JavaScript syntax, Rust source tests, and eight input regressions in [Windows CI](https://github.com/Gerbzz/GameStrike/actions/runs/38665296183). The CI-built launcher rendered and captured the actual empty, five-game, long-title, launch-dialog, and About surfaces on the Office PC. The five-game shelf, selected details, launch action, and footer fit at the 880 × 620 minimum size. Its matching player reopened the bundled save fixture through launch 5 and completed the controlled browser-boundary fixture at standard Windows integrity. The image files and source provenance are in [screenshots](screenshots/README.md). The native file picker, successful and rejected imports through the launcher, dialog focus with a physical controller, and player return still need interactive checks. The supported Windows computer-use helper failed to initialize on this host (`HRESULT 0x80070003`); no alternative desktop input path was used. Keep strict offline play unavailable while the broader browser network policy remains unverified.
+The launcher is a console-style dashboard.
+
+- **Splash**: the GameStrike mark in a glowing ring with the PWDS credit, shown while the library loads (at least 0.9 s). The publisher logo appears again only in About.
+- **Ambient background**: slow drifting light and a sweeping highlight, in pure CSS. It is turned off for reduced-motion and forced-colors users.
+- **Top bar**: compact mark and name, search, sort (recently played, title A–Z or Z–A, recently added), Add game, interface-sound toggle, About, and a clock.
+- **Hero panel** for the selected game: a large generated cover, the title, detail chips (source, plays, game-data size, and controller and network support as *not checked*), and actions with controller glyphs: **A** Play offline, **X** Play with network…, **Y** Manage.
+- **Shelves** of tiles that scroll sideways. The selected tile springs forward with a glow. A *Jump back in* shelf appears above *Your library* for libraries of more than six games. Covers are generated from each game's ID (gradient, pattern, and initials), not the game's own art. Badges show *Playing* and *Files missing*.
+- **Status bar**: A/B/X/Y and keyboard hints, plus the game currently playing.
+- **Dialogs**: network consent (focus starts on *Go back*), Manage, Rename, Clear saves, Remove (with *Keep saves* checked by default), unreadable library folders, and About. Focused dialog buttons always show a ring, because controller users never trigger the browser's focus-visible heuristics.
+- **Sounds**: short tones synthesized with Web Audio (nothing is fetched), on by default, toggled from the top bar and remembered.
+
+The empty library shows a welcome panel with a single Add button. Layouts were captured from the real launcher at 1250 × 800 and at the 880 × 620 minimum; see the README.
+
+## Input
+
+| Action | Keyboard | Controller (standard mapping) |
+| --- | --- | --- |
+| Move along a shelf, or between shelves | Arrow keys, Home, End | D-pad or left stick (repeats while held) |
+| Play offline | Enter, or double-click a card | A |
+| Play with network | N | X, then move to *Allow* and press A |
+| Manage | F2 (rename), Delete (remove) | Y |
+| Back or close | Esc | B |
+| Search | Ctrl+F or / | — |
+
+Controller buttons fire once per press, so a held A cannot confirm a dialog that opens under it. Pad input is ignored while a game is open or the launcher is not focused. Launcher navigation does not mean a game supports controllers.
+
+## Logic tests
+
+`ui/core.js` holds the pure parts: filtering and sorting, grid and shelf movement, controller edge detection and repeat, generated covers, and formatting. `node --test ui/app.test.cjs` covers them. The DOM behaviour in `ui/app.js` is checked by running the real launcher; see the README.

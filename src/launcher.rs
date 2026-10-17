@@ -15,11 +15,12 @@ mod windows_launcher {
         error::Error,
         ffi::OsString,
         fs,
+        io::{BufRead, BufReader},
         mem::size_of,
         os::windows::ffi::OsStringExt,
-        path::PathBuf,
-        process::{Command, ExitStatus},
-        sync::Arc,
+        path::{Path, PathBuf},
+        process::{Child, Command, ExitStatus, Stdio},
+        sync::{Arc, Mutex},
         thread,
         time::Duration,
     };
@@ -45,12 +46,15 @@ mod windows_launcher {
         http::{Request, Response, StatusCode, header},
     };
 
-    #[derive(Deserialize)]
-    #[serde(tag = "type", rename_all = "snake_case")]
+    #[derive(Debug, Deserialize, PartialEq)]
+    #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
     enum CommandMessage {
-        Ready,
-        PickAndImport,
-        LaunchGame { id: String, allow_network: bool },
+        Ready {},
+        PickAndImport {},
+        LaunchGame { id: String, network: bool },
+        RenameGame { id: String, title: String },
+        ResetSaves { id: String },
+        RemoveGame { id: String, keep_saves: bool },
     }
 
     enum UiEvent {
@@ -60,8 +64,18 @@ mod windows_launcher {
         ImportResult(std::result::Result<ImportOutcome, String>),
         PlayerExited {
             id: Uuid,
-            result: std::result::Result<ExitStatus, String>,
+            network: bool,
+            report: PlayerReport,
         },
+    }
+
+    /// What the launcher learned from a finished player process.
+    #[derive(Debug, Default)]
+    struct PlayerReport {
+        status: Option<ExitStatus>,
+        wait_error: Option<String>,
+        blocked: Option<usize>,
+        error_line: Option<String>,
     }
 
     #[derive(Clone, Copy)]
@@ -69,6 +83,7 @@ mod windows_launcher {
         Library,
         LongTitle,
         Launch,
+        Manage,
         About,
     }
 
@@ -81,10 +96,13 @@ mod windows_launcher {
             .with_title("GameStrike")
             .with_inner_size(window_size)
             .with_min_inner_size(LogicalSize::new(880.0, 620.0))
+            // Preview captures run beside the user's work, so they never take focus.
+            .with_focused(capture_path.is_none())
             .build(&event_loop)?;
         let proxy = event_loop.create_proxy();
         let background_proxy = event_loop.create_proxy();
         let webview = WebViewBuilder::new()
+            .with_focused(capture_path.is_none())
             .with_custom_protocol("gamestrikeui".into(), |_, request| serve_ui(request))
             .with_https_scheme(true)
             .with_url("gamestrikeui://localhost/index.html")
@@ -95,22 +113,21 @@ mod windows_launcher {
             .with_default_context_menus(false)
             .with_devtools(false)
             .with_ipc_handler(move |request| {
-                if !is_ui_origin(&request.uri().to_string()) || request.body().len() > 512 {
-                    return;
-                }
-                if let Ok(command) = serde_json::from_str::<CommandMessage>(request.body()) {
+                if let Some(command) = parse_command(&request.uri().to_string(), request.body()) {
                     let _ = proxy.send_event(UiEvent::Command(command));
                 }
             })
             .build(&window)?;
 
         let mut view_prepared = false;
+        let mut running: Option<Uuid> = None;
+        let mut picking = false;
         event_loop.run(move |event, _, flow| {
             let _keep_alive = (&window, &webview);
             *flow = ControlFlow::Wait;
             match event {
-                Event::UserEvent(UiEvent::Command(CommandMessage::Ready)) => {
-                    send_library(&webview, &library);
+                Event::UserEvent(UiEvent::Command(CommandMessage::Ready {})) => {
+                    send_library(&webview, &library, running);
                     if capture_path.is_some() {
                         let proxy = background_proxy.clone();
                         thread::spawn(move || {
@@ -125,13 +142,10 @@ mod windows_launcher {
                     } else {
                         match capture_view {
                             CaptureView::Library => None,
-                            CaptureView::LongTitle => Some("const card = document.querySelector('.game-card:last-child'); card?.focus(); card?.scrollIntoView({ block: 'nearest', inline: 'nearest' })"),
-                            CaptureView::Launch => {
-                                Some("document.querySelector('.game-card')?.click()")
-                            }
-                            CaptureView::About => {
-                                Some("document.getElementById('about-button').click()")
-                            }
+                            CaptureView::LongTitle => Some("window.GameStrike.capture('long')"),
+                            CaptureView::Launch => Some("window.GameStrike.capture('launch')"),
+                            CaptureView::Manage => Some("window.GameStrike.capture('manage')"),
+                            CaptureView::About => Some("window.GameStrike.capture('about')"),
                         }
                     };
                     if let Some(script) = prepare {
@@ -142,14 +156,14 @@ mod windows_launcher {
                         }
                         let proxy = background_proxy.clone();
                         thread::spawn(move || {
-                            thread::sleep(Duration::from_millis(350));
+                            thread::sleep(Duration::from_millis(450));
                             let _ = proxy.send_event(UiEvent::CapturePreview);
                         });
-                    } else if let Some(path) = capture_path.take() {
-                        if let Err(error) = capture_preview(&webview, path, background_proxy.clone()) {
-                            eprintln!("Could not capture launcher: {error}");
-                            std::process::exit(2);
-                        }
+                    } else if let Some(path) = capture_path.take()
+                        && let Err(error) = capture_preview(&webview, path, background_proxy.clone())
+                    {
+                        eprintln!("Could not capture launcher: {error}");
+                        std::process::exit(2);
                     }
                 }
                 Event::UserEvent(UiEvent::CaptureComplete(result)) => {
@@ -162,8 +176,14 @@ mod windows_launcher {
                     }
                     *flow = ControlFlow::Exit;
                 }
-                Event::UserEvent(UiEvent::Command(CommandMessage::PickAndImport)) => {
-                    match pick_game_file(window.hwnd()) {
+                Event::UserEvent(UiEvent::Command(CommandMessage::PickAndImport {})) => {
+                    // The picker is modal; a queued second request while it is open is ignored.
+                    if picking {
+                        return;
+                    }
+                    picking = true;
+                    let picked = pick_game_file(window.hwnd());
+                    match picked {
                         Ok(Some(path)) => {
                             let name = path
                                 .file_name()
@@ -177,49 +197,96 @@ mod windows_launcher {
                                 let _ = proxy.send_event(UiEvent::ImportResult(result));
                             });
                         }
-                        Ok(None) => {}
-                        Err(error) => send(&webview, json!({"type":"error", "operation":"import", "message":error})),
+                        Ok(None) => {
+                            picking = false;
+                            send(&webview, json!({"type":"pick_cancelled"}));
+                        }
+                        Err(error) => {
+                            picking = false;
+                            send(&webview, json!({"type":"error", "operation":"import", "message":error}));
+                        }
                     }
                 }
                 Event::UserEvent(UiEvent::ImportResult(result)) => {
+                    picking = false;
                     match result {
-                        Ok(outcome) => send(&webview, json!({"type":"imported", "game":outcome.game, "already_present":outcome.already_present})),
+                        Ok(outcome) => send(&webview, json!({
+                            "type":"imported",
+                            "game":outcome.game,
+                            "already_present":outcome.already_present,
+                            "restored_saves":outcome.restored_saves,
+                        })),
                         Err(error) => send(
                             &webview,
                             json!({"type":"error", "operation":"import", "message":format!("Import rejected: {error}")}),
                         ),
                     }
-                    send_library(&webview, &library);
+                    send_library(&webview, &library, running);
                 }
-                Event::UserEvent(UiEvent::Command(CommandMessage::LaunchGame {
-                    id,
-                    allow_network,
-                })) => match launch(&library, &root, &id, allow_network) {
-                    Ok(mut child) => {
-                        let id = Uuid::parse_str(&id).expect("validated by launch");
-                        send(&webview, json!({"type":"player_started", "id":id}));
-                        let proxy = background_proxy.clone();
-                        thread::spawn(move || {
-                            let result = child.wait().map_err(|error| error.to_string());
-                            let _ = proxy.send_event(UiEvent::PlayerExited { id, result });
-                        });
+                Event::UserEvent(UiEvent::Command(CommandMessage::LaunchGame { id, network })) => {
+                    if running.is_some() {
+                        send(&webview, json!({"type":"error", "operation":"launch", "id":id, "message":"A game is already open. Close its window first."}));
+                        return;
                     }
-                    Err(error) => send(&webview, json!({"type":"error", "operation":"launch", "id":id, "message":error})),
-                },
-                Event::UserEvent(UiEvent::PlayerExited { id, result }) => {
-                    let message = match result {
-                        Ok(status) if status.success() => {
-                            "Player closed. Your library is ready.".to_owned()
+                    match launch(&library, &root, &id, network) {
+                        Ok((uuid, child)) => {
+                            running = Some(uuid);
+                            let _ = library.record_play(uuid);
+                            send(&webview, json!({"type":"player_started", "id":uuid, "network":network}));
+                            send_library(&webview, &library, running);
+                            watch_player(child, uuid, network, background_proxy.clone());
                         }
-                        Ok(status) => {
-                            format!("Player exited with {status}. Check the game and try again.")
+                        Err(error) => send(&webview, json!({"type":"error", "operation":"launch", "id":id, "message":error})),
+                    }
+                }
+                Event::UserEvent(UiEvent::PlayerExited { id, network, report }) => {
+                    if running == Some(id) {
+                        running = None;
+                    }
+                    let (message, ok) = describe_exit(&report, network);
+                    send(&webview, json!({"type":"player_exited", "id":id, "message":message, "ok":ok}));
+                    send_library(&webview, &library, running);
+                    window.set_focus();
+                }
+                Event::UserEvent(UiEvent::Command(CommandMessage::RenameGame { id, title })) => {
+                    let result = parse_id(&id).and_then(|uuid| {
+                        library.rename(uuid, &title).map_err(|error| error.to_string())
+                    });
+                    match result {
+                        Ok(game) => send(&webview, json!({"type":"managed", "id":id, "message":format!("Renamed to {}.", game.title)})),
+                        Err(error) => send(&webview, json!({"type":"error", "operation":"manage", "id":id, "message":format!("Could not rename: {error}")})),
+                    }
+                    send_library(&webview, &library, running);
+                }
+                Event::UserEvent(UiEvent::Command(CommandMessage::ResetSaves { id })) => {
+                    let result = parse_id(&id).and_then(|uuid| {
+                        if running == Some(uuid) {
+                            return Err("Close the game before clearing its saves.".to_owned());
                         }
-                        Err(error) => format!("Could not track player exit: {error}"),
-                    };
-                    send(
-                        &webview,
-                        json!({"type":"player_exited", "id":id, "message":message}),
-                    );
+                        library.reset_saves(uuid).map_err(|error| error.to_string())
+                    });
+                    match result {
+                        Ok(()) => send(&webview, json!({"type":"managed", "id":id, "message":"Saves cleared. The next launch starts fresh."})),
+                        Err(error) => send(&webview, json!({"type":"error", "operation":"manage", "id":id, "message":format!("Could not clear saves: {error}")})),
+                    }
+                    send_library(&webview, &library, running);
+                }
+                Event::UserEvent(UiEvent::Command(CommandMessage::RemoveGame { id, keep_saves })) => {
+                    let result = parse_id(&id).and_then(|uuid| {
+                        if running == Some(uuid) {
+                            return Err("Close the game before removing it.".to_owned());
+                        }
+                        library.remove(uuid, keep_saves).map_err(|error| error.to_string())
+                    });
+                    match result {
+                        Ok(()) => send(&webview, json!({"type":"removed", "id":id, "message": if keep_saves {
+                            "Game removed. Its saves return if you add the same file again."
+                        } else {
+                            "Game and saves removed."
+                        }})),
+                        Err(error) => send(&webview, json!({"type":"error", "operation":"manage", "id":id, "message":format!("Could not remove: {error}")})),
+                    }
+                    send_library(&webview, &library, running);
                 }
                 Event::WindowEvent {
                     event: WindowEvent::CloseRequested,
@@ -230,8 +297,119 @@ mod windows_launcher {
         })
     }
 
-    fn launch_options()
-    -> Result<(PathBuf, Option<PathBuf>, LogicalSize<f64>, CaptureView), Box<dyn Error>> {
+    /// Accepts only small JSON commands from the bundled UI origin.
+    fn parse_command(origin: &str, body: &str) -> Option<CommandMessage> {
+        if !is_ui_origin(origin) || body.len() > 1024 {
+            return None;
+        }
+        serde_json::from_str(body).ok()
+    }
+
+    fn parse_id(raw: &str) -> std::result::Result<Uuid, String> {
+        Uuid::parse_str(raw).map_err(|_| "Invalid game ID".to_owned())
+    }
+
+    fn watch_player(mut child: Child, id: Uuid, network: bool, proxy: EventLoopProxy<UiEvent>) {
+        let blocked = Arc::new(Mutex::new(None));
+        let error_line = Arc::new(Mutex::new(None));
+        let readers: Vec<_> = [
+            child
+                .stdout
+                .take()
+                .map(|out| Box::new(out) as Box<dyn std::io::Read + Send>),
+            child
+                .stderr
+                .take()
+                .map(|err| Box::new(err) as Box<dyn std::io::Read + Send>),
+        ]
+        .into_iter()
+        .flatten()
+        .map(|stream| {
+            let blocked = Arc::clone(&blocked);
+            let error_line = Arc::clone(&error_line);
+            thread::spawn(move || {
+                for line in BufReader::new(stream)
+                    .lines()
+                    .map_while(Result::ok)
+                    .take(10_000)
+                {
+                    if let Some(count) = line.strip_prefix(BLOCKED_PREFIX) {
+                        *blocked.lock().unwrap() = count.trim().parse().ok();
+                    } else if let Some(error) = player_error(&line) {
+                        *error_line.lock().unwrap() = Some(error);
+                    }
+                }
+            })
+        })
+        .collect();
+        thread::spawn(move || {
+            let mut report = PlayerReport::default();
+            match child.wait() {
+                Ok(status) => report.status = Some(status),
+                Err(error) => report.wait_error = Some(error.to_string()),
+            }
+            // Pipes can stay open if the WebView runtime inherited them; wait briefly only.
+            let deadline = std::time::Instant::now() + Duration::from_millis(800);
+            for reader in readers {
+                while !reader.is_finished() && std::time::Instant::now() < deadline {
+                    thread::sleep(Duration::from_millis(20));
+                }
+            }
+            report.blocked = *blocked.lock().unwrap();
+            report.error_line = error_line.lock().unwrap().clone();
+            let _ = proxy.send_event(UiEvent::PlayerExited {
+                id,
+                network,
+                report,
+            });
+        });
+    }
+
+    /// Extracts the message from the player's `Error: ...` exit line.
+    fn player_error(line: &str) -> Option<String> {
+        let rest = line.strip_prefix("Error: ")?;
+        let message = rest
+            .split_once("error: \"")
+            .and_then(|(_, tail)| tail.split_once('"'))
+            .map(|(message, _)| message.to_owned())
+            .unwrap_or_else(|| rest.trim_matches('"').to_owned());
+        Some(message.chars().take(240).collect())
+    }
+
+    fn describe_exit(report: &PlayerReport, network: bool) -> (String, bool) {
+        match (&report.status, &report.wait_error) {
+            (Some(status), _) if status.success() => {
+                let blocked = match (network, report.blocked) {
+                    (false, Some(0)) => " Offline mode blocked no network requests.".to_owned(),
+                    (false, Some(1)) => " Offline mode blocked 1 network request.".to_owned(),
+                    (false, Some(count)) => {
+                        format!(
+                            " Offline mode blocked {count} network requests. If the game looked incomplete, try Play with network."
+                        )
+                    }
+                    _ => String::new(),
+                };
+                (
+                    format!("Game closed. Your progress is saved on this PC.{blocked}"),
+                    true,
+                )
+            }
+            (Some(status), _) => (
+                match &report.error_line {
+                    Some(error) => format!("The game could not open: {error}."),
+                    None => format!("The player stopped unexpectedly ({status})."),
+                },
+                false,
+            ),
+            (None, Some(error)) => (format!("Could not track the player: {error}"), false),
+            (None, None) => ("Could not track the player.".to_owned(), false),
+        }
+    }
+
+    /// Library root, optional capture PNG, window size, and capture view.
+    type LaunchOptions = (PathBuf, Option<PathBuf>, LogicalSize<f64>, CaptureView);
+
+    fn launch_options() -> Result<LaunchOptions, Box<dyn Error>> {
         let args: Vec<_> = env::args_os().collect();
         let default_size = LogicalSize::new(1250.0, 800.0);
         match args.as_slice() {
@@ -276,7 +454,7 @@ mod windows_launcher {
                 ))
             }
             _ => Err(
-                "usage: gamestrike-launcher [--library DIRECTORY [--capture-preview PNG [--capture-view library|long|launch|about | --window-size WIDTH HEIGHT]]]".into(),
+                "usage: gamestrike-launcher [--library DIRECTORY [--capture-preview PNG [--capture-view library|long|launch|manage|about | --window-size WIDTH HEIGHT]]]".into(),
             ),
         }
     }
@@ -286,8 +464,9 @@ mod windows_launcher {
             Some("library") => Ok(CaptureView::Library),
             Some("long") => Ok(CaptureView::LongTitle),
             Some("launch") => Ok(CaptureView::Launch),
+            Some("manage") => Ok(CaptureView::Manage),
             Some("about") => Ok(CaptureView::About),
-            _ => Err("capture view must be library, long, launch, or about".into()),
+            _ => Err("capture view must be library, long, launch, manage, or about".into()),
         }
     }
 
@@ -345,14 +524,11 @@ mod windows_launcher {
 
     fn launch(
         library: &Library,
-        root: &PathBuf,
+        root: &Path,
         raw_id: &str,
-        allow_network: bool,
-    ) -> std::result::Result<std::process::Child, String> {
-        if !allow_network {
-            return Err("Network access must be explicitly accepted for this preview. Strict offline play is unavailable.".into());
-        }
-        let id = Uuid::parse_str(raw_id).map_err(|_| "Invalid game ID".to_owned())?;
+        network: bool,
+    ) -> std::result::Result<(Uuid, Child), String> {
+        let id = parse_id(raw_id)?;
         library
             .player_paths(id)
             .map_err(|error| error.to_string())?;
@@ -369,14 +545,27 @@ mod windows_launcher {
             .arg(root)
             .arg("--id")
             .arg(id.to_string())
-            .arg("--allow-network")
+            .arg(if network {
+                "--allow-network"
+            } else {
+                "--offline"
+            })
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
+            .map(|child| (id, child))
             .map_err(|error| format!("Could not start player: {error}"))
     }
 
-    fn send_library(webview: &wry::WebView, library: &Library) {
-        match library.list() {
-            Ok(games) => send(webview, json!({"type":"library", "games":games})),
+    const BLOCKED_PREFIX: &str = "gamestrike-network-blocked=";
+
+    fn send_library(webview: &wry::WebView, library: &Library, running: Option<Uuid>) {
+        match library.scan() {
+            Ok(scan) => send(
+                webview,
+                json!({"type":"library", "games":scan.games, "problems":scan.problems, "running":running}),
+            ),
             Err(error) => send(
                 webview,
                 json!({"type":"error", "operation":"library", "message":format!("Library could not be read: {error}")}),
@@ -423,15 +612,20 @@ mod windows_launcher {
                     &include_bytes!("../ui/app.js")[..],
                     "text/javascript; charset=utf-8",
                 ),
+                "/core.js" => (
+                    StatusCode::OK,
+                    &include_bytes!("../ui/core.js")[..],
+                    "text/javascript; charset=utf-8",
+                ),
                 "/styles.css" => (
                     StatusCode::OK,
                     &include_bytes!("../ui/styles.css")[..],
                     "text/css; charset=utf-8",
                 ),
-                "/fox.png" => (
+                "/mark.svg" => (
                     StatusCode::OK,
-                    &include_bytes!("../assets/branding/gamestrike-fox-icon.png")[..],
-                    "image/png",
+                    &include_bytes!("../assets/branding/gamestrike-mark.svg")[..],
+                    "image/svg+xml",
                 ),
                 "/pwds.svg" => (
                     StatusCode::OK,
@@ -498,14 +692,146 @@ mod windows_launcher {
             assert_eq!(response.status(), StatusCode::OK);
             assert!(response.body().as_ref().starts_with(b"<!doctype html>"));
 
+            let mark = Request::builder()
+                .uri("https://gamestrikeui.localhost/mark.svg")
+                .body(Vec::new())
+                .unwrap();
+            let mark_response = serve_ui(mark);
+            assert_eq!(mark_response.status(), StatusCode::OK);
+            assert_eq!(
+                mark_response
+                    .headers()
+                    .get(header::CONTENT_TYPE)
+                    .unwrap()
+                    .as_bytes(),
+                b"image/svg+xml"
+            );
+            assert!(mark_response.body().as_ref().starts_with(b"<svg"));
+
+            let csp = mark_response
+                .headers()
+                .get("content-security-policy")
+                .unwrap()
+                .to_str()
+                .unwrap();
+            assert!(csp.contains("default-src 'none'") && csp.contains("connect-src 'none'"));
+
             for url in [
                 "https://other.localhost/index.html",
+                "https://gamestrikeui.localhost/fox.png",
+                "https://gamestrikeui.localhost/../Cargo.toml",
+                "https://gamestrike1234.localhost/index.html",
                 "https://gamestrikeui.localhost.evil/index.html",
                 "https://gamestrikeui.localhost/private.txt",
             ] {
                 let request = Request::builder().uri(url).body(Vec::new()).unwrap();
                 assert_ne!(serve_ui(request).status(), StatusCode::OK, "{url}");
             }
+        }
+
+        #[test]
+        fn ipc_accepts_only_known_commands_from_the_ui_origin() {
+            let ui = "https://gamestrikeui.localhost/index.html";
+            let id = Uuid::new_v4().to_string();
+            assert_eq!(
+                parse_command(
+                    ui,
+                    &format!(r#"{{"type":"launch_game","id":"{id}","network":false}}"#)
+                ),
+                Some(CommandMessage::LaunchGame {
+                    id: id.clone(),
+                    network: false
+                })
+            );
+            assert_eq!(
+                parse_command(
+                    ui,
+                    &format!(r#"{{"type":"remove_game","id":"{id}","keep_saves":true}}"#)
+                ),
+                Some(CommandMessage::RemoveGame {
+                    id: id.clone(),
+                    keep_saves: true
+                })
+            );
+            for (origin, body) in [
+                // Game origins and look-alikes never reach the launcher.
+                (
+                    format!(
+                        "https://gamestrike{}.localhost/index.html",
+                        Uuid::new_v4().simple()
+                    ),
+                    r#"{"type":"ready"}"#.to_owned(),
+                ),
+                (
+                    "https://gamestrikeui.localhost.evil/".to_owned(),
+                    r#"{"type":"ready"}"#.to_owned(),
+                ),
+                (
+                    "file:///C:/index.html".to_owned(),
+                    r#"{"type":"ready"}"#.to_owned(),
+                ),
+                // The UI never supplies a file path, and network must be explicit.
+                (
+                    ui.to_owned(),
+                    r#"{"type":"pick_and_import","path":"C:\\x.zip"}"#.to_owned(),
+                ),
+                (
+                    ui.to_owned(),
+                    format!(r#"{{"type":"launch_game","id":"{id}"}}"#),
+                ),
+                (
+                    ui.to_owned(),
+                    r#"{"type":"run_shell","command":"calc"}"#.to_owned(),
+                ),
+                (
+                    ui.to_owned(),
+                    format!(
+                        r#"{{"type":"rename_game","id":"{id}","title":"{}"}}"#,
+                        "x".repeat(1100)
+                    ),
+                ),
+                (ui.to_owned(), "not json".to_owned()),
+            ] {
+                assert_eq!(parse_command(&origin, &body), None, "{origin} {body}");
+            }
+        }
+
+        #[test]
+        fn player_exit_messages_report_failures_and_offline_blocks() {
+            use std::os::windows::process::ExitStatusExt;
+            let ok = PlayerReport {
+                status: Some(ExitStatus::from_raw(0)),
+                blocked: Some(3),
+                ..Default::default()
+            };
+            let (message, success) = describe_exit(&ok, false);
+            assert!(
+                success && message.contains("blocked 3 network requests"),
+                "{message}"
+            );
+            assert!(!describe_exit(&ok, true).0.contains("blocked"));
+            let failed = PlayerReport {
+                status: Some(ExitStatus::from_raw(1)),
+                error_line: player_error(
+                    r#"Error: Custom { kind: InvalidData, error: "this game is already open in a player window" }"#,
+                ),
+                ..Default::default()
+            };
+            let (message, success) = describe_exit(&failed, false);
+            assert!(!success);
+            assert_eq!(
+                message,
+                "The game could not open: this game is already open in a player window."
+            );
+            assert_eq!(
+                player_error(r#"Error: "GameStrike player requires standard Windows integrity""#)
+                    .unwrap(),
+                "GameStrike player requires standard Windows integrity"
+            );
+            assert_eq!(
+                player_error("GameStrike offline mode blocked a request"),
+                None
+            );
         }
     }
 }
