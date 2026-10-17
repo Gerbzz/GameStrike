@@ -1,260 +1,106 @@
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
 const test = require("node:test");
-const vm = require("node:vm");
+const core = require("./core.js");
 
-function launcherHarness(games = [{ id: "game-1", title: "Safe Fixture", source_kind: "single_html" }], reducedMotion = false) {
-  const nodes = new Map();
-  const frames = [];
-  const messages = [];
-  let now = 0;
+const pad = (pressed = [], axes = [0, 0]) => ({
+  buttons: Array.from({ length: 17 }, (_, index) => ({ pressed: pressed.includes(index) })),
+  axes,
+});
 
-  function node(id = "") {
-    const listeners = new Map();
-    return {
-      id,
-      className: "",
-      dataset: {},
-      children: [],
-      hidden: id === "launch-dialog" || id === "about-dialog" || id === "toast",
-      disabled: false,
-      value: id === "library-sort" ? "title-asc" : "",
-      classList: { toggle() {} },
-      addEventListener(type, callback) { listeners.set(type, callback); },
-      dispatch(type) { listeners.get(type)?.({ target: this }); },
-      append(...children) { this.children.push(...children); },
-      replaceChildren(...children) { this.children = children; },
-      setAttribute() {},
-      scrollIntoView(options) { this.lastScrollOptions = options; },
-      querySelectorAll(selector) {
-        const found = [];
-        function visit(item) {
-          if (item.className?.split(" ").includes(selector.slice(1))) found.push(item);
-          for (const child of item.children || []) visit(child);
-        }
-        visit(this);
-        return found;
-      },
-      focus() { document.activeElement = this; listeners.get("focus")?.(); },
-      click() { this.onclick?.(); listeners.get("click")?.({ target: this }); },
-    };
-  }
-
-  const ids = ["shell", "primary-action", "add-button", "about-button", "about-dialog", "close-about", "library-content", "library-search", "library-sort", "visible-count", "launch-dialog", "toast", "hero-index", "hero-label", "hero-title", "hero-description", "selected-details", "detail-format", "detail-entry", "game-count", "dialog-title", "confirm-launch", "cancel-launch"];
-  for (const id of ids) nodes.set(id, node(id));
-  const document = {
-    activeElement: nodes.get("primary-action"),
-    getElementById: (id) => nodes.get(id),
-    createElement: () => node(),
-    createTextNode: (text) => ({ textContent: text }),
-    addEventListener() {},
-    contains: () => true,
-  };
-  const pad = { buttons: Array.from({ length: 16 }, () => ({ pressed: false })), axes: [0] };
-  const storage = new Map();
-  const context = {
-    document,
-    window: { ipc: { postMessage: (value) => messages.push(JSON.parse(value)) }, matchMedia: () => ({ matches: reducedMotion }) },
-    navigator: { getGamepads: () => [pad] },
-    performance: { now: () => now },
-    requestAnimationFrame: (callback) => frames.push(callback),
-    sessionStorage: { getItem: (key) => storage.get(key), setItem: (key, value) => storage.set(key, value) },
-    setTimeout: () => 1,
-    clearTimeout() {},
-  };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "app.js"), "utf8"), context);
-  context.window.GameStrike.receive({ type: "library", games });
-  return {
-    document,
-    nodes,
-    pad,
-    messages,
-    receive: context.window.GameStrike.receive,
-    frame(time) { now = time; assert.ok(frames.length, "a gamepad poll must be scheduled"); frames.shift()(); },
-  };
-}
-
-test("controller focus respects reduced motion preference", () => {
+test("search filters by title and sorts by recent play, then added date", () => {
   const games = [
-    { id: "game-1", title: "First", source_kind: "single_html" },
-    { id: "game-2", title: "Second", source_kind: "single_html" },
+    { id: "a", title: "Asteroid Run", last_played: 10, added_at: 1 },
+    { id: "b", title: "Puzzle Box", last_played: 50, added_at: 2 },
+    { id: "c", title: "Zen Garden", added_at: 9 },
+    { id: "d", title: "puzzle quest", added_at: 3 },
   ];
-  for (const [reducedMotion, behavior] of [[false, "smooth"], [true, "auto"]]) {
-    const app = launcherHarness(games, reducedMotion);
-    app.pad.buttons[15].pressed = true;
-    app.frame(0);
-    const card = app.nodes.get("library-content").querySelectorAll(".game-card")[1];
-    assert.equal(card.lastScrollOptions.behavior, behavior);
-  }
+  assert.deepEqual(core.filterAndSort(games, "", "recent").map((g) => g.id), ["b", "a", "c", "d"]);
+  assert.deepEqual(core.filterAndSort(games, "  PUZZLE ", "title-asc").map((g) => g.id), ["b", "d"]);
+  assert.deepEqual(core.filterAndSort(games, "", "title-desc").map((g) => g.id), ["c", "d", "b", "a"]);
+  assert.deepEqual(core.filterAndSort(games, "", "added").map((g) => g.id), ["c", "d", "b", "a"]);
+  assert.deepEqual(core.filterAndSort(games, "nothing", "recent"), []);
+  assert.equal(games[0].id, "a", "sorting never mutates the library");
 });
 
-test("a held controller A cannot accept network access and a fresh A activates Go back", () => {
-  const app = launcherHarness();
-  app.pad.buttons[0].pressed = true;
-  app.frame(0);
-  assert.equal(app.nodes.get("launch-dialog").hidden, false);
-  assert.equal(app.document.activeElement, app.nodes.get("cancel-launch"));
-  app.frame(300);
-  app.frame(600);
-  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 0);
-  assert.equal(app.nodes.get("launch-dialog").hidden, false);
-
-  app.pad.buttons[0].pressed = false;
-  app.frame(620);
-  app.pad.buttons[0].pressed = true;
-  app.frame(680);
-  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 0);
-  assert.equal(app.nodes.get("launch-dialog").hidden, true);
-  app.frame(1000);
-  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 0);
-  assert.equal(app.nodes.get("launch-dialog").hidden, true);
+test("titles sort naturally so Level 2 comes before Level 10", () => {
+  const games = [{ id: "1", title: "Level 10" }, { id: "2", title: "Level 2" }];
+  assert.deepEqual(core.filterAndSort(games, "", "title-asc").map((g) => g.title), ["Level 2", "Level 10"]);
 });
 
-test("controller direction focuses Allow network and a separate fresh A confirms it", () => {
-  const app = launcherHarness();
-  app.pad.buttons[0].pressed = true;
-  app.frame(0);
-  app.pad.buttons[0].pressed = false;
-  app.frame(20);
-  app.pad.buttons[15].pressed = true;
-  app.frame(40);
-  assert.equal(app.document.activeElement, app.nodes.get("confirm-launch"));
-  app.pad.buttons[0].pressed = true;
-  app.frame(60);
-  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 1);
-  app.frame(400);
-  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 1);
+test("grid movement stays inside the grid and handles a short last row", () => {
+  // 7 cards in 3 columns:  0 1 2 / 3 4 5 / 6
+  assert.equal(core.gridMove(0, 7, 3, "left"), 0);
+  assert.equal(core.gridMove(2, 7, 3, "right"), 3);
+  assert.equal(core.gridMove(6, 7, 3, "right"), 6);
+  assert.equal(core.gridMove(1, 7, 3, "down"), 4);
+  assert.equal(core.gridMove(4, 7, 3, "down"), 6, "lands on the last card of a short row");
+  assert.equal(core.gridMove(6, 7, 3, "down"), 6);
+  assert.equal(core.gridMove(4, 7, 3, "up"), 1);
+  assert.equal(core.gridMove(1, 7, 3, "up"), 1);
+  assert.equal(core.gridMove(-1, 7, 3, "right"), 1, "an unknown selection starts at the first card");
+  assert.equal(core.gridMove(3, 7, 3, "home"), 0);
+  assert.equal(core.gridMove(3, 7, 3, "end"), 6);
+  assert.equal(core.gridMove(0, 0, 3, "down"), -1);
 });
 
-test("pressing A and right together cannot skip the default Go back choice", () => {
-  const app = launcherHarness();
-  app.pad.buttons[0].pressed = true;
-  app.frame(0);
-  app.pad.buttons[0].pressed = false;
-  app.frame(20);
-  app.pad.buttons[0].pressed = true;
-  app.pad.buttons[15].pressed = true;
-  app.frame(40);
-  assert.equal(app.nodes.get("launch-dialog").hidden, true);
-  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 0);
+test("a held controller button fires once and needs a fresh press", () => {
+  const read = core.createPadReader();
+  assert.deepEqual(read(pad([0]), 0), ["a"]);
+  assert.deepEqual(read(pad([0]), 16), []);
+  assert.deepEqual(read(pad([0]), 2000), [], "holding A never repeats, so it cannot confirm a later dialog");
+  assert.deepEqual(read(pad([]), 2016), []);
+  assert.deepEqual(read(pad([0]), 2032), ["a"]);
 });
 
-test("holding a direction repeats shelf movement without repeating A", () => {
-  const app = launcherHarness([
-    { id: "game-1", title: "First", source_kind: "single_html" },
-    { id: "game-2", title: "Second", source_kind: "zip" },
-  ]);
-  app.pad.buttons[15].pressed = true;
-  app.frame(0);
-  assert.equal(app.nodes.get("hero-title").children[0].textContent, "Second");
-  app.frame(100);
-  assert.equal(app.nodes.get("hero-title").children[0].textContent, "Second");
-  app.frame(300);
-  assert.equal(app.nodes.get("hero-title").children[0].textContent, "First");
-  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 0);
+test("a button pressed before the pad disconnects does not fire again on reconnect while held", () => {
+  const read = core.createPadReader();
+  read(pad([1]), 0);
+  assert.deepEqual(read(null, 16), []);
+  assert.deepEqual(read(pad([1]), 32), ["b"], "a reconnect is a new press");
+  assert.deepEqual(read(pad([1]), 48), []);
 });
 
-test("About keeps publisher credit away from play and controller A only closes it", () => {
-  const app = launcherHarness();
-  app.nodes.get("about-button").click();
-  assert.equal(app.nodes.get("about-dialog").hidden, false);
-  assert.equal(app.document.activeElement, app.nodes.get("close-about"));
-  app.pad.buttons[0].pressed = true;
-  app.frame(0);
-  assert.equal(app.nodes.get("about-dialog").hidden, true);
-  assert.equal(app.nodes.get("launch-dialog").hidden, true);
-  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 0);
+test("held directions repeat after a delay, D-pad and stick map the same", () => {
+  const read = core.createPadReader({ initialDelay: 300, repeatDelay: 100 });
+  assert.deepEqual(read(pad([15]), 0), ["right"]);
+  assert.deepEqual(read(pad([15]), 200), []);
+  assert.deepEqual(read(pad([15]), 300), ["right"]);
+  assert.deepEqual(read(pad([15]), 350), []);
+  assert.deepEqual(read(pad([15]), 400), ["right"]);
+  assert.deepEqual(read(pad([], [0, 0.9]), 410), ["down"], "a new direction fires at once");
+  assert.deepEqual(read(pad([], [0.3, 0.3]), 420), [], "small stick drift is ignored");
+  assert.deepEqual(read(pad([12]), 430), ["up"]);
 });
 
-test("search filters real library cards and clearing it restores selection", () => {
-  const app = launcherHarness([
-    { id: "game-1", title: "Asteroid Run", source_kind: "single_html", entry: "index.html" },
-    { id: "game-2", title: "Puzzle Box", source_kind: "zip", entry: "index.html" },
-  ]);
-  const search = app.nodes.get("library-search");
-  search.value = "puzzle";
-  search.dispatch("input");
-  assert.equal(app.nodes.get("library-content").querySelectorAll(".game-card").length, 1);
-  assert.equal(app.nodes.get("hero-title").children[0].textContent, "Puzzle Box");
-  assert.equal(app.nodes.get("detail-format").textContent, "ZIP archive");
-  assert.equal(app.nodes.get("visible-count").textContent, "1 of 2 shown");
-  search.value = "missing";
-  search.dispatch("input");
-  assert.equal(app.nodes.get("library-content").querySelectorAll(".game-card").length, 0);
-  assert.equal(app.nodes.get("selected-details").hidden, true);
-  app.nodes.get("primary-action").click();
-  assert.equal(search.value, "");
-  assert.equal(app.nodes.get("library-content").querySelectorAll(".game-card").length, 2);
+test("A and a direction in one frame report A first, so Go back is activated before focus moves", () => {
+  const read = core.createPadReader();
+  assert.deepEqual(read(pad([0, 15]), 0), ["a", "right"]);
 });
 
-test("sort changes card order and controller browses the displayed order", () => {
-  const app = launcherHarness([
-    { id: "game-1", title: "Alpha", source_kind: "single_html" },
-    { id: "game-2", title: "Zulu", source_kind: "zip" },
-  ]);
-  const sort = app.nodes.get("library-sort");
-  sort.value = "title-desc";
-  sort.dispatch("change");
-  const cards = app.nodes.get("library-content").querySelectorAll(".game-card");
-  assert.equal(cards[0].dataset.id, "game-2");
-  assert.equal(cards[1].dataset.id, "game-1");
-  app.pad.buttons[15].pressed = true;
-  app.frame(0);
-  assert.equal(app.nodes.get("hero-title").children[0].textContent, "Zulu");
+test("generated covers are stable per game, decorative, and use readable initials", () => {
+  const one = core.cover("6c1f6f7e-0000-4000-8000-000000000001", "Orbit Garden");
+  assert.deepEqual(one, core.cover("6c1f6f7e-0000-4000-8000-000000000001", "Orbit Garden"));
+  assert.equal(one.initials, "OG");
+  assert.ok(one.hue >= 0 && one.hue < 360 && one.pattern >= 0 && one.pattern < 4);
+  assert.notDeepEqual(one, core.cover("6c1f6f7e-0000-4000-8000-000000000002", "Orbit Garden"));
+  assert.equal(core.cover("x", "tetris").initials, "TE");
+  assert.equal(core.cover("x", "  ").initials, "?");
+  assert.equal(core.cover("x", "<script> alert").initials, "SA");
 });
 
-test("duplicate import reports the existing game and clears a hiding search", () => {
-  const app = launcherHarness([{ id: "game-1", title: "Puzzle", source_kind: "zip" }]);
-  const search = app.nodes.get("library-search");
-  search.value = "other";
-  search.dispatch("input");
-  app.nodes.get("add-button").click();
-  assert.equal(app.messages.at(-1).type, "pick_and_import");
-  app.receive({ type: "imported", already_present: true, game: { id: "game-1", title: "Puzzle" } });
-  app.receive({ type: "library", games: [{ id: "game-1", title: "Puzzle", source_kind: "zip" }] });
-  assert.equal(search.value, "");
-  assert.match(app.nodes.get("toast").textContent, /already in your library/);
-  assert.equal(app.nodes.get("library-content").querySelectorAll(".game-card").length, 1);
-});
-
-test("an import error cannot unlock another launch while a player is running", () => {
-  const app = launcherHarness([
-    { id: "game-1", title: "First", source_kind: "single_html" },
-    { id: "game-2", title: "Second", source_kind: "zip" },
-  ]);
-  const cards = app.nodes.get("library-content").querySelectorAll(".game-card");
-  cards[0].click();
-  app.nodes.get("confirm-launch").click();
-  assert.equal(app.messages.filter((message) => message.type === "launch_game").length, 1);
-  app.receive({ type: "error", operation: "import", message: "Import rejected: unsafe ZIP" });
-  cards[1].click();
-  assert.equal(app.nodes.get("launch-dialog").hidden, true);
-  app.receive({ type: "player_exited", id: "game-1", message: "Player closed. Your library is ready." });
-  cards[1].click();
-  assert.equal(app.nodes.get("launch-dialog").hidden, false);
-});
-
-test("a stale player-exited event cannot unlock the active player", () => {
-  const app = launcherHarness([
-    { id: "game-1", title: "First", source_kind: "single_html" },
-    { id: "game-2", title: "Second", source_kind: "zip" },
-  ]);
-  const cards = app.nodes.get("library-content").querySelectorAll(".game-card");
-  cards[0].click();
-  app.nodes.get("confirm-launch").click();
-  app.receive({ type: "player_exited", id: "other-game", message: "Player closed. Your library is ready." });
-  cards[1].click();
-  assert.equal(app.nodes.get("launch-dialog").hidden, true);
-});
-
-test("a library refresh restores focus to the selected replacement card", () => {
-  const games = [{ id: "game-1", title: "First", source_kind: "single_html" }];
-  const app = launcherHarness(games);
-  const oldCard = app.nodes.get("library-content").querySelectorAll(".game-card")[0];
-  oldCard.focus();
-  app.receive({ type: "library", games });
-  const newCard = app.nodes.get("library-content").querySelectorAll(".game-card")[0];
-  assert.notEqual(newCard, oldCard);
-  assert.equal(app.document.activeElement, newCard);
+test("sizes, times, and titles are formatted for people", () => {
+  assert.equal(core.formatBytes(0), "None yet");
+  assert.equal(core.formatBytes(512), "512 B");
+  assert.equal(core.formatBytes(1536), "1.5 KB");
+  assert.equal(core.formatBytes(25 * 1024 * 1024), "25 MB");
+  const now = 1_800_000_000_000;
+  assert.equal(core.formatWhen(null, now), "Never");
+  assert.equal(core.formatWhen(now / 1000 - 20, now), "Just now");
+  assert.equal(core.formatWhen(now / 1000 - 600, now), "10 min ago");
+  assert.equal(core.formatWhen(now / 1000 - 86400 * 1.5, now), "Yesterday");
+  assert.equal(core.formatWhen(now / 1000 - 86400 * 4, now), "4 days ago");
+  assert.equal(core.cleanTitle("  Star\u0007field "), "Starfield");
+  assert.equal(core.cleanTitle("   "), null);
+  assert.equal(core.cleanTitle("x".repeat(81)), null);
+  assert.equal(core.cleanTitle("x".repeat(80)), "x".repeat(80));
 });
