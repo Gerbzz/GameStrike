@@ -72,7 +72,11 @@
       const active = card.dataset.id === id;
       card.classList.toggle("selected", active);
       card.setAttribute("aria-pressed", String(active));
-      if (active && focus) { card.focus(); card.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" }); }
+      if (active && focus) {
+        card.focus();
+        const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+        card.scrollIntoView({ block: "nearest", inline: "nearest", behavior: reduceMotion ? "auto" : "smooth" });
+      }
     }
     try { sessionStorage.setItem("gamestrike-last-game", id); } catch (_) { /* optional preference */ }
   }
@@ -98,10 +102,9 @@
     shelf.replaceChildren();
     if (!games.length) {
       const empty = document.createElement("div"); empty.className = "empty-state";
-      const number = document.createElement("div"); number.className = "empty-number"; number.textContent = "01";
       const heading = document.createElement("h3"); heading.textContent = state.games.length ? "No matching games" : "Your shelf starts here";
       const body = document.createElement("p"); body.textContent = state.games.length ? "Try a different title, or clear the search to see your collection." : "Choose a downloaded HTML file or a ZIP with an index.html at its root. Your files stay on this PC.";
-      empty.append(number, heading, body); shelf.append(empty);
+      empty.append(heading, body); shelf.append(empty);
       state.selectedId = null;
       $("hero-title").innerHTML = state.games.length ? "Nothing found." : "Your games.<br><em>Right here.</em>";
       $("hero-description").textContent = state.games.length ? "Your collection is still here. Clear the search to browse every game." : "A home for the HTML games you keep. Add a downloaded HTML file or ZIP archive, then launch it in its own player window.";
