@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-function launcherHarness(games = [{ id: "game-1", title: "Safe Fixture", source_kind: "single_html" }]) {
+function launcherHarness(games = [{ id: "game-1", title: "Safe Fixture", source_kind: "single_html" }], reducedMotion = false) {
   const nodes = new Map();
   const frames = [];
   const messages = [];
@@ -26,7 +26,7 @@ function launcherHarness(games = [{ id: "game-1", title: "Safe Fixture", source_
       append(...children) { this.children.push(...children); },
       replaceChildren(...children) { this.children = children; },
       setAttribute() {},
-      scrollIntoView() {},
+      scrollIntoView(options) { this.lastScrollOptions = options; },
       querySelectorAll(selector) {
         const found = [];
         function visit(item) {
@@ -55,7 +55,7 @@ function launcherHarness(games = [{ id: "game-1", title: "Safe Fixture", source_
   const storage = new Map();
   const context = {
     document,
-    window: { ipc: { postMessage: (value) => messages.push(JSON.parse(value)) } },
+    window: { ipc: { postMessage: (value) => messages.push(JSON.parse(value)) }, matchMedia: () => ({ matches: reducedMotion }) },
     navigator: { getGamepads: () => [pad] },
     performance: { now: () => now },
     requestAnimationFrame: (callback) => frames.push(callback),
@@ -74,6 +74,20 @@ function launcherHarness(games = [{ id: "game-1", title: "Safe Fixture", source_
     frame(time) { now = time; assert.ok(frames.length, "a gamepad poll must be scheduled"); frames.shift()(); },
   };
 }
+
+test("controller focus respects reduced motion preference", () => {
+  const games = [
+    { id: "game-1", title: "First", source_kind: "single_html" },
+    { id: "game-2", title: "Second", source_kind: "single_html" },
+  ];
+  for (const [reducedMotion, behavior] of [[false, "smooth"], [true, "auto"]]) {
+    const app = launcherHarness(games, reducedMotion);
+    app.pad.buttons[15].pressed = true;
+    app.frame(0);
+    const card = app.nodes.get("library-content").querySelectorAll(".game-card")[1];
+    assert.equal(card.lastScrollOptions.behavior, behavior);
+  }
+});
 
 test("a held controller A cannot accept network access and a fresh A activates Go back", () => {
   const app = launcherHarness();
