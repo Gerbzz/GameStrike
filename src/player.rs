@@ -206,7 +206,10 @@ mod windows_player {
         }
         let blocked = Arc::new(AtomicUsize::new(0));
         let browser_args = if mode.offline() {
-            let port = start_sinkhole_proxy(Arc::clone(&blocked))?;
+            let port = start_sinkhole_proxy(
+                Arc::clone(&blocked),
+                format!("gamestrike{}.localhost", id.simple()),
+            )?;
             offline_browser_args(port)
         } else {
             BASE_BROWSER_ARGS.to_owned()
@@ -348,13 +351,37 @@ mod windows_player {
     }
 
     /// Accepts each proxy connection, counts it, and answers 403 without contacting anything.
-    fn start_sinkhole_proxy(blocked: Arc<AtomicUsize>) -> io::Result<u16> {
+    /// WebView2 itself contacts Microsoft configuration services, and the runtime asks for a few
+    /// URLs on the game's own origin outside the custom protocol. Neither is the game reaching
+    /// out, so neither is counted in the summary shown to the player. Both are still blocked.
+    fn counts_as_game_request(target: &str, own_host: &str) -> bool {
+        let host = target.rsplit_once(':').map_or(target, |(host, _)| host);
+        let host = host
+            .trim_start_matches("http://")
+            .trim_start_matches("https://");
+        let host = host.split('/').next().unwrap_or(host).to_ascii_lowercase();
+        const RUNTIME: [&str; 6] = [
+            "skype.com",
+            "microsoft.com",
+            "msedge.net",
+            "live.com",
+            "windows.com",
+            "bing.com",
+        ];
+        !host.is_empty()
+            && host != "unknown"
+            && host != own_host
+            && !RUNTIME
+                .iter()
+                .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
+    }
+
+    fn start_sinkhole_proxy(blocked: Arc<AtomicUsize>, own_host: String) -> io::Result<u16> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         let port = listener.local_addr()?.port();
         thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { continue };
-                blocked.fetch_add(1, Ordering::SeqCst);
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
                 let mut head = [0u8; 512];
                 let count = stream.read(&mut head).unwrap_or(0);
@@ -364,6 +391,9 @@ mod windows_player {
                     .next()
                     .and_then(|line| line.split_whitespace().nth(1))
                     .unwrap_or("unknown");
+                if counts_as_game_request(target, &own_host) {
+                    blocked.fetch_add(1, Ordering::SeqCst);
+                }
                 eprintln!("GameStrike offline mode blocked a request to {target}");
                 let _ = stream.write_all(
                     b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
@@ -771,15 +801,33 @@ mod windows_player {
         #[test]
         fn sinkhole_proxy_answers_403_and_counts_attempts() {
             let blocked = Arc::new(AtomicUsize::new(0));
-            let port = start_sinkhole_proxy(Arc::clone(&blocked)).unwrap();
+            let port =
+                start_sinkhole_proxy(Arc::clone(&blocked), "game.localhost".to_owned()).unwrap();
             let mut stream = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
             stream
-                .write_all(b"CONNECT example.invalid:443 HTTP/1.1\r\nHost: example.invalid\r\n\r\n")
+                .write_all(b"CONNECT example.test:443 HTTP/1.1\r\nHost: example.test\r\n\r\n")
                 .unwrap();
             let mut reply = String::new();
             stream.read_to_string(&mut reply).unwrap();
             assert!(reply.starts_with("HTTP/1.1 403"), "{reply}");
             assert_eq!(blocked.load(Ordering::SeqCst), 1);
+        }
+
+        #[test]
+        fn runtime_and_own_origin_requests_are_blocked_but_not_blamed_on_the_game() {
+            let own = "gamestrikeabc.localhost";
+            assert!(counts_as_game_request("cdn.example.test:443", own));
+            assert!(counts_as_game_request("http://127.0.0.1:8080/x", own));
+            for target in [
+                "config.edge.skype.com:443",
+                "gamestrikeabc.localhost:443",
+                "unknown",
+                "edge.microsoft.com:443",
+                "microsoft.com:443",
+            ] {
+                assert!(!counts_as_game_request(target, own), "{target}");
+            }
+            assert!(counts_as_game_request("notmicrosoft.com:443", own));
         }
 
         #[test]

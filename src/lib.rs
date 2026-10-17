@@ -611,7 +611,8 @@ fn hash_content_tree(root: &Path) -> Result<String> {
 }
 
 fn import_zip(source: &Path, content: &Path) -> Result<()> {
-    let mut archive = ZipArchive::new(File::open(source)?)?;
+    let mut archive = ZipArchive::new(File::open(source)?)
+        .map_err(|_| invalid("the file is not a valid ZIP archive"))?;
     if archive.is_empty() || archive.len() > MAX_FILES {
         return Err(invalid("ZIP has no entries or too many entries").into());
     }
