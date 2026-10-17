@@ -23,3 +23,16 @@ jobs:
         run: cargo test --locked --features launcher-windows --lib --bin gamestrike-launcher --bin gamestrike-player -j 2
       - name: Build launcher and player
         run: cargo build --locked --features launcher-windows --bin gamestrike-launcher --bin gamestrike-player -j 2
+      - name: Build fixture importer
+        run: cargo build --locked --bin gamestrike -j 2
+      - name: Capture hosted launcher
+        shell: pwsh
+        run: ./scripts/hosted-library-capture.ps1
+      - name: Upload launcher PNG
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamestrike-library-visual
+          path: ${{ runner.temp }}/gamestrike-library-visual/launcher.png
+          if-no-files-found: ignore
+          retention-days: 1
