@@ -33,10 +33,16 @@ The [880 × 620 minimum-window capture](docs/screenshots/local-library-minimum.p
 
 ![Actual GameStrike About dialog with the authentic PWDS publisher logo](docs/screenshots/about-publisher.png)
 
+**Wrapped ZIP import through the native picker (hosted Windows runner)**
+
+![GameStrike library showing the synthetic Wrapped Probe ZIP after reopening the launcher](docs/images/wrapped-zip-import-library.png)
+
+This unedited 1028 × 749 WebView2 app-window PNG (SHA-256 `69eb7861765b1f57c2239755147f056f45864903770caab88f00438495341df2`) came from [Windows run 38983601475](https://github.com/Gerbzz/GameStrike/actions/runs/38983601475) at [test-only commit `3692195`](https://github.com/Gerbzz/GameStrike/commit/3692195fcc160844921661b98fc8769a3c6dc5d7), stacked on wrapper-import source commit `9f33113`. The first real launcher imported a tiny synthetic ZIP through the native file picker; a second launcher instance reopened the same isolated library for this capture. The ZIP contained `Wrapped Probe/index.html` and relative `assets/save.js`. The visible card confirms the library entry persisted across launcher instances. The image shows the library window only, not the picker or player. The hosted runner had a high-integrity token, so the player correctly refused to open; asset execution, player return, and save persistence were not verified. The [original CI artifact](https://github.com/Gerbzz/GameStrike/actions/runs/38983601475/artifacts/12082207731) is retained for seven days.
+
 ## How it works
 
 1. Open the **GameStrike library**. It starts with a welcome view until you import a game, then puts your actual local collection first. Title-led cards show source format and unknown controller/network status without inventing cover art.
-2. Choose **Add game** and select a `.html`, `.htm`, or `.zip` file from the Windows file picker. A ZIP needs `index.html` at its root. The library copies and validates the source; it does not run install scripts or upload the file.
+2. Choose **Add game** and select a `.html`, `.htm`, or `.zip` file from the Windows file picker. A ZIP needs `index.html` at its root or inside one wrapper directory. The library copies and validates the source; it does not run install scripts or upload the file.
 3. Choose a card to review the launch warning. **Allow network & launch** opens that game's generated ID in the separate `gamestrike-player.exe` process. The library reports a missing player or a player exit instead of pretending launch succeeded.
 
 Arrow keys, Enter, and Escape navigate the library. The launcher also polls a connected controller for D-pad/left-stick navigation, A to activate the focused choice, and B to back out of the launch dialog. The launch dialog starts on **Go back**; moving right focuses **Allow network & launch** before a fresh A can approve it. Those controls apply to the library only; each imported game's own controller support is **unknown**.
@@ -47,7 +53,7 @@ The original GameStrike fox anchors the library. Its About panel carries the off
 
 ### Bounded import
 
-Import one HTML file or a ZIP with a root `index.html`. GameStrike copies bounded content into `LIBRARY/games/<id>/content`, assigns an ID, and writes its own `game.json`. It rejects traversal, absolute and device paths, links and special files, case-insensitive duplicates, unsupported compression, and archives that exceed its size or entry limits. Formats with a nested or nonstandard entry point are not supported yet.
+Import one HTML file or a ZIP with `index.html` at its root or directly inside one wrapper directory. For wrapped ZIPs, GameStrike removes the wrapper while copying files into `LIBRARY/games/<id>/content`, so relative assets keep working. It assigns an ID and writes its own `game.json`. It rejects traversal, absolute and device paths, links and special files, case-insensitive duplicates, ambiguous entry points, files outside a wrapper, unsupported compression, and archives that exceed its size or entry limits. Deeper or nonstandard entry points are not supported.
 
 ### Separate browser data
 

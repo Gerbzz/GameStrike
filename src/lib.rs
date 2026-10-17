@@ -324,7 +324,7 @@ fn import_zip(source: &Path, content: &Path) -> Result<()> {
     let mut entries = Vec::with_capacity(archive.len());
     let mut seen = HashSet::new();
     let mut regular_files = HashSet::new();
-    let mut found_entry = false;
+    let mut entry_points = Vec::new();
     let mut total = 0;
 
     // Decompress every member to a sink before creating extracted files. This checks
@@ -358,14 +358,29 @@ fn import_zip(source: &Path, content: &Path) -> Result<()> {
                 return Err(invalid("ZIP member expands excessively").into());
             }
             copy_bounded(&mut file, &mut io::sink(), &mut total, MAX_FILE_BYTES)?;
-            if relative == Path::new("index.html") {
-                found_entry = true;
+            if relative.components().count() <= 2
+                && relative.file_name().is_some_and(|name| {
+                    name.to_str()
+                        .is_some_and(|name| name.eq_ignore_ascii_case("index.html"))
+                })
+            {
+                entry_points.push(relative.clone());
             }
         }
         entries.push((relative, is_dir));
     }
-    if !found_entry {
-        return Err(invalid("ZIP needs a root index.html entry point").into());
+    let entry = match entry_points.as_slice() {
+        [entry] if entry.file_name().is_some_and(|name| name == "index.html") => entry,
+        [] => return Err(invalid("ZIP needs a root or single-wrapper index.html").into()),
+        _ => return Err(invalid("ZIP has ambiguous entry points").into()),
+    };
+    let wrapper = entry.parent().filter(|path| !path.as_os_str().is_empty());
+    if let Some(wrapper) = wrapper {
+        if entries.iter().any(|(relative, is_dir)| {
+            !relative.starts_with(wrapper) || (relative == wrapper && !*is_dir)
+        }) {
+            return Err(invalid("ZIP has files outside its entry-point wrapper").into());
+        }
     }
     for (relative, _) in &entries {
         let mut parent = relative.parent();
@@ -383,7 +398,15 @@ fn import_zip(source: &Path, content: &Path) -> Result<()> {
     // The same archive handle is reused. The extraction pass enforces byte limits again.
     total = 0;
     for (index, (relative, is_dir)) in entries.iter().enumerate() {
-        let path = content.join(relative);
+        let extracted = if let Some(wrapper) = wrapper {
+            relative.strip_prefix(wrapper)?
+        } else {
+            relative.as_path()
+        };
+        if extracted.as_os_str().is_empty() {
+            continue;
+        }
+        let path = content.join(extracted);
         if *is_dir {
             fs::create_dir_all(&path)?;
             continue;
@@ -505,8 +528,13 @@ mod tests {
         let file = File::create(path).unwrap();
         let mut zip = ZipWriter::new(file);
         for (name, body) in entries {
-            zip.start_file(*name, SimpleFileOptions::default()).unwrap();
-            zip.write_all(body).unwrap();
+            if name.ends_with('/') {
+                zip.add_directory(*name, SimpleFileOptions::default())
+                    .unwrap();
+            } else {
+                zip.start_file(*name, SimpleFileOptions::default()).unwrap();
+                zip.write_all(body).unwrap();
+            }
         }
         zip.finish().unwrap();
     }
@@ -829,6 +857,157 @@ mod tests {
             fs::read(content.join("code.js")).unwrap(),
             b"localStorage.setItem('score','7')"
         );
+    }
+
+    #[test]
+    fn wrapped_zip_import_keeps_relative_assets_and_reuses_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("wrapped.zip");
+        archive(
+            &source,
+            &[
+                ("Arcade/", b""),
+                (
+                    "Arcade/index.html",
+                    b"<link rel=\"stylesheet\" href=\"assets/game.css\"><script src=\"assets/game.js\"></script>",
+                ),
+                ("Arcade/assets/", b""),
+                ("Arcade/assets/game.css", b"body { color: orange }"),
+                ("Arcade/assets/game.js", b"window.gameLoaded = true"),
+            ],
+        );
+        let root = dir.path().join("library");
+        let library = Library::open(&root).unwrap();
+        let first = library.import_with_result(&source).unwrap();
+        assert!(!first.already_present);
+        assert_eq!(first.game.entry, "index.html");
+        let (content, profile) = library.player_paths(first.game.id).unwrap();
+        assert!(
+            fs::read_to_string(content.join("index.html"))
+                .unwrap()
+                .contains("assets/game.js")
+        );
+        assert_eq!(
+            fs::read(content.join("assets/game.css")).unwrap(),
+            b"body { color: orange }"
+        );
+        assert_eq!(
+            fs::read(content.join("assets/game.js")).unwrap(),
+            b"window.gameLoaded = true"
+        );
+        assert!(!content.join("Arcade").exists());
+        fs::write(profile.join("save-marker"), b"keep progress").unwrap();
+        let second = library.import_with_result(&source).unwrap();
+        assert!(second.already_present);
+        assert_eq!(second.game.id, first.game.id);
+        assert_eq!(
+            fs::read(profile.join("save-marker")).unwrap(),
+            b"keep progress"
+        );
+        assert_eq!(library.list().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn wrapped_zip_without_explicit_directory_entries_imports() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("wrapped.zip");
+        archive(
+            &source,
+            &[
+                ("Game/index.html", b"<script src=\"js/start.js\"></script>"),
+                ("Game/js/start.js", b"window.started = true"),
+            ],
+        );
+        let library = Library::open(dir.path().join("library")).unwrap();
+        let game = library.import(&source).unwrap();
+        let (content, _) = library.player_paths(game.id).unwrap();
+        assert_eq!(
+            fs::read(content.join("js/start.js")).unwrap(),
+            b"window.started = true"
+        );
+        assert!(content.join("index.html").is_file());
+    }
+
+    #[test]
+    fn wrapped_zip_rejects_ambiguous_and_unsafe_layouts_atomically() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let library = Library::open(&root).unwrap();
+        let existing_source = dir.path().join("existing.html");
+        fs::write(&existing_source, b"<html>existing</html>").unwrap();
+        let existing = library.import(&existing_source).unwrap();
+        let (_, profile) = library.player_paths(existing.id).unwrap();
+        fs::write(profile.join("save-marker"), b"keep progress").unwrap();
+
+        let source = dir.path().join("rejected.zip");
+        for (case, entries) in [
+            (
+                "two wrappers",
+                &[
+                    ("One/index.html", b"one".as_slice()),
+                    ("Two/index.html", b"two"),
+                ][..],
+            ),
+            (
+                "root and wrapper",
+                &[
+                    ("index.html", b"root".as_slice()),
+                    ("Game/index.html", b"nested"),
+                ][..],
+            ),
+            (
+                "outside wrapper",
+                &[
+                    ("Game/index.html", b"game".as_slice()),
+                    ("readme.txt", b"extra"),
+                ][..],
+            ),
+            (
+                "nested wrapper",
+                &[("Outer/Inner/index.html", b"too deep".as_slice())][..],
+            ),
+            (
+                "case collision",
+                &[
+                    ("Game/index.html", b"one".as_slice()),
+                    ("game/INDEX.HTML", b"two"),
+                ][..],
+            ),
+            (
+                "traversal",
+                &[
+                    ("Game/index.html", b"game".as_slice()),
+                    ("Game/../escape.txt", b"bad"),
+                ][..],
+            ),
+            (
+                "absolute path",
+                &[
+                    ("Game/index.html", b"game".as_slice()),
+                    ("/escape.txt", b"bad"),
+                ][..],
+            ),
+        ] {
+            archive(&source, entries);
+            assert!(library.import(&source).is_err(), "{case}");
+            assert_eq!(library.list().unwrap(), vec![existing.clone()], "{case}");
+            assert_eq!(
+                fs::read(profile.join("save-marker")).unwrap(),
+                b"keep progress",
+                "{case}"
+            );
+            assert_eq!(
+                fs::read_dir(root.join("incoming")).unwrap().count(),
+                0,
+                "{case}"
+            );
+            assert_eq!(
+                fs::read_dir(root.join("games")).unwrap().count(),
+                1,
+                "{case}"
+            );
+        }
+        assert!(!dir.path().join("escape.txt").exists());
     }
 
     #[test]
