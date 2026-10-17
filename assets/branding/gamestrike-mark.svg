@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">GameStrike</title>
+  <desc id="desc">Two layered game cards frame a four-way control and a pair of play buttons.</desc>
+  <defs>
+    <linearGradient id="tile" x1="30" y1="25" x2="224" y2="231" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#293D88"/>
+      <stop offset="1" stop-color="#171E4B"/>
+    </linearGradient>
+    <linearGradient id="back" x1="45" y1="45" x2="196" y2="189" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#72E2EF"/>
+      <stop offset="1" stop-color="#4CA9EF"/>
+    </linearGradient>
+    <linearGradient id="front" x1="63" y1="70" x2="203" y2="204" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#627FEF"/>
+      <stop offset=".58" stop-color="#4B63C3"/>
+      <stop offset="1" stop-color="#354493"/>
+    </linearGradient>
+    <linearGradient id="buttons" x1="158" y1="107" x2="196" y2="159" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFC076"/>
+      <stop offset="1" stop-color="#FF8D62"/>
+    </linearGradient>
+  </defs>
+  <rect x="20" y="20" width="216" height="216" rx="52" fill="url(#tile)"/>
+  <path d="M58 49 167 36c11-2 20 5 22 16l16 111c2 11-5 20-16 22L80 199c-11 2-20-5-22-16L42 72c-2-11 5-21 16-23Z" fill="url(#back)"/>
+  <rect x="52" y="67" width="159" height="140" rx="29" fill="url(#front)"/>
+  <path d="M77 67h106c16 0 28 12 28 28v15c-21-21-50-32-87-32H52c6-7 15-11 25-11Z" fill="#BAC5FF" opacity=".14"/>
+  <rect x="86" y="126" width="59" height="19" rx="9.5" fill="#9CEEF2"/>
+  <rect x="106" y="106" width="19" height="59" rx="9.5" fill="#9CEEF2"/>
+  <circle cx="174" cy="114" r="12" fill="url(#buttons)"/>
+  <circle cx="160" cy="147" r="12" fill="url(#buttons)"/>
+</svg>
+
