@@ -72,7 +72,11 @@
       const active = card.dataset.id === id;
       card.classList.toggle("selected", active);
       card.setAttribute("aria-pressed", String(active));
-      if (active && focus) { card.focus(); card.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" }); }
+      if (active && focus) {
+        card.focus();
+        const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+        card.scrollIntoView({ block: "nearest", inline: "nearest", behavior: reduceMotion ? "auto" : "smooth" });
+      }
     }
     try { sessionStorage.setItem("gamestrike-last-game", id); } catch (_) { /* optional preference */ }
   }
