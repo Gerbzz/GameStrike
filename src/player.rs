@@ -725,6 +725,22 @@ mod windows_player {
         }
 
         #[test]
+        fn player_source_registers_no_host_bridge() {
+            // Built from pieces so this test does not match itself.
+            let source = include_str!("player.rs");
+            for forbidden in [
+                ["with_ipc", "_handler"].concat(),
+                ["add_Web", "MessageReceived"].concat(),
+                ["AddHost", "ObjectToScript"].concat(),
+                ["with_initialization", "_script"].concat(),
+                ["SetAreHostObjectsAllowed(", "true"].concat(),
+                ["SetIsWebMessageEnabled(", "true"].concat(),
+            ] {
+                assert!(!source.contains(&forbidden), "{forbidden}");
+            }
+        }
+
+        #[test]
         fn network_needs_an_explicit_flag_and_unknown_modes_fail() {
             assert_eq!(Mode::parse(Some("--offline")), Some(Mode::Offline));
             assert!(Mode::Offline.offline());
