@@ -1,0 +1,56 @@
+name: Windows source checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "claude/**"
+  workflow_dispatch:
+
+jobs:
+  launcher:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: JavaScript syntax
+        run: |
+          node --check ui/core.js
+          node --check ui/app.js
+      - name: Launcher logic tests
+        run: node --test ui/app.test.cjs
+      - name: Clippy
+        run: cargo clippy --locked --features launcher-windows --all-targets -- -D warnings
+      - name: Rust tests
+        run: cargo test --locked --features launcher-windows
+      - name: Real player isolation test
+        run: cargo test --locked --features launcher-windows --test player_isolation -- --ignored --nocapture
+      - name: Build launcher, player, and CLI
+        run: cargo build --locked --features launcher-windows --bins
+      - name: Capture launcher views
+        shell: pwsh
+        run: ./scripts/hosted-library-capture.ps1
+      - name: Upload launcher PNGs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamestrike-library-visual
+          path: ${{ runner.temp }}/gamestrike-library-visual/*.png
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload Windows binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamestrike-windows-debug
+          path: |
+            target/debug/gamestrike.exe
+            target/debug/gamestrike-launcher.exe
+            target/debug/gamestrike-player.exe
+          retention-days: 7
