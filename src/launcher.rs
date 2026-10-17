@@ -504,7 +504,14 @@ mod windows_launcher {
                 .unwrap();
             let mark_response = serve_ui(mark);
             assert_eq!(mark_response.status(), StatusCode::OK);
-            assert_eq!(mark_response.headers().get(header::CONTENT_TYPE).unwrap(), "image/svg+xml");
+            assert_eq!(
+                mark_response
+                    .headers()
+                    .get(header::CONTENT_TYPE)
+                    .unwrap()
+                    .as_bytes(),
+                b"image/svg+xml"
+            );
             assert!(mark_response.body().as_ref().starts_with(b"<svg"));
 
             for url in [
