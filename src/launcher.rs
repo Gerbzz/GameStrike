@@ -156,11 +156,11 @@ mod windows_launcher {
                             thread::sleep(Duration::from_millis(450));
                             let _ = proxy.send_event(UiEvent::CapturePreview);
                         });
-                    } else if let Some(path) = capture_path.take() {
-                        if let Err(error) = capture_preview(&webview, path, background_proxy.clone()) {
-                            eprintln!("Could not capture launcher: {error}");
-                            std::process::exit(2);
-                        }
+                    } else if let Some(path) = capture_path.take()
+                        && let Err(error) = capture_preview(&webview, path, background_proxy.clone())
+                    {
+                        eprintln!("Could not capture launcher: {error}");
+                        std::process::exit(2);
                     }
                 }
                 Event::UserEvent(UiEvent::CaptureComplete(result)) => {
@@ -403,8 +403,10 @@ mod windows_launcher {
         }
     }
 
-    fn launch_options()
-    -> Result<(PathBuf, Option<PathBuf>, LogicalSize<f64>, CaptureView), Box<dyn Error>> {
+    /// Library root, optional capture PNG, window size, and capture view.
+    type LaunchOptions = (PathBuf, Option<PathBuf>, LogicalSize<f64>, CaptureView);
+
+    fn launch_options() -> Result<LaunchOptions, Box<dyn Error>> {
         let args: Vec<_> = env::args_os().collect();
         let default_size = LogicalSize::new(1250.0, 800.0);
         match args.as_slice() {
