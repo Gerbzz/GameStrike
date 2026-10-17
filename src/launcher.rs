@@ -96,10 +96,13 @@ mod windows_launcher {
             .with_title("GameStrike")
             .with_inner_size(window_size)
             .with_min_inner_size(LogicalSize::new(880.0, 620.0))
+            // Preview captures run beside the user's work, so they never take focus.
+            .with_focused(capture_path.is_none())
             .build(&event_loop)?;
         let proxy = event_loop.create_proxy();
         let background_proxy = event_loop.create_proxy();
         let webview = WebViewBuilder::new()
+            .with_focused(capture_path.is_none())
             .with_custom_protocol("gamestrikeui".into(), |_, request| serve_ui(request))
             .with_https_scheme(true)
             .with_url("gamestrikeui://localhost/index.html")

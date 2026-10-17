@@ -104,3 +104,15 @@ test("sizes, times, and titles are formatted for people", () => {
   assert.equal(core.cleanTitle("x".repeat(81)), null);
   assert.equal(core.cleanTitle("x".repeat(80)), "x".repeat(80));
 });
+
+test("shelves move like a console dashboard and skip empty rows", () => {
+  const rows = [3, 0, 6];
+  assert.deepEqual(core.shelfMove(rows, { row: 0, col: 2 }, "right"), { row: 0, col: 2 }, "stops at the end of a shelf");
+  assert.deepEqual(core.shelfMove(rows, { row: 0, col: 2 }, "down"), { row: 2, col: 2 }, "skips the empty shelf");
+  assert.deepEqual(core.shelfMove(rows, { row: 2, col: 5 }, "up"), { row: 0, col: 2 }, "clamps to the shorter shelf");
+  assert.deepEqual(core.shelfMove(rows, { row: 0, col: 1 }, "up"), { row: 0, col: 1 });
+  assert.deepEqual(core.shelfMove(rows, { row: 2, col: 3 }, "home"), { row: 2, col: 0 });
+  assert.deepEqual(core.shelfMove(rows, { row: 2, col: 0 }, "end"), { row: 2, col: 5 });
+  assert.deepEqual(core.shelfMove([0, 4], { row: 0, col: 9 }, "left"), { row: 1, col: 2 }, "an invalid position recovers");
+  assert.equal(core.shelfMove([0, 0], { row: 0, col: 0 }, "down"), null);
+});

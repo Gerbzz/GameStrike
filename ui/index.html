@@ -11,8 +11,10 @@
   <script src="/app.js" defer></script>
 </head>
 <body>
+  <div class="ambient" aria-hidden="true"><span class="orb one"></span><span class="orb two"></span><span class="orb three"></span><span class="sweep"></span></div>
+
   <div id="splash" class="splash" aria-hidden="true">
-    <img class="splash-mark" src="/mark.svg" alt="">
+    <div class="splash-ring"><img class="splash-mark" src="/mark.svg" alt=""></div>
     <div class="splash-name">GameStrike</div>
     <div class="splash-publisher"><span>by</span><img src="/pwds.svg" alt="PWDS"></div>
   </div>
@@ -37,15 +39,42 @@
         </label>
       </div>
       <div class="top-actions">
-        <button id="add-button" class="button primary" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>Add game</button>
+        <button id="add-button" class="pill add" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>Add game</button>
+        <button id="sound-button" class="icon-button" type="button" aria-pressed="true" aria-label="Interface sounds" title="Interface sounds"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 8h3l4-3v10l-4-3H4z"/><path class="wave" d="M14 7.5a3.5 3.5 0 0 1 0 5M16 5.5a6.5 6.5 0 0 1 0 9"/><path class="mute" d="m14 8 4 4m0-4-4 4"/></svg></button>
         <button id="about-button" class="icon-button" type="button" aria-label="About GameStrike" title="About GameStrike"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5"/><path d="M10 9v5M10 6.2v.1"/></svg></button>
+        <time id="clock" class="clock"></time>
       </div>
     </header>
 
-    <main class="workspace">
-      <section class="library" aria-labelledby="library-title">
+    <main class="dashboard">
+      <section id="hero" class="hero" aria-labelledby="detail-title" hidden>
+        <div class="hero-art">
+          <div id="detail-cover" class="cover large" aria-hidden="true"><span></span></div>
+          <div class="reflection" aria-hidden="true"></div>
+        </div>
+        <div class="hero-info">
+          <div class="hero-kicker"><span id="hero-kicker">Selected game</span><span id="detail-badges" class="badges"></span></div>
+          <h1 id="detail-title"></h1>
+          <ul class="chips" aria-label="Game details">
+            <li id="detail-source"></li>
+            <li id="detail-played"></li>
+            <li id="detail-saves"></li>
+            <li>Controller: not checked</li>
+            <li>Network need: not checked</li>
+          </ul>
+          <div class="play-actions">
+            <button id="play-button" class="action primary" type="button"><span class="glyph a" aria-hidden="true">A</span>Play offline</button>
+            <button id="network-button" class="action" type="button"><span class="glyph x" aria-hidden="true">X</span>Play with network…</button>
+            <button id="manage-button" class="action" type="button"><span class="glyph y" aria-hidden="true">Y</span>Manage</button>
+          </div>
+          <p id="detail-note" class="note">Offline play blocks the game's network requests. Its saves stay in this game's own browser profile.</p>
+          <p class="added-line">Added <span id="detail-added"></span></p>
+        </div>
+      </section>
+
+      <section class="shelves" aria-label="Library">
         <div class="library-head">
-          <h1 id="library-title">Library</h1>
+          <h2 id="library-title" class="sr-only">Library</h2>
           <span id="game-count" class="count"></span>
           <span id="visible-count" class="count filtered" role="status" aria-live="polite"></span>
           <button id="problems-button" class="link-button warn" type="button" hidden></button>
@@ -54,41 +83,15 @@
           <div class="loading">Opening your library…</div>
         </div>
       </section>
-
-      <aside id="details" class="details" aria-labelledby="detail-title" hidden>
-        <div id="detail-cover" class="cover large" aria-hidden="true"><span></span></div>
-        <div class="detail-body">
-          <div id="detail-badges" class="badges"></div>
-          <h2 id="detail-title"></h2>
-          <dl class="facts">
-            <div><dt>Source</dt><dd id="detail-source"></dd></div>
-            <div><dt>Added</dt><dd id="detail-added"></dd></div>
-            <div><dt>Last played</dt><dd id="detail-played"></dd></div>
-            <div><dt>Game data on this PC</dt><dd id="detail-saves"></dd></div>
-            <div><dt>Controller support</dt><dd>Not checked</dd></div>
-            <div><dt>Needs network</dt><dd>Not checked</dd></div>
-          </dl>
-          <div class="play-actions">
-            <button id="play-button" class="button primary large" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 4.5v11l9-5.5z"/></svg>Play offline</button>
-            <button id="network-button" class="button secondary" type="button">Play with network…</button>
-          </div>
-          <p id="detail-note" class="note">Offline play blocks the game's network requests. Its saves stay in this game's own browser profile.</p>
-          <div class="manage-actions" role="group" aria-label="Manage game">
-            <button id="rename-button" class="link-button" type="button">Rename</button>
-            <button id="reset-button" class="link-button" type="button">Clear saves</button>
-            <button id="remove-button" class="link-button danger" type="button">Remove</button>
-          </div>
-        </div>
-      </aside>
     </main>
 
     <footer class="statusbar">
       <div class="hints" aria-hidden="true">
-        <span><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> Browse</span>
-        <span><kbd>Enter</kbd><kbd class="pad">A</kbd> Play offline</span>
-        <span><kbd>N</kbd><kbd class="pad">X</kbd> Network</span>
-        <span><kbd>F2</kbd><kbd class="pad">Y</kbd> Manage</span>
-        <span><kbd>Esc</kbd><kbd class="pad">B</kbd> Back</span>
+        <span><span class="glyph a">A</span>Play</span>
+        <span><span class="glyph x">X</span>Network</span>
+        <span><span class="glyph y">Y</span>Manage</span>
+        <span><span class="glyph b">B</span>Back</span>
+        <span class="keys"><kbd>Enter</kbd> play · <kbd>N</kbd> network · <kbd>F2</kbd> rename · <kbd>Del</kbd> remove · <kbd>Esc</kbd> back</span>
       </div>
       <div id="now-playing" class="now-playing" role="status" aria-live="polite"></div>
     </footer>
@@ -102,7 +105,7 @@
       <h2 id="network-title">Play with network?</h2>
       <p id="network-copy">The game will be able to contact websites and services on your network while it runs. Only allow this for games you trust. Choose offline play if you are unsure.</p>
       <div class="dialog-actions">
-        <button id="network-cancel" class="button secondary" type="button">Go back</button>
+        <button id="network-cancel" class="button secondary" type="button"><span class="glyph b" aria-hidden="true">B</span>Go back</button>
         <button id="network-confirm" class="button primary" type="button">Allow network &amp; play</button>
       </div>
     </section>
@@ -116,7 +119,7 @@
         <button id="manage-rename" class="button secondary" type="button">Rename</button>
         <button id="manage-reset" class="button secondary" type="button">Clear saves</button>
         <button id="manage-remove" class="button secondary danger" type="button">Remove from library</button>
-        <button id="manage-close" class="button ghost" type="button">Back</button>
+        <button id="manage-close" class="button ghost" type="button"><span class="glyph b" aria-hidden="true">B</span>Back</button>
       </div>
     </section>
   </div>

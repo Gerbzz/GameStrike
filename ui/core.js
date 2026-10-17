@@ -45,6 +45,27 @@
     }
   }
 
+  // Console-style shelves: left/right within a row, up/down between rows keeping the column
+  // where possible. `rows` is an array of row lengths; `pos` is { row, col }.
+  function shelfMove(rows, pos, direction) {
+    const nonEmpty = rows.map((length, row) => ({ length, row })).filter((entry) => entry.length > 0);
+    if (!nonEmpty.length) return null;
+    let row = Math.min(Math.max(pos?.row ?? nonEmpty[0].row, 0), rows.length - 1);
+    if (!rows[row]) row = nonEmpty[0].row;
+    let col = Math.min(Math.max(pos?.col ?? 0, 0), rows[row] - 1);
+    if (direction === "left") col = Math.max(0, col - 1);
+    else if (direction === "right") col = Math.min(rows[row] - 1, col + 1);
+    else if (direction === "home") col = 0;
+    else if (direction === "end") col = rows[row] - 1;
+    else if (direction === "up" || direction === "down") {
+      const step = direction === "up" ? -1 : 1;
+      let next = row + step;
+      while (next >= 0 && next < rows.length && !rows[next]) next += step;
+      if (next >= 0 && next < rows.length) { row = next; col = Math.min(col, rows[row] - 1); }
+    }
+    return { row, col };
+  }
+
   // Standard-mapping gamepad edges. Buttons fire once per press; directions repeat while held.
   function createPadReader({ initialDelay = 380, repeatDelay = 140, threshold = 0.55 } = {}) {
     let previous = {};
@@ -124,7 +145,7 @@
     return title.length >= 1 && [...title].length <= 80 ? title : null;
   }
 
-  const api = Object.freeze({ filterAndSort, gridMove, createPadReader, cover, formatBytes, formatWhen, cleanTitle });
+  const api = Object.freeze({ filterAndSort, gridMove, shelfMove, createPadReader, cover, formatBytes, formatWhen, cleanTitle });
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.GameStrikeCore = api;
 })(typeof window === "object" ? window : globalThis);
