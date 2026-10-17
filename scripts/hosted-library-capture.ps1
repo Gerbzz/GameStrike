@@ -22,12 +22,12 @@ $cli = Join-Path $PWD 'target/debug/gamestrike.exe'
 $launcher = Join-Path $PWD 'target/debug/gamestrike-launcher.exe'
 
 $titles = @(
-    'Synthetic Test - Orbit Garden',
-    'Synthetic Test - Pixel Harbor',
-    'Synthetic Test - Lantern Maze',
-    'Synthetic Test - Comet Courier',
-    'Synthetic Test - Tiny Tactics',
-    'Synthetic Test - A Deliberately Long Title For Layout Checks In The Library'
+    'Orbit Garden (Synthetic Test)',
+    'Pixel Harbor (Synthetic Test)',
+    'Lantern Maze (Synthetic Test)',
+    'Comet Courier (Synthetic Test)',
+    'Tiny Tactics (Synthetic Test)',
+    'A Deliberately Long Title For Layout Checks In The Library (Synthetic Test)'
 )
 foreach ($title in $titles) {
     $file = Join-Path $fixtures "$title.html"

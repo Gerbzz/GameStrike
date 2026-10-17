@@ -612,7 +612,7 @@ fn hash_content_tree(root: &Path) -> Result<String> {
 
 fn import_zip(source: &Path, content: &Path) -> Result<()> {
     let mut archive = ZipArchive::new(File::open(source)?)?;
-    if archive.len() == 0 || archive.len() > MAX_FILES {
+    if archive.is_empty() || archive.len() > MAX_FILES {
         return Err(invalid("ZIP has no entries or too many entries").into());
     }
     let mut entries = Vec::with_capacity(archive.len());
@@ -669,12 +669,12 @@ fn import_zip(source: &Path, content: &Path) -> Result<()> {
         _ => return Err(invalid("ZIP has ambiguous entry points").into()),
     };
     let wrapper = entry.parent().filter(|path| !path.as_os_str().is_empty());
-    if let Some(wrapper) = wrapper {
-        if entries.iter().any(|(relative, is_dir)| {
+    if let Some(wrapper) = wrapper
+        && entries.iter().any(|(relative, is_dir)| {
             !relative.starts_with(wrapper) || (relative == wrapper && !*is_dir)
-        }) {
-            return Err(invalid("ZIP has files outside its entry-point wrapper").into());
-        }
+        })
+    {
+        return Err(invalid("ZIP has files outside its entry-point wrapper").into());
     }
     for (relative, _) in &entries {
         let mut parent = relative.parent();

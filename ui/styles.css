@@ -119,7 +119,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 
 /* Generated cover art: decorative pattern from the game ID, with the title's initials. */
 .cover { --h1: 220; --h2: 260; --a: 135deg; position: relative; aspect-ratio: 16 / 10; display: grid; place-items: center; overflow: hidden;
-  background: linear-gradient(var(--a), hsl(var(--h1) 62% 46%), hsl(var(--h2) 58% 24%)); }
+  background: linear-gradient(var(--a), hsl(var(--h1) 52% 42%), hsl(var(--h2) 50% 22%)); }
 .cover::before { content: ""; position: absolute; inset: 0; opacity: .38; }
 .cover.p0::before { background: repeating-linear-gradient(var(--a), rgb(255 255 255 / 14%) 0 2px, transparent 2px 18px); }
 .cover.p1::before { background: radial-gradient(circle at 78% 22%, rgb(255 255 255 / 30%) 0 18%, transparent 19%), radial-gradient(circle at 18% 88%, rgb(255 255 255 / 18%) 0 26%, transparent 27%); }
@@ -200,7 +200,7 @@ kbd.pad { border-radius: 50%; width: 20px; padding: 0; color: var(--orange); }
   .brand span { display: none; }
   .library, .details { padding: 16px; }
   .workspace { grid-template-columns: minmax(0, 1fr) 290px; }
-  .facts { grid-template-columns: 1fr; gap: 8px; }
+  .facts { gap: 8px 12px; }
   .hints span:nth-child(n+4) { display: none; }
   .statusbar { padding: 6px 16px; }
 }
@@ -218,4 +218,13 @@ kbd.pad { border-radius: 50%; width: 20px; padding: 0; color: var(--orange); }
 @media (forced-colors: active) {
   .card.selected { outline: 3px solid Highlight; }
   .cover { forced-color-adjust: none; }
+}
+.shell.empty .tools, .shell.empty #add-button, .shell.empty .hints { visibility: hidden; }
+@media (max-height: 760px) {
+  .cover.large { aspect-ratio: auto; height: 112px; }
+  .cover.large span { font-size: 44px; }
+  .detail-body { gap: 10px; padding-top: 12px; }
+  .details h2 { font-size: 19px; }
+  .facts { padding: 10px 0; gap: 8px 12px; }
+  .button.large { height: 42px; }
 }

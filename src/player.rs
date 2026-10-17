@@ -301,11 +301,11 @@ mod windows_player {
             };
             let mut exit = false;
             if fixture.is_some() {
-                if observed_at.is_none() {
-                    if let Ok(title) = title_receiver.try_recv() {
-                        println!("{title}");
-                        observed_at = Some(Instant::now());
-                    }
+                if observed_at.is_none()
+                    && let Ok(title) = title_receiver.try_recv()
+                {
+                    println!("{title}");
+                    observed_at = Some(Instant::now());
                 }
                 exit =
                     observed_at.is_some_and(|at: Instant| at.elapsed() >= Duration::from_secs(1));

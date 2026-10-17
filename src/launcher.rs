@@ -18,7 +18,7 @@ mod windows_launcher {
         io::{BufRead, BufReader},
         mem::size_of,
         os::windows::ffi::OsStringExt,
-        path::PathBuf,
+        path::{Path, PathBuf},
         process::{Child, Command, ExitStatus, Stdio},
         sync::{Arc, Mutex},
         thread,
@@ -519,7 +519,7 @@ mod windows_launcher {
 
     fn launch(
         library: &Library,
-        root: &PathBuf,
+        root: &Path,
         raw_id: &str,
         network: bool,
     ) -> std::result::Result<(Uuid, Child), String> {
