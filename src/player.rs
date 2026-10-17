@@ -343,7 +343,7 @@ mod windows_player {
     /// requests earlier; the proxy covers paths CSP does not, such as WebRTC.
     fn offline_browser_args(port: u16) -> String {
         format!(
-            "{BASE_BROWSER_ARGS} --proxy-server=http://127.0.0.1:{port} --proxy-bypass-list=<-loopback> --force-webrtc-ip-handling-policy=disable_non_proxied_udp"
+            "{BASE_BROWSER_ARGS} --proxy-server=http://127.0.0.1:{port} --proxy-bypass-list=<-loopback> --force-webrtc-ip-handling-policy=disable_non_proxied_udp --webrtc-ip-handling-policy=disable_non_proxied_udp"
         )
     }
 
@@ -760,7 +760,7 @@ mod windows_player {
             let args = offline_browser_args(4321);
             assert!(args.contains("--proxy-server=http://127.0.0.1:4321"));
             assert!(args.contains("--proxy-bypass-list=<-loopback>"));
-            assert!(args.contains("--force-webrtc-ip-handling-policy=disable_non_proxied_udp"));
+            assert!(args.contains("--force-webrtc-ip-handling-policy=disable_non_proxied_udp --webrtc-ip-handling-policy=disable_non_proxied_udp"));
             assert!(args.starts_with(BASE_BROWSER_ARGS));
             for directive in ["default-src 'self' data: blob:", "object-src 'none'"] {
                 assert!(OFFLINE_CSP.contains(directive), "{directive}");

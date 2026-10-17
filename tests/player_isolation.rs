@@ -179,6 +179,10 @@ fn imported_games_are_isolated_offline_and_keep_their_own_saves() {
     let udp = observer.udp.load(Ordering::SeqCst);
     eprintln!("network run: tcp={tcp} udp={udp}");
     assert!(tcp > 0, "network-mode control never reached the listener");
+    assert!(
+        udp > 0,
+        "network-mode WebRTC control never sent UDP, so the offline UDP check would prove nothing"
+    );
 
     // The first game's saves were untouched by the second game's run.
     observer.reset();
