@@ -428,10 +428,10 @@ mod windows_launcher {
                     &include_bytes!("../ui/styles.css")[..],
                     "text/css; charset=utf-8",
                 ),
-                "/fox.png" => (
+                "/mark.svg" => (
                     StatusCode::OK,
-                    &include_bytes!("../assets/branding/gamestrike-fox-icon.png")[..],
-                    "image/png",
+                    &include_bytes!("../assets/branding/gamestrike-mark.svg")[..],
+                    "image/svg+xml",
                 ),
                 "/pwds.svg" => (
                     StatusCode::OK,
@@ -498,8 +498,18 @@ mod windows_launcher {
             assert_eq!(response.status(), StatusCode::OK);
             assert!(response.body().as_ref().starts_with(b"<!doctype html>"));
 
+            let mark = Request::builder()
+                .uri("https://gamestrikeui.localhost/mark.svg")
+                .body(Vec::new())
+                .unwrap();
+            let mark_response = serve_ui(mark);
+            assert_eq!(mark_response.status(), StatusCode::OK);
+            assert_eq!(mark_response.headers().get(header::CONTENT_TYPE).unwrap(), "image/svg+xml");
+            assert!(mark_response.body().as_ref().starts_with(b"<svg"));
+
             for url in [
                 "https://other.localhost/index.html",
+                "https://gamestrikeui.localhost/fox.png",
                 "https://gamestrikeui.localhost.evil/index.html",
                 "https://gamestrikeui.localhost/private.txt",
             ] {
