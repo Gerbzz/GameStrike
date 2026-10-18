@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/branding/gamestrike-fox-icon.png" alt="Original GameStrike fox logo" width="160" height="160">
+  <img src="assets/branding/gamestrike-mark.svg" alt="GameStrike layered game-card mark" width="160" height="160">
 </p>
 
 <h1 align="center">GameStrike</h1>
@@ -13,11 +13,11 @@
 
 **A local home for HTML games you choose to keep.** GameStrike has a Windows library launcher, a bounded HTML/ZIP importer, and a separate player for each selected title. Imported files are stored in a local library; launching a game can allow network access after your consent. The screenshots below come from the running Windows launcher.
 
-[Windows previews](#windows-development-previews) · [How it works](#how-it-works) · [Build and run](#build-and-run) · [Player security](docs/PLAYER_SECURITY.md) · [Original artwork](assets/branding)
+[Windows previews](#windows-development-previews) · [How it works](#how-it-works) · [Build and run](#build-and-run) · [Player security](docs/PLAYER_SECURITY.md) · [Brand artwork](assets/branding)
 
 ## Windows development previews
 
-These unedited PNGs capture the rendered WebView2 app window from the [CI-built Windows launcher](https://github.com/Gerbzz/GameStrike/actions/runs/38665296183) at [source commit `175016d`](https://github.com/Gerbzz/GameStrike/commit/175016d86c62460e17f1342af687958b772c96c0). The populated library contains five small synthetic local HTML fixtures, including a long title. No downloaded third-party game appears. [Capture provenance and testing limits](docs/screenshots/README.md) record the method and source.
+These unedited PNGs capture the rendered WebView2 app window from the [CI-built Windows launcher](https://github.com/Gerbzz/GameStrike/actions/runs/38665296183) at [source commit `175016d`](https://github.com/Gerbzz/GameStrike/commit/175016d86c62460e17f1342af687958b772c96c0). The populated library contains five small synthetic local HTML fixtures, including a long title. No downloaded third-party game appears. These captures predate the geometric logo update and remain unaltered historical app evidence. [Capture provenance and testing limits](docs/screenshots/README.md) record the method and source.
 
 **Five-game local library, 1250 × 800**
 
@@ -25,7 +25,7 @@ These unedited PNGs capture the rendered WebView2 app window from the [CI-built 
 
 **First launch before adding a game, 1250 × 800**
 
-![Development preview of the empty GameStrike library with the original fox artwork](docs/screenshots/empty-library.png)
+![Historical development preview of the empty GameStrike library with the former fox artwork](docs/screenshots/empty-library.png)
 
 The [880 × 620 minimum-window capture](docs/screenshots/local-library-minimum.png) shows the shelf and controls above the footer. A [selected long title](docs/screenshots/long-title.png) remains readable, while the [launch warning](docs/screenshots/launch-warning.png) keeps **Go back** focused by default.
 
@@ -47,7 +47,7 @@ This unedited 1028 × 749 WebView2 app-window PNG (SHA-256 `69eb7861765b1f57c223
 
 Arrow keys, Enter, and Escape navigate the library. The launcher also polls a connected controller for D-pad/left-stick navigation, A to activate the focused choice, and B to back out of the launch dialog. The launch dialog starts on **Go back**; moving right focuses **Allow network & launch** before a fresh A can approve it. Those controls apply to the library only; each imported game's own controller support is **unknown**.
 
-The original GameStrike fox anchors the library. Its About panel carries the official PWDS publisher logo, keeping the working view focused on GameStrike. The UI uses only generated manifest titles rendered as text, without importing game HTML into its trusted window.
+The custom layered game-card mark anchors the library. Its About panel carries the official PWDS publisher logo, keeping the working view focused on GameStrike. The UI uses only generated manifest titles rendered as text, without importing game HTML into its trusted window.
 
 ## Import and player foundation
 
@@ -61,7 +61,7 @@ The Windows player opens one imported ID at a time. Each game gets its own UUID-
 
 ### Trusted library window
 
-The launcher serves only bundled HTML, CSS, JavaScript, fox artwork, and PWDS artwork from its own fixed origin. Its IPC commands are limited to reading the library, choosing a local import file, and launching a validated game ID. Imported game HTML runs only in the separate Wry player, which has no launcher IPC handler. The launch dialog discloses that game content may contact local or remote services. Controller and network requirements stay **unknown** until a game is checked.
+The launcher serves only bundled HTML, CSS, JavaScript, the GameStrike SVG mark, and PWDS artwork from its own fixed origin. Its IPC commands are limited to reading the library, choosing a local import file, and launching a validated game ID. Imported game HTML runs only in the separate Wry player, which has no launcher IPC handler. The launch dialog discloses that game content may contact local or remote services. Controller and network requirements stay **unknown** until a game is checked.
 
 ## Build and run
 
@@ -97,4 +97,4 @@ Explore the other [PWDS Strike repositories](https://github.com/Gerbzz?tab=repos
 
 ## PWDS brand artwork
 
-The company mark in this masthead is the existing [official PWDS logo](https://github.com/Gerbzz/PWDS-Website/blob/main/public/prowebdevsolutions-logo.png), with the [official orange display asset](https://prowebdevsolutions.com/images/prowebdevsolutions-logo-orange.svg) for dark backgrounds. The GameStrike fox is original Strike suite artwork. Existing artwork files and their provenance are preserved.
+The company mark in this masthead is the existing [official PWDS logo](https://github.com/Gerbzz/PWDS-Website/blob/main/public/prowebdevsolutions-logo.png), with the [official orange display asset](https://prowebdevsolutions.com/images/prowebdevsolutions-logo-orange.svg) for dark backgrounds. The former GameStrike fox remains in the repository as historical artwork. The active launcher and this masthead use the original geometric GameStrike mark; the approved PWDS publisher assets remain unchanged.

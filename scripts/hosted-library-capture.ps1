@@ -69,3 +69,52 @@ $encoded = [Convert]::ToBase64String($bytes)
 for ($offset = 0; $offset -lt $encoded.Length; $offset += 4000) {
     Write-Host ("CAPTURE_CHUNK:" + $encoded.Substring($offset, [Math]::Min(4000, $encoded.Length - $offset)))
 }
+
+# The empty library uses the larger hero artwork; capture it independently.
+$emptyLibrary = Join-Path $probeRoot 'empty-library'
+$emptyCapture = Join-Path $probeRoot 'empty.png'
+$emptyStdout = Join-Path $probeRoot 'empty.out.txt'
+$emptyStderr = Join-Path $probeRoot 'empty.err.txt'
+New-Item -ItemType Directory -Force -Path $emptyLibrary | Out-Null
+$emptyProcess = Start-Process -FilePath $launcher -ArgumentList @('--library', $emptyLibrary, '--capture-preview', $emptyCapture) -PassThru -WindowStyle Hidden -RedirectStandardOutput $emptyStdout -RedirectStandardError $emptyStderr
+try {
+    $emptyComplete = $false
+    for ($attempt = 0; $attempt -lt 45; $attempt++) {
+        Start-Sleep -Seconds 1
+        if (Test-Path -LiteralPath $emptyCapture) {
+            $probe = [IO.File]::ReadAllBytes($emptyCapture)
+            if ($probe.Length -gt 1000) {
+                $trailer = [byte[]](73, 69, 78, 68, 174, 66, 96, 130)
+                $emptyComplete = $true
+                for ($i = 0; $i -lt 8; $i++) {
+                    if ($probe[$probe.Length - 8 + $i] -ne $trailer[$i]) { $emptyComplete = $false; break }
+                }
+                if ($emptyComplete) { break }
+            }
+        }
+        $emptyProcess.Refresh()
+        if ($emptyProcess.HasExited) { break }
+    }
+    if (-not $emptyComplete) {
+        Write-Host 'Empty launcher stdout:'; Get-Content -LiteralPath $emptyStdout -ErrorAction SilentlyContinue
+        Write-Host 'Empty launcher stderr:'; Get-Content -LiteralPath $emptyStderr -ErrorAction SilentlyContinue
+        throw 'Hosted empty launcher did not produce a complete PNG within 45 seconds.'
+    }
+} finally {
+    $emptyProcess.Refresh()
+    if (-not $emptyProcess.HasExited) { Stop-Process -Id $emptyProcess.Id -Force }
+}
+$emptyBitmap = [System.Drawing.Bitmap]::new($emptyCapture)
+try {
+    if ($emptyBitmap.Width -lt 880 -or $emptyBitmap.Height -lt 620) { throw 'Empty launcher capture dimensions are too small.' }
+    Write-Host "EMPTY_CAPTURE_DIMENSIONS:$($emptyBitmap.Width)x$($emptyBitmap.Height)"
+} finally {
+    $emptyBitmap.Dispose()
+}
+Write-Host "EMPTY_CAPTURE_SHA256:$((Get-FileHash -LiteralPath $emptyCapture -Algorithm SHA256).Hash)"
+$emptyBytes = [IO.File]::ReadAllBytes($emptyCapture)
+Write-Host "EMPTY_CAPTURE_BYTES:$($emptyBytes.Length)"
+$emptyEncoded = [Convert]::ToBase64String($emptyBytes)
+for ($offset = 0; $offset -lt $emptyEncoded.Length; $offset += 4000) {
+    Write-Host ("EMPTY_CAPTURE_CHUNK:" + $emptyEncoded.Substring($offset, [Math]::Min(4000, $emptyEncoded.Length - $offset)))
+}
