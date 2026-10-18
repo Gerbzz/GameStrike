@@ -2,10 +2,9 @@
 # games imported through the CLI. Output: $env:RUNNER_TEMP/gamestrike-library-visual/*.png
 $ErrorActionPreference = 'Stop'
 
-# The current workflow file only calls this script after building. Until the proposed workflow in
-# docs/ci/windows-source.proposed.yml is installed (it needs a token with the `workflow` scope),
-# run the extra checks here so every PR still exercises them.
-if ($env:GITHUB_ACTIONS -eq 'true') {
+# The original Windows workflow only calls this script after building, so it runs the extra checks
+# here. The cross-platform workflow runs them as separate steps and sets GAMESTRIKE_CHECKS_DONE.
+if ($env:GITHUB_ACTIONS -eq 'true' -and $env:GAMESTRIKE_CHECKS_DONE -ne '1') {
     rustup component add clippy
     if ($LASTEXITCODE -ne 0) { throw 'Could not install clippy.' }
     cargo clippy --locked --features launcher-windows --all-targets -- -D warnings
@@ -18,8 +17,26 @@ $probeRoot = Join-Path $env:RUNNER_TEMP 'gamestrike-library-visual'
 $library = Join-Path $probeRoot 'library'
 $fixtures = Join-Path $probeRoot 'fixtures'
 New-Item -ItemType Directory -Force -Path $library, $fixtures | Out-Null
-$cli = Join-Path $PWD 'target/debug/gamestrike.exe'
-$launcher = Join-Path $PWD 'target/debug/gamestrike-launcher.exe'
+$binDir = if ($env:GAMESTRIKE_BIN_DIR) { $env:GAMESTRIKE_BIN_DIR } else { Join-Path $PWD 'target/debug' }
+$cli = Join-Path $binDir 'gamestrike.exe'
+$launcher = Join-Path $binDir 'gamestrike-launcher.exe'
+$player = Join-Path $binDir 'gamestrike-player.exe'
+
+# Player smoke test: the exact bundled save fixture, launched twice, keeps its counter.
+$smokeLibrary = Join-Path $probeRoot 'smoke-library'
+New-Item -ItemType Directory -Force -Path $smokeLibrary | Out-Null
+$smokeFile = Join-Path $probeRoot 'Save Counter (Synthetic Test).html'
+Copy-Item -LiteralPath (Join-Path $PWD 'fixtures/save-counter.html') -Destination $smokeFile
+& $cli --library $smokeLibrary import $smokeFile
+if ($LASTEXITCODE -ne 0) { throw 'Smoke fixture import failed.' }
+$smokeId = ((& $cli --library $smokeLibrary list) -split "`t")[0]
+foreach ($launch in 1, 2) {
+    $output = & $player --library $smokeLibrary --id $smokeId --smoke
+    if ($LASTEXITCODE -ne 0) { throw "Player smoke launch $launch failed." }
+    $output | Set-Content -Encoding utf8 (Join-Path $probeRoot "player-smoke-$launch.txt")
+    if ($output -notcontains "GameStrike fixture launch $launch") { throw "Player smoke launch $launch did not report its saved counter." }
+    Write-Host "Player smoke launch $launch : $($output -join ' | ')"
+}
 
 $titles = @(
     'Orbit Garden (Synthetic Test)',
