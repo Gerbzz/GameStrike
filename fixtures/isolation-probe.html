@@ -58,7 +58,11 @@ The loopback target 127.0.0.1:47391 is a listener started by the test harness.</
   }
 
   // Same-origin assets must keep working.
-  pending.push(settle("self-fetch", fetch("/index.html").then((r) => { if (!r.ok) throw new Error(); })));
+  const selfFetch = fetch("/index.html").then((r) => { if (!r.ok) throw new Error(); });
+  pending.push(settle("self-fetch", selfFetch));
+  // Probes for other schemes start only after the same-origin check has finished, so a
+  // cancelled navigation or unknown scheme cannot disturb that check.
+  const afterSelf = selfFetch.catch(() => {});
 
   // Network paths. The harness counts what reaches the loopback listener.
   pending.push(settle("fetch", Promise.race([fetch(`http://${target}/fetch`), timeout(3000)])));
@@ -116,16 +120,18 @@ The loopback target 127.0.0.1:47391 is a listener started by the test harness.</
 
   // Local files and other origins.
   pending.push(settle("file-fetch", anyFetch(["file:///C:/Windows/win.ini", "file:///etc/hosts", "file:///etc/passwd"])));
-  pending.push(settle("other-origin", anyFetch([
+  pending.push(settle("other-origin", afterSelf.then(() => anyFetch([
     "https://gamestrike-other.localhost/index.html",
     "gamestrikeother://localhost/index.html",
-  ])));
-  for (const [name, url] of [["file-frame", "file:///etc/hosts"], ["other-frame", "gamestrikeother://localhost/index.html"]]) {
-    const child = document.createElement("iframe");
-    child.title = name;
-    child.src = url;
-    document.body.append(child);
-  }
+  ]))));
+  pending.push(afterSelf.then(() => {
+    for (const [name, url] of [["file-frame", "file:///etc/hosts"], ["other-frame", "gamestrikeother://localhost/index.html"]]) {
+      const child = document.createElement("iframe");
+      child.title = name;
+      child.src = url;
+      document.body.append(child);
+    }
+  }));
   const popup = window.open("about:blank", "_blank");
   record("popup", popup === null ? "null" : "handle");
   if (popup) popup.close();
