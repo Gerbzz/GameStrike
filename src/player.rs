@@ -1,12 +1,18 @@
 #![deny(unsafe_code)]
+//! Runs one imported game in its own window, origin, and browser data store.
+//!
+//! - Windows: WebView2, origin `https://gamestrike<uuid>.localhost`, user-data folder `LIBRARY/profiles/<uuid>`.
+//! - Linux: WebKitGTK, origin `gamestrike<uuid>://localhost`, data and cache directories `LIBRARY/profiles/<uuid>`.
+//! - macOS 14+: WKWebView, origin `gamestrike<uuid>://localhost`, `WKWebsiteDataStore` with identifier `<uuid>`.
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 fn main() {
-    eprintln!("The current GameStrike player prototype is Windows-only.");
+    eprintln!("The GameStrike player supports Windows, Linux, and macOS only.");
+    std::process::exit(1);
 }
 
-#[cfg(windows)]
-mod windows_player {
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+mod game_player {
     use gamestrike::{Library, safe_content_path};
     use percent_encoding::percent_decode_str;
     use std::{
@@ -29,17 +35,11 @@ mod windows_player {
         dpi::LogicalSize,
         event::{Event, WindowEvent},
         event_loop::{ControlFlow, EventLoop},
-        window::WindowBuilder,
+        window::{Window, WindowBuilder},
     };
     use uuid::Uuid;
-    use webview2_com::{
-        LaunchingExternalUriSchemeEventHandler, Microsoft::Web::WebView2::Win32::ICoreWebView2_18,
-        NavigationStartingEventHandler, take_pwstr,
-    };
-    use windows::core::{Interface, PWSTR};
     use wry::{
         NewWindowResponse, PermissionResponse, WebContext, WebViewBuilder,
-        WebViewBuilderExtWindows, WebViewExtWindows,
         http::{
             Request, Response, StatusCode,
             header::{CONTENT_TYPE, HeaderName, HeaderValue},
@@ -47,10 +47,10 @@ mod windows_player {
     };
 
     const MAX_ASSET_BYTES: u64 = 128 * 1024 * 1024;
-    const MEDIUM_INTEGRITY_RID: u32 = 0x2000;
 
     // Only this small module calls native Windows token-query APIs. No token is
     // changed or duplicated; every uncertain result becomes a launch error.
+    #[cfg(windows)]
     #[allow(unsafe_code)]
     mod integrity {
         use std::{io, mem::size_of, ptr};
@@ -62,6 +62,8 @@ mod windows_player {
             },
             System::Threading::{GetCurrentProcess, OpenProcessToken},
         };
+
+        pub(super) const MEDIUM_INTEGRITY_RID: u32 = 0x2000;
 
         struct Token(HANDLE);
 
@@ -133,12 +135,32 @@ mod windows_player {
         }
     }
 
+    // The Unix counterpart of the integrity check: read-only queries of this process's IDs.
+    #[cfg(unix)]
+    #[allow(unsafe_code)]
+    mod privileges {
+        /// Real and effective user and group IDs of this process.
+        pub(super) fn ids() -> [u32; 4] {
+            // These libc calls take no arguments, cannot fail, and change nothing.
+            unsafe {
+                [
+                    libc::getuid(),
+                    libc::geteuid(),
+                    libc::getgid(),
+                    libc::getegid(),
+                ]
+            }
+        }
+    }
+
     /// How the player was asked to run. Fixture modes load only exact bundled first-party HTML.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum Mode {
         Offline,
         Network,
         Fixture(Fixture),
+        /// Deletes the game's engine data that lives outside the library (macOS only), then exits.
+        ClearEngineData,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,6 +180,7 @@ mod windows_player {
                 "--boundary-smoke" => Mode::Fixture(Fixture::Boundary),
                 "--probe-offline" => Mode::Fixture(Fixture::ProbeOffline),
                 "--probe-network" => Mode::Fixture(Fixture::ProbeNetwork),
+                "--clear-engine-data" => Mode::ClearEngineData,
                 _ => return None,
             })
         }
@@ -177,6 +200,34 @@ mod windows_player {
         }
     }
 
+    /// The per-game origin. Each game gets its own custom scheme, so origins never overlap.
+    #[derive(Clone, Debug)]
+    struct GameOrigin {
+        scheme: String,
+        host: String,
+    }
+
+    impl GameOrigin {
+        fn new(id: Uuid) -> Self {
+            let scheme = format!("gamestrike{}", id.simple());
+            let host = format!("{scheme}.localhost");
+            Self { scheme, host }
+        }
+
+        /// Wry maps the custom scheme to `https://<scheme>.localhost` on Windows only.
+        fn entry_url(&self) -> String {
+            if cfg!(windows) {
+                format!("https://{}/index.html", self.host)
+            } else {
+                format!("{}://localhost/index.html", self.scheme)
+            }
+        }
+
+        fn allows(&self, url: &str) -> bool {
+            is_game_origin(url, &self.scheme, &self.host)
+        }
+    }
+
     pub fn run() -> Result<(), Box<dyn Error>> {
         let args: Vec<_> = env::args_os().collect();
         if args.len() != 6
@@ -187,10 +238,10 @@ mod windows_player {
         }
         let mode = Mode::parse(args[5].to_str()).ok_or_else(player_usage)?;
         let fixture = mode.fixture();
-        // Imported content needs a standard-integrity token. Fixture modes run only exact
+        // Imported content needs a standard, unprivileged identity. Fixture modes run only exact
         // bundled first-party bytes, so CI runners with elevated tokens can still exercise them.
-        if fixture.is_none() {
-            ensure_standard_integrity()?;
+        if fixture.is_none() && mode != Mode::ClearEngineData {
+            ensure_standard_privileges()?;
         }
         let library = Library::open(PathBuf::from(&args[2]))?;
         let id = Uuid::parse_str(args[4].to_str().ok_or("game ID is not UTF-8")?)?;
@@ -199,20 +250,25 @@ mod windows_player {
             .into_iter()
             .find(|game| game.id == id)
             .ok_or("game ID is not in this library")?;
+        if mode == Mode::ClearEngineData {
+            // Refused while a player holds the game; the lock is released when this exits.
+            let _lock = library.lock_game(id)?;
+            return clear_engine_data(id);
+        }
         let (content, profile) = library.player_paths(id)?;
         let _lock = library.lock_game(id)?;
         if let Some(fixture) = fixture {
             verify_smoke_fixture(&content, fixture)?;
         }
         let blocked = Arc::new(AtomicUsize::new(0));
-        let browser_args = if mode.offline() {
-            let port = start_sinkhole_proxy(
+        let origin = GameOrigin::new(id);
+        let proxy_port = if mode.offline() {
+            Some(start_sinkhole_proxy(
                 Arc::clone(&blocked),
-                format!("gamestrike{}.localhost", id.simple()),
-            )?;
-            offline_browser_args(port)
+                origin.host.clone(),
+            )?)
         } else {
-            BASE_BROWSER_ARGS.to_owned()
+            None
         };
         let csp = if mode.offline() {
             OFFLINE_CSP
@@ -220,16 +276,9 @@ mod windows_player {
             NETWORK_CSP
         };
 
-        // Wry maps this custom scheme to HTTPS on Windows. The scheme and
-        // persistent browser data folder are unique and stable for this game.
-        let scheme = format!("gamestrike{}", id.simple());
-        let host = format!("{scheme}.localhost");
-        let entry_url = format!("https://{host}/index.html");
-        let navigation_scheme = scheme.clone();
-        let navigation_host = host.clone();
-        let guard_origin = (scheme.clone(), host.clone());
-        let asset_scheme = scheme.clone();
-        let asset_host = host.clone();
+        let entry_url = origin.entry_url();
+        let navigation_origin = origin.clone();
+        let asset_origin = origin.clone();
 
         let event_loop = EventLoop::new();
         let window = WindowBuilder::new()
@@ -245,19 +294,23 @@ mod windows_player {
             .with_inner_size(LogicalSize::new(1280.0, 800.0))
             .with_min_inner_size(LogicalSize::new(480.0, 360.0))
             .build(&event_loop)?;
-        let mut context = WebContext::new(Some(profile));
+        // Windows and Linux keep all browser data in this folder. macOS ignores it and uses
+        // the per-game WKWebsiteDataStore set up in `macos_guard::configuration`.
+        let mut context = WebContext::new(Some(profile.clone()));
         let (title_sender, title_receiver) = mpsc::channel::<String>();
         let mut builder = WebViewBuilder::new_with_web_context(&mut context)
-            .with_custom_protocol(scheme, move |_, request| {
-                serve_asset(&content, &asset_scheme, &asset_host, csp, request)
+            .with_custom_protocol(origin.scheme.clone(), move |_, request| {
+                serve_asset(&content, &asset_origin, csp, request)
             })
-            .with_additional_browser_args(browser_args)
-            .with_https_scheme(true)
             .with_navigation_handler(move |url| {
                 if url == "about:blank" {
                     return true;
                 }
-                is_game_origin(&url, &navigation_scheme, &navigation_host)
+                let allow = navigation_origin.allows(&url);
+                if !allow {
+                    eprintln!("GameStrike denied navigation: {url}");
+                }
+                allow
             })
             .with_new_window_req_handler(|_, _| {
                 eprintln!("GameStrike denied new window");
@@ -272,9 +325,29 @@ mod windows_player {
                 PermissionResponse::Deny
             })
             .with_drag_drop_handler(|_| true)
-            .with_browser_accelerator_keys(false)
-            .with_default_context_menus(false)
             .with_devtools(false);
+        #[cfg(windows)]
+        {
+            use wry::WebViewBuilderExtWindows;
+            let browser_args = match proxy_port {
+                Some(port) => offline_browser_args(port),
+                None => BASE_BROWSER_ARGS.to_owned(),
+            };
+            builder = builder
+                .with_additional_browser_args(browser_args)
+                .with_https_scheme(true)
+                .with_browser_accelerator_keys(false)
+                .with_default_context_menus(false);
+        }
+        #[cfg(not(windows))]
+        if let Some(port) = proxy_port {
+            builder = builder.with_proxy_config(sinkhole_proxy_config(port));
+        }
+        #[cfg(target_os = "macos")]
+        {
+            use wry::WebViewBuilderExtMacos;
+            builder = builder.with_webview_configuration(macos_guard::configuration(id)?);
+        }
         if let Some(fixture) = fixture {
             builder = builder.with_document_title_changed_handler(move |title| {
                 if fixture_reported(&title, fixture) {
@@ -282,9 +355,16 @@ mod windows_player {
                 }
             });
         }
-        let webview = builder.build(&window)?;
-        disable_privileged_webview_features(&webview)?;
-        install_native_navigation_guards(&webview, &guard_origin)?;
+        let webview = build_webview(builder, &window)?;
+        #[cfg(windows)]
+        {
+            windows_guard::disable_privileged_webview_features(&webview)?;
+            windows_guard::install_native_navigation_guards(&webview, &origin)?;
+        }
+        #[cfg(target_os = "linux")]
+        linux_guard::harden(&webview, &profile)?;
+        #[cfg(target_os = "macos")]
+        macos_guard::verify(&webview, id, mode.offline())?;
 
         // Configure handlers before navigating to imported JavaScript.
         webview.load_url(&entry_url)?;
@@ -296,7 +376,7 @@ mod windows_player {
         let started = Instant::now();
         let mut observed_at = None;
         event_loop.run(move |event, _, control_flow| {
-            let _keep_browser_state = (&context, &webview, &_lock);
+            let _keep_browser_state = (&context, &webview, &_lock, &window);
             *control_flow = if fixture.is_some() {
                 ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(100))
             } else {
@@ -330,10 +410,43 @@ mod windows_player {
                 let _ = io::stdout().flush();
                 *control_flow = ControlFlow::Exit;
             }
-        });
+        })
+    }
+
+    /// GTK needs the WebView inside the window's container; the other platforms take the window.
+    fn build_webview(
+        builder: WebViewBuilder<'_>,
+        window: &Window,
+    ) -> Result<wry::WebView, Box<dyn Error>> {
+        #[cfg(target_os = "linux")]
+        {
+            use tao::platform::unix::WindowExtUnix;
+            use wry::WebViewBuilderExtUnix;
+            let container = window
+                .default_vbox()
+                .ok_or("the player window has no GTK container")?;
+            Ok(builder.build_gtk(container)?)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            Ok(builder.build(window)?)
+        }
+    }
+
+    /// Engine data outside the library exists only on macOS; elsewhere the library deletes it.
+    #[cfg(not(target_os = "macos"))]
+    fn clear_engine_data(_id: Uuid) -> Result<(), Box<dyn Error>> {
+        println!("GameStrike engine data is kept in the library on this platform.");
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn clear_engine_data(id: Uuid) -> Result<(), Box<dyn Error>> {
+        macos_guard::remove_data_store(id)
     }
 
     const BLOCKED_PREFIX: &str = "gamestrike-network-blocked=";
+    #[cfg(windows)]
     const BASE_BROWSER_ARGS: &str =
         "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection";
     /// Offline pages may use their own origin plus inline, data:, and blob: content.
@@ -344,10 +457,21 @@ mod windows_player {
     /// All HTTP(S) and WebSocket traffic is sent to a proxy this process owns, including
     /// loopback, and WebRTC may not use UDP outside that proxy. The CSP blocks the same
     /// requests earlier; the proxy covers paths CSP does not, such as WebRTC.
+    #[cfg(windows)]
     fn offline_browser_args(port: u16) -> String {
         format!(
             "{BASE_BROWSER_ARGS} --proxy-server=http://127.0.0.1:{port} --proxy-bypass-list=<-loopback> --force-webrtc-ip-handling-policy=disable_non_proxied_udp --webrtc-ip-handling-policy=disable_non_proxied_udp"
         )
+    }
+
+    /// WebKit (GTK and macOS) is told to send every connection to the owned sink-hole proxy.
+    /// WebRTC is switched off entirely on these platforms, see the platform guards.
+    #[cfg(not(windows))]
+    fn sinkhole_proxy_config(port: u16) -> wry::ProxyConfig {
+        wry::ProxyConfig::Http(wry::ProxyEndpoint {
+            host: Ipv4Addr::LOCALHOST.to_string(),
+            port: port.to_string(),
+        })
     }
 
     /// Accepts each proxy connection, counts it, and answers 403 without contacting anything.
@@ -417,18 +541,21 @@ mod windows_player {
         }
     }
 
+    #[cfg(windows)]
     fn require_medium_integrity(rid: Option<u32>) -> Result<(), &'static str> {
         match rid {
-            Some(MEDIUM_INTEGRITY_RID) => Ok(()),
+            Some(integrity::MEDIUM_INTEGRITY_RID) => Ok(()),
             Some(_) => Err("GameStrike player requires standard Windows integrity"),
             None => Err("GameStrike player could not verify Windows integrity"),
         }
     }
 
-    fn ensure_standard_integrity() -> Result<(), Box<dyn Error>> {
+    #[cfg(windows)]
+    fn ensure_standard_privileges() -> Result<(), Box<dyn Error>> {
         ensure_integrity_with(integrity::current_integrity_rid)
     }
 
+    #[cfg(windows)]
     fn ensure_integrity_with(
         probe: impl FnOnce() -> io::Result<u32>,
     ) -> Result<(), Box<dyn Error>> {
@@ -436,62 +563,328 @@ mod windows_player {
         require_medium_integrity(Some(rid)).map_err(Into::into)
     }
 
-    #[allow(unsafe_code)]
-    fn disable_privileged_webview_features(webview: &wry::WebView) -> Result<(), Box<dyn Error>> {
-        // No game document has loaded yet. Fail the launch if the runtime cannot
-        // explicitly disable host objects and messages.
-        let settings = unsafe { webview.webview().Settings()? };
-        unsafe {
-            settings.SetAreHostObjectsAllowed(false)?;
-            settings.SetIsWebMessageEnabled(false)?;
-            settings.SetAreDefaultScriptDialogsEnabled(false)?;
+    /// Refuses root and set-user-ID or set-group-ID identities, the Unix forms of elevation.
+    #[cfg(unix)]
+    fn require_unprivileged([uid, euid, gid, egid]: [u32; 4]) -> Result<(), &'static str> {
+        if uid == 0 || euid == 0 {
+            Err("GameStrike player will not run imported games as root")
+        } else if uid != euid || gid != egid {
+            Err(
+                "GameStrike player will not run imported games with a set-user-ID or set-group-ID identity",
+            )
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
+    #[cfg(unix)]
+    fn ensure_standard_privileges() -> Result<(), Box<dyn Error>> {
+        require_unprivileged(privileges::ids()).map_err(Into::into)
+    }
+
+    #[cfg(windows)]
     #[allow(unsafe_code)]
-    fn install_native_navigation_guards(
-        webview: &wry::WebView,
-        origin: &(String, String),
-    ) -> Result<(), Box<dyn Error>> {
-        let webview = webview.webview();
-        let (scheme, host) = origin.clone();
-        let mut token = 0;
-        unsafe {
-            webview.add_FrameNavigationStarting(
-                &NavigationStartingEventHandler::create(Box::new(move |_, args| {
-                    let Some(args) = args else { return Ok(()) };
-                    args.SetCancel(true)?;
-                    let mut raw = PWSTR::null();
-                    args.Uri(&mut raw)?;
-                    let uri = take_pwstr(raw);
-                    let allow = uri == "about:blank" || is_game_origin(&uri, &scheme, &host);
-                    if !allow {
-                        eprintln!("GameStrike denied frame navigation: {uri}");
-                    }
-                    args.SetCancel(!allow)?;
-                    Ok(())
-                })),
-                &mut token,
-            )?;
+    mod windows_guard {
+        use super::GameOrigin;
+        use std::error::Error;
+        use webview2_com::{
+            LaunchingExternalUriSchemeEventHandler,
+            Microsoft::Web::WebView2::Win32::ICoreWebView2_18, NavigationStartingEventHandler,
+            take_pwstr,
+        };
+        use windows::core::{Interface, PWSTR};
+        use wry::WebViewExtWindows;
+
+        pub(super) fn disable_privileged_webview_features(
+            webview: &wry::WebView,
+        ) -> Result<(), Box<dyn Error>> {
+            // No game document has loaded yet. Fail the launch if the runtime cannot
+            // explicitly disable host objects and messages.
+            let settings = unsafe { webview.webview().Settings()? };
+            unsafe {
+                settings.SetAreHostObjectsAllowed(false)?;
+                settings.SetIsWebMessageEnabled(false)?;
+                settings.SetAreDefaultScriptDialogsEnabled(false)?;
+            }
+            Ok(())
         }
 
-        // A registered OS URI handler can be invoked even for a subframe.
-        // Require this WebView2 interface and cancel before any game loads.
-        let external: ICoreWebView2_18 = webview.cast()?;
-        unsafe {
-            external.add_LaunchingExternalUriScheme(
-                &LaunchingExternalUriSchemeEventHandler::create(Box::new(|_, args| {
-                    if let Some(args) = args {
+        pub(super) fn install_native_navigation_guards(
+            webview: &wry::WebView,
+            origin: &GameOrigin,
+        ) -> Result<(), Box<dyn Error>> {
+            let webview = webview.webview();
+            let origin = origin.clone();
+            let mut token = 0;
+            unsafe {
+                webview.add_FrameNavigationStarting(
+                    &NavigationStartingEventHandler::create(Box::new(move |_, args| {
+                        let Some(args) = args else { return Ok(()) };
                         args.SetCancel(true)?;
-                        eprintln!("GameStrike denied external URI launch");
-                    }
-                    Ok(())
-                })),
-                &mut token,
-            )?;
+                        let mut raw = PWSTR::null();
+                        args.Uri(&mut raw)?;
+                        let uri = take_pwstr(raw);
+                        let allow = uri == "about:blank" || origin.allows(&uri);
+                        if !allow {
+                            eprintln!("GameStrike denied frame navigation: {uri}");
+                        }
+                        args.SetCancel(!allow)?;
+                        Ok(())
+                    })),
+                    &mut token,
+                )?;
+            }
+
+            // A registered OS URI handler can be invoked even for a subframe.
+            // Require this WebView2 interface and cancel before any game loads.
+            let external: ICoreWebView2_18 = webview.cast()?;
+            unsafe {
+                external.add_LaunchingExternalUriScheme(
+                    &LaunchingExternalUriSchemeEventHandler::create(Box::new(|_, args| {
+                        if let Some(args) = args {
+                            args.SetCancel(true)?;
+                            eprintln!("GameStrike denied external URI launch");
+                        }
+                        Ok(())
+                    })),
+                    &mut token,
+                )?;
+            }
+            Ok(())
         }
-        Ok(())
+    }
+
+    /// WebKitGTK settings that Wry leaves at their defaults, set explicitly and read back.
+    #[cfg(target_os = "linux")]
+    mod linux_guard {
+        use std::{error::Error, path::Path};
+        use webkit2gtk::{SettingsExt, UserContentManagerExt, WebViewExt, WebsiteDataManagerExt};
+        use wry::WebViewExtUnix;
+
+        pub(super) fn harden(webview: &wry::WebView, profile: &Path) -> Result<(), Box<dyn Error>> {
+            let view = webview.webview();
+            let settings =
+                WebViewExt::settings(&view).ok_or("WebKitGTK settings are unavailable")?;
+            // WebRTC and media capture are off in every mode: WebRTC UDP is not covered by CSP or
+            // the HTTP proxy, and WebKitGTK has no setting that limits it to proxied traffic.
+            settings.set_enable_webrtc(false);
+            settings.set_enable_media_stream(false);
+            settings.set_enable_developer_extras(false);
+            settings.set_javascript_can_open_windows_automatically(false);
+            settings.set_allow_file_access_from_file_urls(false);
+            settings.set_allow_universal_access_from_file_urls(false);
+            settings.set_allow_top_navigation_to_data_urls(false);
+            settings.set_enable_hyperlink_auditing(false);
+            settings.set_enable_dns_prefetching(false);
+            if settings.enables_webrtc()
+                || settings.enables_media_stream()
+                || settings.enables_developer_extras()
+                || settings.is_javascript_can_open_windows_automatically()
+                || settings.allows_file_access_from_file_urls()
+                || settings.allows_universal_access_from_file_urls()
+            {
+                return Err("WebKitGTK did not accept GameStrike's isolation settings".into());
+            }
+
+            // Wry always adds a `window.ipc` script, even without an IPC handler. No message
+            // handler exists behind it, but the player removes the script so nothing is exposed.
+            let manager = view
+                .user_content_manager()
+                .ok_or("WebKitGTK user content manager is unavailable")?;
+            manager.remove_all_scripts();
+            manager.remove_all_style_sheets();
+
+            // The per-game data folder must really be the one in use, and persistent.
+            let data = view
+                .website_data_manager()
+                .ok_or("WebKitGTK website data manager is unavailable")?;
+            if data.is_ephemeral() {
+                return Err("WebKitGTK data store is not persistent".into());
+            }
+            let base = data
+                .base_data_directory()
+                .ok_or("WebKitGTK data folder is unknown")?;
+            if Path::new(base.as_str()) != profile {
+                return Err(
+                    format!("WebKitGTK uses {base}, not this game's profile folder").into(),
+                );
+            }
+
+            view.connect_context_menu(|_, _, _, _| true);
+            Ok(())
+        }
+    }
+
+    /// WKWebView setup. Every check fails the launch rather than running with weaker isolation.
+    #[cfg(target_os = "macos")]
+    #[allow(unsafe_code)]
+    mod macos_guard {
+        use objc2::{MainThreadMarker, msg_send, rc::Retained, runtime::NSObjectProtocol, sel};
+        use objc2_foundation::{
+            NSArray, NSObjectNSKeyValueCoding, NSProcessInfo, NSUUID, ns_string,
+        };
+        use objc2_web_kit::{WKPreferences, WKWebViewConfiguration, WKWebsiteDataStore};
+        use std::error::Error;
+        use uuid::Uuid;
+
+        /// Per-identifier data stores (and their proxy settings) need macOS 14.
+        const MIN_MACOS_MAJOR: isize = 14;
+
+        pub(super) fn require_supported_macos() -> Result<(), Box<dyn Error>> {
+            let version = NSProcessInfo::processInfo().operatingSystemVersion();
+            if version.majorVersion < MIN_MACOS_MAJOR {
+                return Err(format!(
+                    "GameStrike player needs macOS {MIN_MACOS_MAJOR} or later to keep each game's data separate (this is {}.{})",
+                    version.majorVersion, version.minorVersion
+                )
+                .into());
+            }
+            Ok(())
+        }
+
+        fn identifier(id: Uuid) -> Retained<NSUUID> {
+            NSUUID::from_bytes(*id.as_bytes())
+        }
+
+        /// A configuration with this game's own persistent data store and WebRTC switched off.
+        pub(super) fn configuration(
+            id: Uuid,
+        ) -> Result<Retained<WKWebViewConfiguration>, Box<dyn Error>> {
+            let mtm = MainThreadMarker::new().ok_or("the player must run on the main thread")?;
+            require_supported_macos()?;
+            unsafe {
+                let config = WKWebViewConfiguration::new(mtm);
+                let store = WKWebsiteDataStore::dataStoreForIdentifier(&identifier(id), mtm);
+                if !store.isPersistent() {
+                    return Err("the game's WebKit data store is not persistent".into());
+                }
+                config.setWebsiteDataStore(&store);
+                let preferences = config.preferences();
+                preferences.setJavaScriptCanOpenWindowsAutomatically(false);
+                disable_peer_connections(&preferences)?;
+                Ok(config)
+            }
+        }
+
+        /// WKWebView has no public switch for WebRTC, and its UDP is not covered by CSP or the
+        /// proxy. WebKit's own preference is used; if it is missing, the player does not start.
+        unsafe fn disable_peer_connections(
+            preferences: &WKPreferences,
+        ) -> Result<(), Box<dyn Error>> {
+            if !preferences.respondsToSelector(sel!(_setPeerConnectionEnabled:))
+                || !preferences.respondsToSelector(sel!(_peerConnectionEnabled))
+            {
+                return Err(
+                    "this macOS WebKit cannot switch off WebRTC, so GameStrike will not run games"
+                        .into(),
+                );
+            }
+            let enabled: bool = unsafe {
+                let _: () = msg_send![preferences, _setPeerConnectionEnabled: false];
+                msg_send![preferences, _peerConnectionEnabled]
+            };
+            if enabled {
+                return Err("WebKit kept WebRTC enabled, so GameStrike will not run games".into());
+            }
+            Ok(())
+        }
+
+        /// Confirms the built WebView uses this game's store, has no injected scripts, and, when
+        /// offline, routes traffic through exactly one proxy.
+        pub(super) fn verify(
+            webview: &wry::WebView,
+            id: Uuid,
+            offline: bool,
+        ) -> Result<(), Box<dyn Error>> {
+            use wry::WebViewExtMacOS;
+            let view = webview.webview();
+            unsafe {
+                let config = view.configuration();
+                let store = config.websiteDataStore();
+                let in_use = store.identifier().map(|uuid| uuid.as_bytes());
+                if in_use != Some(*id.as_bytes()) || !store.isPersistent() {
+                    return Err("the WebView is not using this game's own data store".into());
+                }
+                if config.userContentController().userScripts().count() != 0 {
+                    return Err("a script would be injected into the game".into());
+                }
+                if offline {
+                    let proxies = store
+                        .valueForKey(ns_string!("proxyConfigurations"))
+                        .and_then(|value| value.downcast::<NSArray>().ok())
+                        .map_or(0, |proxies| proxies.count());
+                    if proxies != 1 {
+                        return Err(
+                            "offline mode could not route WebKit traffic to its proxy".into()
+                        );
+                    }
+                }
+                let enabled: bool = msg_send![&*config.preferences(), _peerConnectionEnabled];
+                if enabled {
+                    return Err("WebRTC is enabled in the game's WebView".into());
+                }
+            }
+            Ok(())
+        }
+
+        /// Deletes the game's WKWebsiteDataStore. Waits for WebKit, with a time limit.
+        pub(super) fn remove_data_store(id: Uuid) -> Result<(), Box<dyn Error>> {
+            use tao::{
+                event::{Event, StartCause},
+                event_loop::{ControlFlow, EventLoopBuilder},
+            };
+            use wry::WebViewExtDarwin;
+
+            enum Step {
+                Listed(bool),
+                Removed(Result<(), String>),
+            }
+            require_supported_macos()?;
+            let bytes = *id.as_bytes();
+            let event_loop = EventLoopBuilder::<Step>::with_user_event().build();
+            let proxy = event_loop.create_proxy();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            event_loop.run(move |event, _, flow| {
+                *flow = ControlFlow::WaitUntil(deadline);
+                match event {
+                    Event::NewEvents(StartCause::Init) => {
+                        let proxy = proxy.clone();
+                        let listed = wry::WebView::fetch_data_store_identifiers(move |stores| {
+                            let _ = proxy.send_event(Step::Listed(stores.contains(&bytes)));
+                        });
+                        if let Err(error) = listed {
+                            eprintln!("Error: could not list WebKit data stores: {error}");
+                            std::process::exit(1);
+                        }
+                    }
+                    Event::UserEvent(Step::Listed(false)) => {
+                        println!("GameStrike found no WebKit data store for this game.");
+                        std::process::exit(0);
+                    }
+                    Event::UserEvent(Step::Listed(true)) => {
+                        let proxy = proxy.clone();
+                        wry::WebView::remove_data_store(&bytes, move |result| {
+                            let _ = proxy.send_event(Step::Removed(
+                                result.map_err(|error| error.to_string()),
+                            ));
+                        });
+                    }
+                    Event::UserEvent(Step::Removed(Ok(()))) => {
+                        println!("GameStrike removed the game's WebKit data store.");
+                        std::process::exit(0);
+                    }
+                    Event::UserEvent(Step::Removed(Err(error))) => {
+                        eprintln!("Error: could not remove the game's WebKit data store: {error}");
+                        std::process::exit(1);
+                    }
+                    Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
+                        eprintln!("Error: WebKit did not finish removing the data store in time");
+                        std::process::exit(1);
+                    }
+                    _ => {}
+                }
+            })
+        }
     }
 
     fn verify_smoke_fixture(content: &Path, fixture: Fixture) -> Result<(), Box<dyn Error>> {
@@ -514,23 +907,31 @@ mod windows_player {
         Ok(())
     }
 
+    /// True only for the game's own origin as this platform's engine reports it.
+    ///
+    /// Windows: Wry serves the scheme as `https://<scheme>.localhost` (and may report the raw
+    /// scheme form). Linux and macOS: only `<scheme>://localhost`; there an
+    /// `https://<scheme>.localhost` URL would be a real network request, so it is refused.
     fn is_game_origin(url: &str, scheme: &str, host: &str) -> bool {
         let Ok(uri) = url.parse::<wry::http::Uri>() else {
             return false;
         };
         let authority = uri.authority().map(|value| value.as_str());
-        (uri.scheme_str() == Some("https") && authority == Some(host))
-            || (uri.scheme_str() == Some(scheme) && authority == Some("localhost"))
+        let custom = uri.scheme_str() == Some(scheme) && authority == Some("localhost");
+        if cfg!(windows) {
+            (uri.scheme_str() == Some("https") && authority == Some(host)) || custom
+        } else {
+            custom
+        }
     }
 
     fn serve_asset(
         root: &Path,
-        scheme: &str,
-        host: &str,
+        origin: &GameOrigin,
         csp: &'static str,
         request: Request<Vec<u8>>,
     ) -> Response<Cow<'static, [u8]>> {
-        let mut response = serve_asset_body(root, scheme, host, request);
+        let mut response = serve_asset_body(root, origin, request);
         let headers = response.headers_mut();
         headers.insert(
             HeaderName::from_static("content-security-policy"),
@@ -549,11 +950,10 @@ mod windows_player {
 
     fn serve_asset_body(
         root: &Path,
-        scheme: &str,
-        host: &str,
+        origin: &GameOrigin,
         request: Request<Vec<u8>>,
     ) -> Response<Cow<'static, [u8]>> {
-        if !is_game_origin(&request.uri().to_string(), scheme, host) {
+        if !origin.allows(&request.uri().to_string()) {
             return reply(
                 StatusCode::FORBIDDEN,
                 b"origin denied".to_vec(),
@@ -674,6 +1074,22 @@ mod windows_player {
     mod tests {
         use super::*;
 
+        fn game() -> GameOrigin {
+            GameOrigin {
+                scheme: "game".to_owned(),
+                host: "game.localhost".to_owned(),
+            }
+        }
+
+        /// The game's own URL as this platform's engine requests it.
+        fn own(path: &str) -> String {
+            if cfg!(windows) {
+                format!("https://game.localhost{path}")
+            } else {
+                format!("game://localhost{path}")
+            }
+        }
+
         #[test]
         fn boundary_probe_waits_for_results_instead_of_initial_title() {
             assert!(!fixture_reported(
@@ -700,21 +1116,23 @@ mod windows_player {
             fs::write(dir.path().join("secret.txt"), b"private").unwrap();
             let content = fs::canonicalize(content).unwrap();
             let request = Request::builder()
-                .uri("https://game.localhost/index.html")
+                .uri(own("/index.html"))
                 .body(Vec::new())
                 .unwrap();
-            let response = serve_asset(&content, "game", "game.localhost", OFFLINE_CSP, request);
+            let response = serve_asset(&content, &game(), OFFLINE_CSP, request);
             assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(response.body().as_ref(), b"<title>fixture</title>");
 
-            for path in ["/%2e%2e/secret.txt", "/C:%2fsecret.txt", "/CON.txt"] {
-                let request = Request::builder()
-                    .uri(format!("https://game.localhost{path}"))
-                    .body(Vec::new())
-                    .unwrap();
-                let response =
-                    serve_asset(&content, "game", "game.localhost", OFFLINE_CSP, request);
-                assert_ne!(response.status(), StatusCode::OK);
+            for path in [
+                "/%2e%2e/secret.txt",
+                "/C:%2fsecret.txt",
+                "/CON.txt",
+                "/%2fetc%2fpasswd",
+                "/..%5csecret.txt",
+            ] {
+                let request = Request::builder().uri(own(path)).body(Vec::new()).unwrap();
+                let response = serve_asset(&content, &game(), OFFLINE_CSP, request);
+                assert_ne!(response.status(), StatusCode::OK, "{path}");
                 assert!(
                     !response
                         .body()
@@ -725,23 +1143,49 @@ mod windows_player {
             }
         }
 
+        #[cfg(unix)]
+        #[test]
+        fn asset_handler_refuses_symlinks_out_of_the_content_root() {
+            let dir = tempfile::tempdir().unwrap();
+            let content = dir.path().join("content");
+            fs::create_dir(&content).unwrap();
+            fs::write(content.join("index.html"), b"fixture").unwrap();
+            fs::write(dir.path().join("secret.txt"), b"private").unwrap();
+            std::os::unix::fs::symlink(dir.path().join("secret.txt"), content.join("link.txt"))
+                .unwrap();
+            let content = fs::canonicalize(content).unwrap();
+            let request = Request::builder()
+                .uri(own("/link.txt"))
+                .body(Vec::new())
+                .unwrap();
+            let response = serve_asset(&content, &game(), OFFLINE_CSP, request);
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            assert!(!response.body().as_ref().starts_with(b"private"));
+        }
+
         #[test]
         fn navigation_and_asset_origins_are_exact() {
-            assert!(is_game_origin(
-                "https://game.localhost/index.html",
-                "game",
-                "game.localhost"
-            ));
+            assert!(game().allows(&own("/index.html")));
             for url in [
                 "https://other.localhost/index.html",
                 "https://game.localhost.evil/index.html",
                 "https://user@game.localhost/index.html",
+                "game://other/index.html",
+                "game://localhost.evil/index.html",
+                "other://localhost/index.html",
                 "file:///C:/fixture.txt",
+                "file:///etc/passwd",
                 "javascript:alert(1)",
                 "ms-appx:///fixture.txt",
+                "blob:game://localhost/1234",
             ] {
-                assert!(!is_game_origin(url, "game", "game.localhost"), "{url}");
+                assert!(!game().allows(url), "{url}");
             }
+            // On WebKit platforms the https form is a real network URL, never the game.
+            assert_eq!(
+                game().allows("https://game.localhost/index.html"),
+                cfg!(windows)
+            );
             let dir = tempfile::tempdir().unwrap();
             fs::write(dir.path().join("index.html"), b"fixture").unwrap();
             let request = Request::builder()
@@ -749,9 +1193,20 @@ mod windows_player {
                 .body(Vec::new())
                 .unwrap();
             assert_eq!(
-                serve_asset(dir.path(), "game", "game.localhost", OFFLINE_CSP, request).status(),
+                serve_asset(dir.path(), &game(), OFFLINE_CSP, request).status(),
                 StatusCode::FORBIDDEN
             );
+        }
+
+        #[test]
+        fn each_game_has_its_own_origin() {
+            let one = GameOrigin::new(Uuid::new_v4());
+            let two = GameOrigin::new(Uuid::new_v4());
+            assert_ne!(one.scheme, two.scheme);
+            assert!(one.allows(&one.entry_url()));
+            assert!(!one.allows(&two.entry_url()));
+            assert!(!two.allows(&one.entry_url()));
+            assert!(one.entry_url().ends_with("/index.html"));
         }
 
         #[test]
@@ -765,6 +1220,13 @@ mod windows_player {
                 ["with_initialization", "_script"].concat(),
                 ["SetAreHostObjectsAllowed(", "true"].concat(),
                 ["SetIsWebMessageEnabled(", "true"].concat(),
+                // WebKitGTK and WKWebView script bridges.
+                ["register_script", "_message_handler"].concat(),
+                ["addScript", "MessageHandler"].concat(),
+                ["addUser", "Script"].concat(),
+                ["add_", "script("].concat(),
+                ["set_enable_webrtc(", "true"].concat(),
+                ["_setPeerConnectionEnabled: ", "true"].concat(),
             ] {
                 assert!(!source.contains(&forbidden), "{forbidden}");
             }
@@ -778,13 +1240,19 @@ mod windows_player {
             assert!(Mode::parse(Some("--probe-offline")).unwrap().offline());
             assert!(!Mode::parse(Some("--probe-network")).unwrap().offline());
             assert!(Mode::parse(Some("--smoke")).unwrap().offline());
+            assert_eq!(
+                Mode::parse(Some("--clear-engine-data")),
+                Some(Mode::ClearEngineData)
+            );
             for flag in [None, Some(""), Some("--network"), Some("--OFFLINE")] {
                 assert_eq!(Mode::parse(flag), None, "{flag:?}");
             }
             assert_eq!(Mode::Offline.fixture(), None);
             assert_eq!(Mode::Network.fixture(), None);
+            assert_eq!(Mode::ClearEngineData.fixture(), None);
         }
 
+        #[cfg(windows)]
         #[test]
         fn offline_mode_routes_everything_through_the_owned_proxy() {
             let args = offline_browser_args(4321);
@@ -792,10 +1260,25 @@ mod windows_player {
             assert!(args.contains("--proxy-bypass-list=<-loopback>"));
             assert!(args.contains("--force-webrtc-ip-handling-policy=disable_non_proxied_udp --webrtc-ip-handling-policy=disable_non_proxied_udp"));
             assert!(args.starts_with(BASE_BROWSER_ARGS));
+        }
+
+        #[cfg(not(windows))]
+        #[test]
+        fn offline_mode_routes_everything_through_the_owned_proxy() {
+            let wry::ProxyConfig::Http(endpoint) = sinkhole_proxy_config(4321) else {
+                panic!("offline mode must use the HTTP sink-hole proxy");
+            };
+            assert_eq!(endpoint.host, "127.0.0.1");
+            assert_eq!(endpoint.port, "4321");
+        }
+
+        #[test]
+        fn offline_csp_allows_only_the_game_origin() {
             for directive in ["default-src 'self' data: blob:", "object-src 'none'"] {
                 assert!(OFFLINE_CSP.contains(directive), "{directive}");
             }
             assert!(!OFFLINE_CSP.contains("http:") && !OFFLINE_CSP.contains('*'));
+            assert!(!OFFLINE_CSP.contains("connect-src") && !OFFLINE_CSP.contains("file:"));
         }
 
         #[test]
@@ -836,12 +1319,12 @@ mod windows_player {
             fs::write(dir.path().join("index.html"), b"fixture").unwrap();
             let content = fs::canonicalize(dir.path()).unwrap();
             for (url, csp) in [
-                ("https://game.localhost/index.html", OFFLINE_CSP),
-                ("https://game.localhost/missing.js", OFFLINE_CSP),
-                ("https://other.localhost/index.html", NETWORK_CSP),
+                (own("/index.html"), OFFLINE_CSP),
+                (own("/missing.js"), OFFLINE_CSP),
+                ("https://other.localhost/index.html".to_owned(), NETWORK_CSP),
             ] {
-                let request = Request::builder().uri(url).body(Vec::new()).unwrap();
-                let response = serve_asset(&content, "game", "game.localhost", csp, request);
+                let request = Request::builder().uri(&url).body(Vec::new()).unwrap();
+                let response = serve_asset(&content, &game(), csp, request);
                 assert_eq!(
                     response.headers().get("content-security-policy").unwrap(),
                     csp,
@@ -854,9 +1337,10 @@ mod windows_player {
             }
         }
 
+        #[cfg(windows)]
         #[test]
         fn integrity_policy_refuses_elevated_and_unknown_levels() {
-            assert!(require_medium_integrity(Some(MEDIUM_INTEGRITY_RID)).is_ok());
+            assert!(require_medium_integrity(Some(integrity::MEDIUM_INTEGRITY_RID)).is_ok());
             for rid in [0, 0x1000, 0x2100, 0x3000, 0x4000, 0x5000, u32::MAX] {
                 assert!(require_medium_integrity(Some(rid)).is_err(), "{rid:#x}");
             }
@@ -866,13 +1350,40 @@ mod windows_player {
             assert!(query_error.to_string().contains("token query failed"));
         }
 
+        #[cfg(windows)]
         #[test]
         fn current_windows_token_is_queried_before_launch() {
             let rid = integrity::current_integrity_rid().expect("token integrity query failed");
             eprintln!("GameStrike test process integrity RID: {rid:#x}");
             assert_eq!(
-                ensure_standard_integrity().is_ok(),
-                rid == MEDIUM_INTEGRITY_RID
+                ensure_standard_privileges().is_ok(),
+                rid == integrity::MEDIUM_INTEGRITY_RID
+            );
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn unix_policy_refuses_root_and_setuid_identities() {
+            assert!(require_unprivileged([1000, 1000, 1000, 1000]).is_ok());
+            for ids in [
+                [0, 0, 0, 0],
+                [1000, 0, 1000, 1000],
+                [0, 1000, 1000, 1000],
+                [1000, 1001, 1000, 1000],
+                [1000, 1000, 1000, 0],
+            ] {
+                assert!(require_unprivileged(ids).is_err(), "{ids:?}");
+            }
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn current_unix_identity_is_checked_before_launch() {
+            let ids = privileges::ids();
+            eprintln!("GameStrike test process ids: {ids:?}");
+            assert_eq!(
+                ensure_standard_privileges().is_ok(),
+                ids[0] != 0 && ids[1] != 0 && ids[0] == ids[1] && ids[2] == ids[3]
             );
         }
 
@@ -892,7 +1403,7 @@ mod windows_player {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    windows_player::run()
+    game_player::run()
 }
