@@ -79,7 +79,7 @@ mod windows_launcher {
     }
 
     /// A named UI state for `--capture-view`. Only names in this list reach the page script.
-    const CAPTURE_VIEWS: [&str; 11] = [
+    const CAPTURE_VIEWS: [&str; 12] = [
         "library",
         "long",
         "launch",
@@ -87,6 +87,7 @@ mod windows_launcher {
         "about",
         "system",
         "original",
+        "original-games",
         "pwds",
         "boot-blades",
         "boot-original",

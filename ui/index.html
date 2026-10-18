@@ -30,7 +30,9 @@
     <div class="boot-scene scene-original">
       <span class="goo g1"></span><span class="goo g2"></span><span class="goo g3"></span>
       <span class="otube o1"></span><span class="otube o2"></span><span class="otube o3"></span>
+      <span class="blob"></span>
       <span class="og-core"></span>
+      <span class="white-flash"></span>
       <img class="boot-mark" src="/mark.svg" alt="">
       <div class="boot-title">GAMESTRIKE</div>
       <div class="boot-by">by PWDS</div>
@@ -65,12 +67,22 @@
     </main>
 
     <section id="og" class="og" aria-label="Library" hidden>
-      <div class="og-orb" aria-hidden="true"><span class="og-ring"></span><span class="og-ring two"></span><img src="/mark.svg" alt=""></div>
-      <div class="og-panel">
-        <div id="og-header" class="og-header"></div>
-        <div id="og-list" class="og-list" role="listbox"></div>
-        <div id="og-detail" class="og-detail" role="status" aria-live="polite"></div>
+      <div id="og-title" class="og-title"></div>
+      <svg id="og-wires" class="og-wires" aria-hidden="true"></svg>
+      <div class="og-orbits" aria-hidden="true"><span></span><span></span></div>
+      <div id="og-orb" class="og-orb" aria-hidden="true">
+        <span class="shard s1"></span><span class="shard s2"></span><span class="shard s3"></span><span class="shard s4"></span>
+        <span class="goo-shell"></span><span class="core"></span>
       </div>
+      <div id="og-list" class="og-list" role="listbox"></div>
+      <div id="og-detail" class="og-detail" role="status" aria-live="polite"></div>
+      <section id="og-panel" class="og-panel" hidden>
+        <div class="og-panel-head"><div id="og-panel-count" class="og-panel-count"></div><div id="og-panel-title" class="og-panel-title"></div></div>
+        <div id="og-rows" class="og-rows" role="listbox"></div>
+      </section>
+      <div id="og-info" class="og-info" hidden></div>
+      <div class="og-hint back" aria-hidden="true"><span class="og-glyph">B</span><span>BACK</span></div>
+      <div class="og-hint select" aria-hidden="true"><span class="og-glyph">A</span><span>SELECT</span></div>
     </section>
 
     <footer class="hints" aria-hidden="true">

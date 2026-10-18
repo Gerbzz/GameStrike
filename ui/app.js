@@ -22,6 +22,7 @@
     sort: stored("gamestrike-sort", "recent"),
     theme: stored("gamestrike-theme", "lime"),
     style: stored("gamestrike-style", "blades"),
+    ogLevel: "main",
     booted: false,
     channels: [],
     channel: 0,
@@ -38,7 +39,7 @@
   document.body.dataset.style = state.style;
 
   const el = {
-    boot: $("boot"), og: $("og"), ogHeader: $("og-header"), ogList: $("og-list"), ogDetail: $("og-detail"), channels: $("channels"), stage: $("stage"), counter: $("counter"), note: $("under-note"),
+    boot: $("boot"), og: $("og"), ogPanel: $("og-panel"), ogPanelTitle: $("og-panel-title"), ogPanelCount: $("og-panel-count"), ogRows: $("og-rows"), ogInfo: $("og-info"), ogTitle: $("og-title"), ogWires: $("og-wires"), ogOrb: $("og-orb"), ogList: $("og-list"), ogDetail: $("og-detail"), channels: $("channels"), stage: $("stage"), counter: $("counter"), note: $("under-note"),
     profileSub: $("profile-sub"), toast: $("toast"),
     hintA: $("hint-a"), hintX: $("hint-x"), hintY: $("hint-y"),
   };
@@ -302,40 +303,149 @@
     return [tileNode?.querySelector(".tile-title")?.textContent || "", ""];
   }
 
+  // Original style. The main menu lists channels; A or Right opens one as a sub-menu, B or Left returns.
   function renderOriginal(focus) {
     if (state.style !== "original") return;
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const D = Math.min(H * 0.38, W * 0.3);
+    const cx = W * 0.3;
+    const cy = H * 0.47;
+    el.og.style.setProperty("--d", `${D}px`);
+    el.og.style.setProperty("--d-main", `${D}px`);
+    el.og.style.setProperty("--cx", `${cx}px`);
+    el.og.style.setProperty("--cy", `${cy}px`);
+    const main = state.ogLevel === "main";
     const { channel, index } = current();
-    const header = document.createElement("small");
-    header.textContent = `${state.channel + 1} / ${state.channels.length} · ◀ ▶ changes menu`;
-    el.ogHeader.replaceChildren(document.createTextNode(channel.title), header);
-    const windowSize = 6;
-    const first = Math.max(0, Math.min(index - 2, channel.items.length - windowSize));
-    const rows = [];
-    if (first > 0) rows.push(more(`▲ ${first} more`));
-    channel.items.slice(first, first + windowSize).forEach((item, offset) => {
+    el.og.classList.toggle("main", main);
+    el.og.classList.toggle("sub", !main);
+    el.ogPanel.hidden = main;
+    el.ogInfo.hidden = main;
+    if (!main) { renderOriginalPanel(focus); return; }
+    const entries = main
+      ? state.channels.map((entry) => [entry.title, entry.key === "games" || entry.key === "recent" ? `${entry.items.filter((item) => item.kind === "game").length}` : ""])
+      : channel.items.map(itemText);
+    const focused = main ? state.channel : index;
+    const windowSize = 5;
+    const first = main ? 0 : Math.max(0, Math.min(focused - 2, entries.length - windowSize));
+    const shown = entries.slice(first, first + windowSize);
+    const spacing = Math.min(64, H * 0.085);
+    const radius = (D / 2) * 1.22;
+    const nodes = [];
+    const wires = [];
+    shown.forEach(([name, note], offset) => {
       const position = first + offset;
+      const dy = (offset - (shown.length - 1) / 2) * spacing;
+      const nx = cx + Math.sqrt(Math.max(radius * radius - dy * dy, (radius * 0.35) ** 2));
+      const ny = cy + dy;
       const node = document.createElement("button");
       node.type = "button";
       node.className = "og-item";
       node.setAttribute("role", "option");
-      node.tabIndex = position === index ? 0 : -1;
-      node.classList.toggle("focused", position === index);
-      node.setAttribute("aria-selected", String(position === index));
-      const [name, note] = itemText(item);
-      const nameNode = document.createElement("span");
-      nameNode.textContent = name;
-      const noteNode = document.createElement("small");
-      noteNode.textContent = note;
-      node.append(nameNode, noteNode);
-      node.addEventListener("click", () => { if (position === current().index) activate(); else focusIndex(position); });
-      rows.push(node);
+      node.style.left = `${nx - 13}px`;
+      node.style.top = `${ny - 13}px`;
+      node.tabIndex = position === focused ? 0 : -1;
+      node.classList.toggle("focused", position === focused);
+      node.setAttribute("aria-selected", String(position === focused));
+      const ring = document.createElement("span");
+      ring.className = "og-node";
+      const bar = document.createElement("span");
+      bar.className = "og-bar";
+      const label = document.createElement("span");
+      label.textContent = name;
+      const small = document.createElement("small");
+      small.textContent = note;
+      bar.append(label, small);
+      node.append(ring, bar);
+      node.addEventListener("click", () => {
+        if (main) { if (position === state.channel) enterOriginal(); else switchChannel(position); }
+        else if (position === current().index) activate();
+        else focusIndex(position);
+      });
+      nodes.push(node);
+      // A thin wire from the orb's rim to the node, bowing slightly outward.
+      const angle = Math.atan2(dy, nx - cx);
+      const sx = cx + (D / 2) * 0.8 * Math.cos(angle);
+      const sy = cy + (D / 2) * 0.8 * Math.sin(angle);
+      const mx = (sx + nx) / 2 + 8;
+      const my = (sy + ny) / 2 - dy * 0.12;
+      wires.push(`<path class="${position === focused ? "focused" : ""}" d="M${sx.toFixed(1)} ${sy.toFixed(1)} Q${mx.toFixed(1)} ${my.toFixed(1)} ${(nx - 13).toFixed(1)} ${ny.toFixed(1)}"/>`);
     });
-    const rest = channel.items.length - (first + windowSize);
-    if (rest > 0) rows.push(more(`▼ ${rest} more`));
-    el.ogList.replaceChildren(...rows);
-    el.ogDetail.textContent = el.note.textContent || `${index + 1} of ${channel.items.length}`;
+    const topY = cy - ((shown.length - 1) / 2) * spacing;
+    const bottomY = cy + ((shown.length - 1) / 2) * spacing;
+    if (first > 0) nodes.push(moreAt(`▲ ${first} MORE`, cx + radius * 0.9, topY - spacing * 0.9));
+    const rest = entries.length - (first + windowSize);
+    if (rest > 0) nodes.push(moreAt(`▼ ${rest} MORE`, cx + radius * 0.9, bottomY + spacing * 0.55));
+    el.ogList.replaceChildren(...nodes);
+    el.ogWires.innerHTML = wires.join("");
+    el.ogTitle.textContent = main ? "" : channel.title;
+    el.og.style.setProperty("--detail-x", `${cx + radius + 24}px`);
+    el.og.style.setProperty("--detail-y", `${bottomY + spacing * (rest > 0 ? 1.1 : 0.8)}px`);
+    el.ogDetail.textContent = main
+      ? `${state.games.length} ${state.games.length === 1 ? "game" : "games"} in your library`
+      : el.note.textContent || `${index + 1} of ${channel.items.length}`;
     if (focus && !state.dialog) el.ogList.querySelector(".og-item.focused")?.focus({ preventScroll: true });
   }
+
+  function renderOriginalPanel(focus) {
+    const { channel, index, item } = current();
+    const games = channel.items.filter((entry) => entry.kind === "game").length;
+    el.ogPanelCount.textContent = channel.key === "games" || channel.key === "recent"
+      ? `TOTAL: ${games} ${games === 1 ? "GAME" : "GAMES"}${state.query ? ` · SEARCH: ${state.query.toUpperCase()}` : ""}`
+      : `${channel.items.length} OPTIONS`;
+    el.ogPanelTitle.textContent = channel.title;
+    const rowsVisible = Math.max(4, Math.floor((window.innerHeight * 0.64 - 110) / 44));
+    const first = Math.max(0, Math.min(index - Math.floor(rowsVisible / 2), channel.items.length - rowsVisible));
+    el.ogRows.replaceChildren(...channel.items.slice(first, first + rowsVisible).map((entry, offset) => {
+      const position = first + offset;
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "og-row";
+      row.setAttribute("role", "option");
+      row.tabIndex = position === index ? 0 : -1;
+      row.classList.toggle("focused", position === index);
+      row.setAttribute("aria-selected", String(position === index));
+      const [name, note] = itemText(entry);
+      const label = document.createElement("span");
+      label.textContent = `${position + 1}. ${name}`;
+      const small = document.createElement("small");
+      small.textContent = note;
+      row.append(label, small);
+      row.addEventListener("click", () => { if (position === current().index) activate(); else focusIndex(position); });
+      return row;
+    }));
+    const info = [];
+    if (item?.kind === "game") {
+      const game = item.game;
+      info.push(game.title, game.source_kind === "zip" ? "ZIP archive" : "HTML file", game.play_count ? `${game.play_count} ${game.play_count === 1 ? "play" : "plays"}` : "Never played", game.save_bytes ? `Game data ${core.formatBytes(game.save_bytes)}` : "No game data");
+    } else if (item) {
+      info.push(itemText(item)[0], el.stage.querySelector(`.tile[data-index="${index}"] .tile-meta`)?.textContent || "");
+    }
+    el.ogInfo.replaceChildren(...info.filter(Boolean).map((line) => { const div = document.createElement("div"); div.textContent = line; return div; }));
+    el.ogTitle.textContent = "";
+    if (focus && !state.dialog) el.ogRows.querySelector(".og-row.focused")?.focus({ preventScroll: true });
+  }
+
+  function moreAt(text, x, y) {
+    const node = more(text);
+    node.style.left = `${x}px`;
+    node.style.top = `${y}px`;
+    return node;
+  }
+
+  function enterOriginal() {
+    state.ogLevel = "sub";
+    sound.play("open");
+    renderOriginal(true);
+  }
+
+  function leaveOriginal() {
+    state.ogLevel = "main";
+    sound.play("back");
+    renderOriginal(true);
+  }
+
+  window.addEventListener("resize", () => renderOriginal(false));
 
   function more(text) {
     const node = document.createElement("div");
@@ -389,6 +499,7 @@
 
   // ---------- actions ----------
   function activate() {
+    if (state.style === "original" && state.ogLevel === "main") { enterOriginal(); return; }
     const { item } = current();
     if (!item) return;
     switch (item.kind) {
@@ -426,6 +537,7 @@
   }
 
   function setStyle(next, persist = true) {
+    if (next === "original" && state.style !== "original") state.ogLevel = "main";
     state.style = next;
     document.body.dataset.style = next;
     if (persist) store("gamestrike-style", next);
@@ -606,12 +718,21 @@
   function navigate(direction) {
     const vertical = direction === "up" || direction === "down";
     const step = direction === "left" || direction === "up" ? -1 : 1;
-    // Blades: left/right moves along a channel, up/down changes channel. Original: the reverse.
-    if (vertical === (state.style === "original")) moveTile(step);
-    else switchChannel(state.channel + step);
+    if (state.style === "original") {
+      // Original: up/down moves through the menu; right opens a channel, left goes back.
+      if (vertical) { if (state.ogLevel === "main") switchChannel(state.channel + step); else moveTile(step); }
+      else if (direction === "right" && state.ogLevel === "main") enterOriginal();
+      else if (direction === "left" && state.ogLevel === "sub") leaveOriginal();
+      return;
+    }
+    // Blades: left/right moves along a channel, up/down changes channel.
+    if (vertical) switchChannel(state.channel + step);
+    else moveTile(step);
   }
 
   function back() {
+    if (state.style === "original" && state.ogLevel === "sub") { leaveOriginal(); return; }
+    if (state.style === "original") return;
     if (state.channel !== gamesChannel()) { switchChannel(gamesChannel()); return; }
     if (state.query) { state.query = ""; sound.play("back"); render(); }
   }
@@ -717,7 +838,7 @@
     if (message.type === "library" && state.pendingFocus) {
       const index = state.channels[gamesChannel()].items.findIndex((item) => item.kind === "game" && item.game.id === state.pendingFocus);
       state.pendingFocus = null;
-      if (index >= 0) { state.channel = gamesChannel(); state.focus.games = index; renderChannels(); renderTiles(0, true); }
+      if (index >= 0) { state.channel = gamesChannel(); state.focus.games = index; state.ogLevel = "sub"; renderChannels(); renderTiles(0, true); }
     }
   }
 
@@ -727,7 +848,7 @@
     const boot = /^boot-(blades|original|pwds)$/.exec(view);
     state.theme = "lime";
     document.body.dataset.theme = "lime";
-    setStyle(boot ? boot[1] : view === "original" || view === "pwds" ? view : "blades", false);
+    setStyle(boot ? boot[1] : view === "original" || view === "original-games" ? "original" : view === "pwds" ? "pwds" : "blades", false);
     render({ focus: false });
     if (boot) {
       el.boot.style.setProperty("--seek", { blades: "2.75s", original: "3.45s", pwds: "1.95s" }[boot[1]]);
@@ -736,7 +857,9 @@
       return;
     }
     finishBoot();
-    if (view === "original" || view === "pwds") return;
+    if (view === "original") { state.ogLevel = "main"; renderOriginal(false); return; }
+    if (view === "original-games") { setStyle("original", false); state.ogLevel = "sub"; renderOriginal(false); return; }
+    if (view === "pwds") return;
     if (view === "long") {
       const items = state.channels[gamesChannel()].items;
       let best = -1;
