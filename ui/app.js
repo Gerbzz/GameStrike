@@ -5,36 +5,43 @@
   const $ = (id) => document.getElementById(id);
   const send = (message) => window.ipc.postMessage(JSON.stringify(message));
   const startedAt = performance.now();
+  const THEMES = [["lime", "Lime"], ["ocean", "Ocean"], ["sunset", "Sunset"], ["grape", "Grape"], ["graphite", "Graphite"]];
+  const SORTS = [["recent", "Recently played"], ["title-asc", "Title A–Z"], ["title-desc", "Title Z–A"], ["added", "Recently added"]];
+
+  const stored = (key, fallback) => { try { return localStorage.getItem(key) ?? fallback; } catch (_) { return fallback; } };
+  const store = (key, value) => { try { localStorage.setItem(key, value); } catch (_) { /* optional preference */ } };
 
   const state = {
     loaded: false,
     games: [],
-    rows: [],
-    pos: null,
     problems: [],
     running: null,
-    selectedId: null,
+    query: "",
+    sort: stored("gamestrike-sort", "recent"),
+    theme: stored("gamestrike-theme", "lime"),
+    channels: [],
+    channel: 0,
+    focus: {},
     importing: false,
     launching: false,
     dialog: null,
     returnFocus: null,
   };
+  if (!SORTS.some(([key]) => key === state.sort)) state.sort = "recent";
+  if (!THEMES.some(([key]) => key === state.theme)) state.theme = "lime";
+  document.body.dataset.theme = state.theme;
 
   const el = {
-    shell: $("shell"), splash: $("splash"), content: $("library-content"), hero: $("hero"),
-    search: $("library-search"), sort: $("library-sort"), add: $("add-button"), about: $("about-button"),
-    sound: $("sound-button"), clock: $("clock"),
-    count: $("game-count"), visibleCount: $("visible-count"), problems: $("problems-button"),
-    play: $("play-button"), network: $("network-button"), manage: $("manage-button"),
-    note: $("detail-note"), nowPlaying: $("now-playing"), toast: $("toast"),
+    splash: $("splash"), channels: $("channels"), stage: $("stage"), counter: $("counter"), note: $("under-note"),
+    profileSub: $("profile-sub"), toast: $("toast"),
+    hintA: $("hint-a"), hintX: $("hint-x"), hintY: $("hint-y"),
   };
 
   // ---------- interface sounds (synthesized locally, never fetched) ----------
   const sound = (() => {
-    let enabled = true;
-    try { enabled = localStorage.getItem("gamestrike-sounds") !== "off"; } catch (_) { /* optional */ }
+    let enabled = stored("gamestrike-sounds", "on") !== "off";
     let context = null;
-    const tones = { move: [520, 0.035, 0.05], select: [740, 0.08, 0.07], back: [330, 0.07, 0.06], open: [620, 0.12, 0.06], error: [190, 0.16, 0.07] };
+    const tones = { move: [880, 0.03, 0.035], channel: [660, 0.06, 0.04], select: [740, 0.1, 0.06], back: [440, 0.08, 0.05], open: [600, 0.12, 0.05], error: [200, 0.18, 0.06] };
     function play(kind) {
       if (!enabled || !window.AudioContext) return;
       try {
@@ -43,29 +50,28 @@
         const now = context.currentTime;
         const osc = context.createOscillator();
         const gain = context.createGain();
-        osc.type = "triangle";
+        osc.type = "sine";
         osc.frequency.setValueAtTime(frequency, now);
-        if (kind === "open" || kind === "select") osc.frequency.exponentialRampToValueAtTime(frequency * 1.5, now + length);
+        if (kind === "select" || kind === "open") osc.frequency.exponentialRampToValueAtTime(frequency * 1.6, now + length);
+        if (kind === "back") osc.frequency.exponentialRampToValueAtTime(frequency * 0.7, now + length);
         gain.gain.setValueAtTime(volume, now);
         gain.gain.exponentialRampToValueAtTime(0.0001, now + length);
         osc.connect(gain).connect(context.destination);
         osc.start(now);
-        osc.stop(now + length);
+        osc.stop(now + length + 0.02);
       } catch (_) { /* sound is decoration only */ }
     }
-    function toggle() {
-      enabled = !enabled;
-      try { localStorage.setItem("gamestrike-sounds", enabled ? "on" : "off"); } catch (_) { /* optional */ }
-      el.sound.setAttribute("aria-pressed", String(enabled));
-      if (enabled) play("select");
-    }
-    el.sound.setAttribute("aria-pressed", String(enabled));
-    return { play, toggle };
+    return {
+      play,
+      get enabled() { return enabled; },
+      toggle() { enabled = !enabled; store("gamestrike-sounds", enabled ? "on" : "off"); if (enabled) play("select"); },
+    };
   })();
 
   // ---------- helpers ----------
-  function selected() { return state.games.find((game) => game.id === state.selectedId) || null; }
-  function gameById(id) { return state.games.find((game) => game.id === id) || null; }
+  const gameById = (id) => state.games.find((game) => game.id === id) || null;
+  const sourceLabel = (game) => (game.source_kind === "zip" ? "ZIP archive" : "HTML file");
+  const label = (list, key) => list.find(([k]) => k === key)?.[1] || "";
 
   function toast(message, isError = false) {
     el.toast.textContent = message;
@@ -76,268 +82,287 @@
     toast.timer = setTimeout(() => { el.toast.hidden = true; }, isError ? 9000 : 5000);
   }
 
-  function setCover(node, game) {
-    const art = core.cover(game.id, game.title);
-    node.className = `cover p${art.pattern}${node.classList.contains("large") ? " large" : ""}`;
-    node.style.setProperty("--h1", art.hue);
-    node.style.setProperty("--h2", art.hue2);
-    node.style.setProperty("--a", `${art.angle}deg`);
-    node.querySelector("span").textContent = art.initials;
+  const ICONS = {
+    add: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+    search: '<svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg>',
+    sort: '<svg viewBox="0 0 24 24"><path d="M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4"/></svg>',
+    clear: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+    sound: '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>',
+    mute: '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="m16 9 6 6m0-6-6 6"/></svg>',
+    theme: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg>',
+    about: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v6M12 7.5v.1"/></svg>',
+    warn: '<svg viewBox="0 0 24 24"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17v.1"/></svg>',
+  };
+
+  // ---------- channels ----------
+  function buildChannels() {
+    const channels = [];
+    const games = core.filterAndSort(state.games, state.query, state.sort);
+    const items = games.map((game) => ({ kind: "game", game }));
+    if (state.query) items.unshift({ kind: "clear-search" });
+    if (!state.games.length) items.push({ kind: "add-first" });
+    else if (!games.length) items.push({ kind: "no-match" });
+    const recent = core.filterAndSort(state.games.filter((game) => game.last_played), "", "recent").slice(0, 10);
+    if (recent.length) channels.push({ key: "recent", title: "Jump Back In", items: recent.map((game) => ({ kind: "game", game })) });
+    channels.push({ key: "find", title: "Add & Find", items: [{ kind: "add" }, { kind: "search" }, { kind: "sort" }] });
+    channels.push({ key: "games", title: state.query ? `My Games · “${state.query}”` : "My Games", items });
+    const system = [{ kind: "sound" }, { kind: "theme" }, { kind: "about" }];
+    if (state.problems.length) system.unshift({ kind: "problems" });
+    channels.push({ key: "system", title: "System", items: system });
+    return channels;
   }
 
-  function renderBadges(container, game) {
-    const list = [];
-    if (game.id === state.running) list.push(["playing", "Playing"]);
-    if (!game.files_ok) list.push(["missing", "Files missing"]);
-    container.replaceChildren(...list.map(([kind, text]) => {
-      const badge = document.createElement("span");
-      badge.className = `badge ${kind}`;
-      badge.textContent = text;
-      return badge;
+  function gamesChannel() { return Math.max(0, state.channels.findIndex((channel) => channel.key === "games")); }
+
+  function itemKey(item) { return item.kind === "game" ? `game:${item.game.id}` : item.kind; }
+
+  function current() {
+    const channel = state.channels[state.channel];
+    const index = Math.min(state.focus[channel.key] || 0, channel.items.length - 1);
+    return { channel, index, item: channel.items[index] };
+  }
+
+  function render({ direction = 0, focus = true } = {}) {
+    const remember = state.channels.length ? itemKey(current().item) : null;
+    const key = state.channels[state.channel]?.key || "games";
+    state.channels = buildChannels();
+    const found = state.channels.findIndex((channel) => channel.key === key);
+    state.channel = found >= 0 ? found : gamesChannel();
+    const { channel } = current();
+    if (remember) {
+      const again = channel.items.findIndex((item) => itemKey(item) === remember);
+      if (again >= 0) state.focus[channel.key] = again;
+    }
+    renderChannels();
+    renderTiles(direction, focus);
+  }
+
+  function renderChannels() {
+    el.channels.replaceChildren(...state.channels.map((channel, index) => {
+      const node = document.createElement("button");
+      node.type = "button";
+      node.className = "channel";
+      node.setAttribute("role", "tab");
+      node.setAttribute("aria-selected", String(index === state.channel));
+      node.tabIndex = -1;
+      node.textContent = channel.title;
+      const d = index - state.channel;
+      const layout = d === 0 ? [0, 1, 1] : d === -1 ? [-1.3, 0.6, 0.85] : d === -2 ? [-2.1, 0.5, 0.55] : d === -3 ? [-2.75, 0.42, 0.3] : d < 0 ? [-3.2, 0.36, 0] : [0.9, 0.6, 0];
+      node.classList.toggle("current", d === 0);
+      node.style.transform = `translateY(${layout[0]}em) scale(${layout[1]})`;
+      node.style.opacity = layout[2];
+      node.style.pointerEvents = layout[2] > 0.2 ? "auto" : "none";
+      node.addEventListener("click", () => switchChannel(index));
+      return node;
     }));
   }
 
-  function sourceLabel(game) { return game.source_kind === "zip" ? "ZIP archive" : "HTML file"; }
-
-  function tileMeta(game) {
-    if (!game.files_ok) return "Files missing";
-    return game.last_played ? `Played ${core.formatWhen(game.last_played).toLocaleLowerCase()}` : "Not played yet";
-  }
-
-  function tick() {
-    el.clock.textContent = new Date().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  }
-
-  // ---------- shelves ----------
-  function buildRows() {
-    const all = core.filterAndSort(state.games, el.search.value, el.sort.value);
-    const rows = [];
-    const searching = el.search.value.trim() !== "";
-    const recent = searching ? [] : core.filterAndSort(state.games.filter((game) => game.last_played), "", "recent").slice(0, 8);
-    if (recent.length && state.games.length > 6) rows.push({ key: "recent", title: "Jump back in", games: recent });
-    rows.push({ key: "all", title: searching ? "Search results" : "Your library", games: all });
-    return rows;
-  }
-
-  function renderLibrary({ focus = false } = {}) {
-    const tileHadFocus = document.activeElement?.classList?.contains("tile");
-    state.rows = buildRows();
-    const empty = state.games.length === 0;
-    const allRow = state.rows[state.rows.length - 1];
-    el.shell.classList.toggle("empty", empty);
-    el.count.textContent = "";
-    el.visibleCount.textContent = !empty && allRow.games.length !== state.games.length ? `${allRow.games.length} of ${state.games.length} shown` : "";
-    el.problems.hidden = state.problems.length === 0;
-    el.problems.textContent = `${state.problems.length} unreadable ${state.problems.length === 1 ? "folder" : "folders"}`;
-    el.search.disabled = empty;
-    el.sort.disabled = empty;
-
-    if (empty) {
-      state.selectedId = null;
-      state.pos = null;
-      el.hero.hidden = true;
-      el.content.replaceChildren(welcome());
-      return;
-    }
-    if (!allRow.games.length) {
-      el.hero.hidden = true;
-      const box = document.createElement("div");
-      box.className = "no-match";
-      const heading = document.createElement("h2");
-      heading.textContent = "No games match your search";
-      const body = document.createElement("p");
-      body.textContent = "Press Esc to clear the search and see your whole library.";
-      box.append(heading, body);
-      el.content.replaceChildren(box);
-      return;
-    }
-
-    el.content.replaceChildren(...state.rows.map((row, rowIndex) => {
-      const shelf = document.createElement("section");
-      shelf.className = "shelf";
-      const heading = document.createElement("h3");
-      heading.textContent = row.title;
-      const count = document.createElement("span");
-      count.textContent = row.key === "all" ? `${row.games.length} ${row.games.length === 1 ? "game" : "games"}` : "";
-      heading.append(count);
-      const list = document.createElement("div");
-      list.className = "row";
-      list.setAttribute("role", "listbox");
-      list.setAttribute("aria-label", row.title);
-      list.setAttribute("aria-orientation", "horizontal");
-      row.games.forEach((game, col) => list.append(tile(game, rowIndex, col)));
-      shelf.append(heading, list);
-      return shelf;
-    }));
-
-    // Keep the selected game; otherwise restore the last one; otherwise start at the first tile.
-    let target = findPos(state.selectedId, state.pos?.row);
-    if (!target) {
-      let remembered = null;
-      try { remembered = sessionStorage.getItem("gamestrike-selected"); } catch (_) { /* optional */ }
-      target = findPos(remembered) || { row: 0, col: 0 };
-    }
-    selectPos(target, { focus: focus || tileHadFocus, quiet: true });
-  }
-
-  function findPos(id, preferredRow) {
-    if (!id) return null;
-    const order = state.rows.map((_, index) => index);
-    if (preferredRow !== undefined) order.sort((a, b) => (a === preferredRow ? -1 : b === preferredRow ? 1 : 0));
-    for (const row of order) {
-      const col = state.rows[row].games.findIndex((game) => game.id === id);
-      if (col >= 0) return { row, col };
-    }
-    return null;
-  }
-
-  function tile(game, row, col) {
+  function tile(item, index) {
     const node = document.createElement("button");
     node.type = "button";
     node.className = "tile";
-    node.dataset.id = game.id;
-    node.dataset.row = row;
-    node.dataset.col = col;
+    node.dataset.index = index;
     node.setAttribute("role", "option");
     node.tabIndex = -1;
-    node.setAttribute("aria-label", `${game.title}. ${tileMeta(game)}.${game.id === state.running ? " Playing now." : ""}`);
     const art = document.createElement("div");
-    art.className = "cover";
-    art.setAttribute("aria-hidden", "true");
-    art.append(document.createElement("span"));
-    setCover(art, game);
-    const badges = document.createElement("div");
-    badges.className = "badges";
-    renderBadges(badges, game);
-    const title = document.createElement("span");
+    art.className = "tile-art";
+    const labelBox = document.createElement("div");
+    labelBox.className = "tile-label";
+    const title = document.createElement("div");
     title.className = "tile-title";
-    title.textContent = game.title;
-    const meta = document.createElement("span");
+    const meta = document.createElement("div");
     meta.className = "tile-meta";
-    meta.textContent = tileMeta(game);
-    node.append(art, badges, title, meta);
-    node.addEventListener("click", () => selectPos({ row, col }, { focus: true }));
-    node.addEventListener("dblclick", () => playOffline());
-    node.addEventListener("focus", () => {
-      if (state.pos?.row !== row || state.pos?.col !== col) selectPos({ row, col });
+    const badges = document.createElement("div");
+    badges.className = "tile-badges";
+    let text = "";
+    let sub = "";
+    let aria = "";
+    if (item.kind === "game") {
+      const game = item.game;
+      const cover = core.cover(game.id, game.title);
+      node.classList.add("game");
+      node.style.setProperty("--h1", cover.hue);
+      node.style.setProperty("--h2", cover.hue2);
+      const initials = document.createElement("span");
+      initials.className = "tile-initials";
+      initials.textContent = cover.initials;
+      art.append(initials);
+      text = game.title;
+      sub = !game.files_ok ? "Files missing" : game.last_played ? `${sourceLabel(game)} · Played ${core.formatWhen(game.last_played).toLocaleLowerCase()}` : `${sourceLabel(game)} · Not played yet`;
+      if (game.id === state.running) badges.append(badge("playing", "Playing"));
+      if (!game.files_ok) badges.append(badge("missing", "Files missing"));
+      aria = `${game.title}. ${sub}.${game.id === state.running ? " Playing now." : ""}`;
+    } else {
+      const spec = {
+        "add-first": ["add", "Add your first game", "Choose an .html file or a .zip"],
+        add: ["add", "Add a game", "From an .html file or a .zip"],
+        search: ["search", "Find a game", state.query ? `Showing “${state.query}”` : "Search by title"],
+        "clear-search": ["clear", "Show all games", `Clear the search for “${state.query}”`],
+        "no-match": ["search", "No games match", "Press A to search again"],
+        sort: ["sort", `Sort: ${label(SORTS, state.sort)}`, "Press A to change the order"],
+        sound: [sound.enabled ? "sound" : "mute", `Sounds: ${sound.enabled ? "On" : "Off"}`, "Interface sounds"],
+        theme: ["theme", `Theme: ${label(THEMES, state.theme)}`, "Press A for the next color"],
+        about: ["about", "About GameStrike", "Version, publisher, and safety notes"],
+        problems: ["warn", `${state.problems.length} unreadable ${state.problems.length === 1 ? "folder" : "folders"}`, "See what could not be read"],
+      }[item.kind];
+      art.innerHTML = ICONS[spec[0]];
+      text = spec[1];
+      sub = spec[2];
+      aria = `${text}. ${sub}.`;
+    }
+    title.textContent = text;
+    meta.textContent = sub;
+    labelBox.append(title, meta);
+    node.append(art, badges, labelBox);
+    node.setAttribute("aria-label", aria);
+    node.addEventListener("click", () => {
+      if (Number(node.dataset.index) === current().index) activate();
+      else focusIndex(Number(node.dataset.index));
     });
     return node;
   }
 
-  function welcome() {
-    const box = document.createElement("section");
-    box.className = "welcome";
-    const mark = document.createElement("img");
-    mark.src = "/mark.svg";
-    mark.alt = "";
-    const copy = document.createElement("div");
-    const heading = document.createElement("h2");
-    heading.textContent = "Bring your HTML games home";
-    const text = document.createElement("p");
-    text.textContent = "Add a game you downloaded, as a single .html file or a .zip with index.html inside. GameStrike keeps a copy on this PC and opens it in its own player window.";
-    const list = document.createElement("ul");
-    for (const item of ["Offline play by default, network only when you allow it", "Every game keeps its own saves", "Nothing is uploaded and no account is needed"]) {
-      const li = document.createElement("li");
-      li.textContent = item;
-      list.append(li);
+  function badge(kind, text) {
+    const node = document.createElement("span");
+    node.className = `badge ${kind}`;
+    node.textContent = text;
+    return node;
+  }
+
+  function renderTiles(direction, focus) {
+    const { channel } = current();
+    el.stage.setAttribute("aria-label", channel.title);
+    el.stage.replaceChildren(...channel.items.map(tile));
+    if (direction) {
+      el.stage.classList.remove("enter-up", "enter-down");
+      void el.stage.offsetWidth;
+      el.stage.classList.add(direction < 0 ? "enter-up" : "enter-down");
     }
-    const button = document.createElement("button");
-    button.type = "button";
-    button.id = "welcome-add";
-    button.className = "action primary";
-    button.innerHTML = '<span class="glyph a" aria-hidden="true">A</span>Add your first game';
-    button.disabled = state.importing;
-    button.addEventListener("click", importGame);
-    copy.append(heading, text, list, button);
-    box.append(mark, copy);
-    return box;
+    layoutTiles(focus);
   }
 
-  function selectPos(pos, { focus = false, quiet = false } = {}) {
-    const row = state.rows[pos?.row];
-    const game = row?.games[pos.col];
-    if (!game) return;
-    const changed = state.selectedId !== game.id;
-    state.pos = { row: pos.row, col: pos.col };
-    state.selectedId = game.id;
-    try { sessionStorage.setItem("gamestrike-selected", game.id); } catch (_) { /* optional */ }
-    for (const node of el.content.querySelectorAll(".tile")) {
-      const active = Number(node.dataset.row) === pos.row && Number(node.dataset.col) === pos.col;
-      node.classList.toggle("selected", active);
-      node.setAttribute("aria-selected", String(active));
-      node.tabIndex = active ? 0 : -1;
-      if (active && focus) {
-        node.focus({ preventScroll: true });
-        const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
-        node.scrollIntoView({ block: "nearest", inline: "center", behavior: reduce ? "auto" : "smooth" });
-      }
+  function layoutTiles(focus = true) {
+    const { channel, index, item } = current();
+    for (const node of el.stage.children) {
+      const offset = Number(node.dataset.index) - index;
+      const layout = core.tileLayout(offset);
+      node.style.setProperty("--x", layout.x);
+      node.style.setProperty("--y", layout.y);
+      node.style.setProperty("--s", layout.s);
+      node.style.opacity = layout.opacity;
+      node.style.zIndex = layout.z;
+      node.style.visibility = layout.visible || offset < 0 ? "visible" : "hidden";
+      node.style.pointerEvents = layout.visible ? "auto" : "none";
+      node.classList.toggle("focused", offset === 0);
+      node.classList.toggle("behind", offset > 0);
+      node.setAttribute("aria-selected", String(offset === 0));
+      node.tabIndex = offset === 0 ? 0 : -1;
+      if (offset === 0 && focus && !state.dialog) node.focus({ preventScroll: true });
     }
-    if (changed && !quiet) sound.play("move");
-    renderHero(changed && !quiet);
+    el.counter.textContent = `${index + 1} of ${channel.items.length}`;
+    describe(item);
   }
 
-  function renderHero(animate = false) {
-    const game = selected();
-    if (!game) { el.hero.hidden = true; return; }
-    el.hero.hidden = false;
-    if (animate) { el.hero.classList.remove("swap"); void el.hero.offsetWidth; el.hero.classList.add("swap"); }
-    setCover($("detail-cover"), game);
-    renderBadges($("detail-badges"), game);
-    $("hero-kicker").textContent = state.rows[state.pos?.row]?.key === "recent" ? "Jump back in" : "Selected game";
-    $("detail-title").textContent = game.title;
-    $("detail-source").textContent = sourceLabel(game);
-    $("detail-played").textContent = game.play_count ? `Played ${core.formatWhen(game.last_played).toLocaleLowerCase()} · ${game.play_count} ${game.play_count === 1 ? "time" : "times"}` : "Not played yet";
-    $("detail-saves").textContent = game.save_bytes ? `Game data ${core.formatBytes(game.save_bytes)}` : "No game data yet";
-    $("detail-added").textContent = game.added_at ? core.formatWhen(game.added_at).toLocaleLowerCase() : "before play history was kept";
-    const isRunning = game.id === state.running;
-    const busy = Boolean(state.running) || state.launching;
-    el.play.disabled = busy || !game.files_ok;
-    el.network.disabled = busy || !game.files_ok;
-    el.note.classList.toggle("warn", !game.files_ok || isRunning);
-    el.note.textContent = !game.files_ok
-      ? "This game's files are missing from the library folder. Remove it, then add the original file again."
-      : isRunning
-        ? "Playing now in its own window. Close that window to come back here."
-        : state.running
-          ? "Another game is open. Close it to play this one."
-          : "Offline play blocks the game's network requests. Its saves stay in this game's own browser profile.";
+  function describe(item) {
+    const isGame = item?.kind === "game";
+    const game = isGame ? item.game : null;
+    el.hintX.hidden = !isGame;
+    el.hintY.hidden = !isGame;
+    el.hintA.querySelector(".hint-label").textContent = isGame ? "Play offline" : "Select";
+    el.note.classList.remove("warn");
+    if (!game) { el.note.textContent = ""; return; }
+    if (!game.files_ok) { el.note.classList.add("warn"); el.note.textContent = "This game's files are missing. Remove it, then add the original file again."; return; }
+    if (game.id === state.running) { el.note.textContent = "Playing now in its own window. Close it to come back here."; return; }
+    if (state.running) { el.note.textContent = "Another game is open. Close it to play this one."; return; }
+    const plays = game.play_count ? `${game.play_count} ${game.play_count === 1 ? "play" : "plays"}` : "Never played";
+    const data = game.save_bytes ? `game data ${core.formatBytes(game.save_bytes)}` : "no game data yet";
+    el.note.textContent = `${plays} · ${data} · added ${game.added_at ? core.formatWhen(game.added_at).toLocaleLowerCase() : "earlier"}`;
   }
 
-  function move(direction) {
-    if (!state.rows.length || !state.games.length) return;
-    const next = core.shelfMove(state.rows.map((row) => row.games.length), state.pos, direction);
-    if (next) selectPos(next, { focus: true });
+  function focusIndex(index, quiet = false) {
+    const { channel } = current();
+    const next = Math.max(0, Math.min(channel.items.length - 1, index));
+    if (next === (state.focus[channel.key] || 0)) return;
+    state.focus[channel.key] = next;
+    if (!quiet) sound.play("move");
+    layoutTiles();
+  }
+
+  function moveTile(step) { focusIndex((current().index) + step); }
+
+  function switchChannel(target) {
+    if (target < 0 || target >= state.channels.length || target === state.channel) return;
+    const direction = target > state.channel ? 1 : -1;
+    state.channel = target;
+    sound.play("channel");
+    renderChannels();
+    renderTiles(direction, true);
+  }
+
+  function updateProfile() {
+    const count = state.games.length;
+    const time = new Date().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    const playing = state.running ? `Playing ${gameById(state.running)?.title || "a game"}` : `${count} ${count === 1 ? "game" : "games"}`;
+    el.profileSub.textContent = `${playing} · ${time}`;
   }
 
   // ---------- actions ----------
+  function activate() {
+    const { item } = current();
+    if (!item) return;
+    switch (item.kind) {
+      case "game": return launch(item.game, false);
+      case "add":
+      case "add-first": return importGame();
+      case "search":
+      case "no-match": return openDialog("search");
+      case "clear-search": state.query = ""; sound.play("back"); return render();
+      case "sort": {
+        const next = SORTS[(SORTS.findIndex(([key]) => key === state.sort) + 1) % SORTS.length][0];
+        state.sort = next;
+        store("gamestrike-sort", next);
+        sound.play("select");
+        return render();
+      }
+      case "sound": sound.toggle(); return render();
+      case "theme": {
+        const next = THEMES[(THEMES.findIndex(([key]) => key === state.theme) + 1) % THEMES.length][0];
+        state.theme = next;
+        document.body.dataset.theme = next;
+        store("gamestrike-theme", next);
+        sound.play("select");
+        return render();
+      }
+      case "about": return openDialog("about");
+      case "problems": return openDialog("problems");
+    }
+  }
+
+  function focusedGame() {
+    const { item } = current();
+    return item?.kind === "game" ? item.game : null;
+  }
+
   function importGame() {
     if (state.importing) return;
     state.importing = true;
     sound.play("open");
-    syncBusy();
     send({ type: "pick_and_import" });
   }
 
-  function syncBusy() {
-    el.add.disabled = state.importing;
-    const welcomeAdd = $("welcome-add");
-    if (welcomeAdd) welcomeAdd.disabled = state.importing;
-    renderHero();
-  }
-
-  function launch(network) {
-    const game = selected();
-    if (!game || state.running || state.launching || !game.files_ok) return;
+  function launch(game, network) {
+    if (!game) return;
+    if (state.running) { toast(game.id === state.running ? "This game is already open in its own window." : "Another game is open. Close it first.", true); return; }
+    if (state.launching) return;
+    if (!game.files_ok) { toast("This game's files are missing. Remove it, then add the original file again.", true); return; }
     state.launching = true;
     sound.play("select");
-    renderHero();
     send({ type: "launch_game", id: game.id, network });
   }
 
-  function playOffline() { if (!state.dialog) launch(false); }
-
   // ---------- dialogs ----------
   const dialogs = {
+    search: { node: $("search-dialog"), first: "search-input" },
     network: { node: $("network-dialog"), first: "network-cancel" },
     manage: { node: $("manage-dialog"), first: "manage-rename" },
     rename: { node: $("rename-dialog"), first: "rename-input" },
@@ -346,31 +371,28 @@
     problems: { node: $("problems-dialog"), first: "problems-close" },
     about: { node: $("about-dialog"), first: "close-about" },
   };
+  let dialogGame = null;
 
   function openDialog(name) {
-    const game = selected();
-    const needsGame = ["network", "manage", "rename", "reset", "remove"].includes(name);
-    if (needsGame && !game) return;
-    if (name === "network" && (state.running || state.launching || !game.files_ok)) return;
+    const game = ["network", "manage", "rename", "reset", "remove"].includes(name) ? (state.dialog ? dialogGame : focusedGame()) : null;
+    if (["network", "manage", "rename", "reset", "remove"].includes(name) && !game) return;
+    if (name === "network" && (state.running || state.launching || !game.files_ok)) { if (state.running) toast("Another game is open. Close it first.", true); return; }
     if ((name === "reset" || name === "remove") && game.id === state.running) return;
     if (name === "reset" && !game.save_bytes) return;
     if (state.dialog) closeDialog({ restore: false, silent: true });
     else state.returnFocus = document.activeElement;
+    dialogGame = game;
+    if (name === "search") { $("search-input").value = state.query; updateSearchCount(); }
     if (name === "network") $("network-title").textContent = `Play ${game.title} with network?`;
     if (name === "manage") {
       $("manage-title").textContent = game.title;
+      $("manage-facts").textContent = `${sourceLabel(game)} · ${game.play_count ? `${game.play_count} ${game.play_count === 1 ? "play" : "plays"}` : "never played"} · ${game.save_bytes ? `game data ${core.formatBytes(game.save_bytes)}` : "no game data"} · controller and network needs not checked`;
       $("manage-reset").disabled = !game.save_bytes || game.id === state.running;
       $("manage-remove").disabled = game.id === state.running;
     }
-    if (name === "rename") {
-      $("rename-input").value = game.title;
-      $("rename-error").hidden = true;
-    }
+    if (name === "rename") { $("rename-input").value = game.title; $("rename-error").hidden = true; }
     if (name === "reset") $("reset-title").textContent = `Clear saves for ${game.title}?`;
-    if (name === "remove") {
-      $("remove-title").textContent = `Remove ${game.title}?`;
-      $("remove-keep").checked = true;
-    }
+    if (name === "remove") { $("remove-title").textContent = `Remove ${game.title}?`; $("remove-keep").checked = true; }
     if (name === "problems") {
       $("problems-list").replaceChildren(...state.problems.map((problem) => {
         const li = document.createElement("li");
@@ -383,7 +405,7 @@
     sound.play("open");
     const first = $(dialogs[name].first);
     first.focus();
-    if (name === "rename") first.select();
+    if (name === "rename" || name === "search") first.select();
   }
 
   function closeDialog({ restore = true, silent = false } = {}) {
@@ -391,15 +413,12 @@
     dialogs[state.dialog].node.hidden = true;
     state.dialog = null;
     if (!silent) sound.play("back");
-    if (!restore) return;
-    const target = state.returnFocus && document.contains(state.returnFocus) && !state.returnFocus.disabled ? state.returnFocus : null;
-    if (target) target.focus();
-    else el.content.querySelector(".tile.selected")?.focus();
+    if (restore) layoutTiles(true);
   }
 
   function dialogFocusables() {
     if (!state.dialog) return [];
-    return [...dialogs[state.dialog].node.querySelectorAll("button, input, select")].filter((node) => !node.disabled && !node.hidden && node.offsetParent !== null);
+    return [...dialogs[state.dialog].node.querySelectorAll("button, input")].filter((node) => !node.disabled && node.offsetParent !== null);
   }
 
   function moveDialogFocus(step) {
@@ -410,8 +429,30 @@
     sound.play("move");
   }
 
+  function updateSearchCount() {
+    const query = $("search-input").value.trim();
+    const count = core.filterAndSort(state.games, query, state.sort).length;
+    $("search-count").textContent = query ? `${count} ${count === 1 ? "game matches" : "games match"}` : `${state.games.length} games in your library`;
+  }
+
+  $("search-input").addEventListener("input", updateSearchCount);
+  $("search-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    state.query = $("search-input").value.trim().slice(0, 80);
+    closeDialog({ restore: false, silent: true });
+    sound.play("select");
+    state.focus.games = state.query ? 1 : 0;
+    render();
+    switchChannel(gamesChannel());
+  });
+  $("search-clear").addEventListener("click", () => {
+    state.query = "";
+    closeDialog({ restore: false, silent: true });
+    sound.play("back");
+    render();
+  });
   $("network-cancel").addEventListener("click", () => closeDialog());
-  $("network-confirm").addEventListener("click", () => { closeDialog({ silent: true }); launch(true); });
+  $("network-confirm").addEventListener("click", () => { const game = dialogGame; closeDialog({ silent: true }); launch(game, true); });
   $("manage-rename").addEventListener("click", () => openDialog("rename"));
   $("manage-reset").addEventListener("click", () => openDialog("reset"));
   $("manage-remove").addEventListener("click", () => openDialog("remove"));
@@ -419,7 +460,7 @@
   $("rename-cancel").addEventListener("click", () => closeDialog());
   $("rename-form").addEventListener("submit", (event) => {
     event.preventDefault();
-    const game = selected();
+    const game = dialogGame;
     const title = core.cleanTitle($("rename-input").value);
     if (!game || !title) { $("rename-error").hidden = false; $("rename-input").focus(); sound.play("error"); return; }
     closeDialog({ silent: true });
@@ -427,16 +468,12 @@
     if (title !== game.title) send({ type: "rename_game", id: game.id, title });
   });
   $("reset-cancel").addEventListener("click", () => closeDialog());
-  $("reset-confirm").addEventListener("click", () => {
-    const game = selected();
-    closeDialog({ silent: true });
-    if (game) send({ type: "reset_saves", id: game.id });
-  });
+  $("reset-confirm").addEventListener("click", () => { const game = dialogGame; closeDialog({ silent: true }); if (game) send({ type: "reset_saves", id: game.id }); });
   $("remove-cancel").addEventListener("click", () => closeDialog());
   $("remove-confirm").addEventListener("click", () => {
-    const game = selected();
+    const game = dialogGame;
     const keep = $("remove-keep").checked;
-    closeDialog({ restore: false, silent: true });
+    closeDialog({ silent: true });
     if (game) send({ type: "remove_game", id: game.id, keep_saves: keep });
   });
   $("problems-close").addEventListener("click", () => closeDialog());
@@ -445,17 +482,7 @@
     node.addEventListener("mousedown", (event) => { if (event.target === node) closeDialog(); });
   }
 
-  el.add.addEventListener("click", importGame);
-  el.about.addEventListener("click", () => openDialog("about"));
-  el.sound.addEventListener("click", () => sound.toggle());
-  el.problems.addEventListener("click", () => openDialog("problems"));
-  el.play.addEventListener("click", playOffline);
-  el.network.addEventListener("click", () => openDialog("network"));
-  el.manage.addEventListener("click", () => openDialog("manage"));
-  el.search.addEventListener("input", () => renderLibrary());
-  el.sort.addEventListener("change", () => renderLibrary());
-
-  // ---------- keyboard ----------
+  // ---------- keyboard and mouse ----------
   document.addEventListener("keydown", (event) => {
     if (state.dialog) {
       if (event.key === "Escape") { event.preventDefault(); closeDialog(); return; }
@@ -465,28 +492,39 @@
       if (!typing && (event.key === "ArrowRight" || event.key === "ArrowDown")) { event.preventDefault(); moveDialogFocus(1); }
       return;
     }
-    const target = document.activeElement;
-    if (target === el.search || target === el.sort) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        if (target === el.search && el.search.value) { el.search.value = ""; renderLibrary(); }
-        else el.content.querySelector(".tile.selected")?.focus();
-      }
-      if (event.key === "ArrowDown" && target === el.search) { event.preventDefault(); el.content.querySelector(".tile.selected")?.focus(); }
-      return;
-    }
-    if ((event.key === "f" && event.ctrlKey) || event.key === "/") { event.preventDefault(); el.search.focus(); return; }
+    if (event.ctrlKey && event.key.toLowerCase() === "f") { event.preventDefault(); openDialog("search"); return; }
     if (event.ctrlKey || event.altKey || event.metaKey) return;
-    const onTile = target?.classList?.contains("tile");
-    const directions = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down", Home: "home", End: "end" };
-    if (directions[event.key] && (onTile || target === document.body)) { event.preventDefault(); move(directions[event.key]); return; }
-    if (event.key === "Enter" && onTile) { event.preventDefault(); playOffline(); return; }
-    if (!onTile && target !== document.body) return;
-    if (event.key === "n" || event.key === "N") { event.preventDefault(); openDialog("network"); }
-    else if (event.key === "F2") { event.preventDefault(); openDialog("rename"); }
-    else if (event.key === "Delete") { event.preventDefault(); openDialog("remove"); }
-    else if (event.key === "Escape" && el.search.value) { event.preventDefault(); el.search.value = ""; renderLibrary({ focus: true }); }
+    switch (event.key) {
+      case "ArrowLeft": event.preventDefault(); moveTile(-1); break;
+      case "ArrowRight": event.preventDefault(); moveTile(1); break;
+      case "ArrowUp": event.preventDefault(); switchChannel(state.channel - 1); break;
+      case "ArrowDown": event.preventDefault(); switchChannel(state.channel + 1); break;
+      case "Home": event.preventDefault(); focusIndex(0); break;
+      case "End": event.preventDefault(); focusIndex(current().channel.items.length - 1); break;
+      case "Enter": case " ": event.preventDefault(); activate(); break;
+      case "n": case "N": event.preventDefault(); openDialog("network"); break;
+      case "F2": event.preventDefault(); openDialog("rename"); break;
+      case "Delete": event.preventDefault(); openDialog("remove"); break;
+      case "/": event.preventDefault(); openDialog("search"); break;
+      case "Escape": case "Backspace": event.preventDefault(); back(); break;
+    }
   });
+
+  function back() {
+    if (state.channel !== gamesChannel()) { switchChannel(gamesChannel()); return; }
+    if (state.query) { state.query = ""; sound.play("back"); render(); }
+  }
+
+  let wheelAt = 0;
+  el.stage.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const now = performance.now();
+    if (now - wheelAt < 120) return;
+    wheelAt = now;
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    moveTile(delta > 0 ? 1 : -1);
+  }, { passive: false });
+  el.stage.addEventListener("dblclick", () => { if (current().item?.kind === "game") activate(); });
 
   // ---------- controller (launcher navigation only; games handle their own input) ----------
   const readPad = core.createPadReader();
@@ -508,12 +546,14 @@
       else if (action === "right" || action === "down") moveDialogFocus(1);
       return;
     }
-    if (!state.games.length) { if (action === "a") importGame(); return; }
-    if (["left", "right", "up", "down"].includes(action)) move(action);
-    else if (action === "a") playOffline();
+    if (action === "left") moveTile(-1);
+    else if (action === "right") moveTile(1);
+    else if (action === "up") switchChannel(state.channel - 1);
+    else if (action === "down") switchChannel(state.channel + 1);
+    else if (action === "a") activate();
     else if (action === "x") openDialog("network");
     else if (action === "y") openDialog("manage");
-    else if (action === "b" && el.search.value) { el.search.value = ""; renderLibrary({ focus: true }); }
+    else if (action === "b") back();
   }
 
   // ---------- messages from the trusted Rust launcher ----------
@@ -525,10 +565,10 @@
         state.running = message.running || null;
         const first = !state.loaded;
         state.loaded = true;
-        renderLibrary({ focus: first || (!state.dialog && !state.importing && document.activeElement === document.body) });
-        el.nowPlaying.textContent = state.running ? `Playing ${gameById(state.running)?.title || "a game"}` : "";
+        render({ focus: !state.dialog });
+        updateProfile();
         if (first) {
-          const wait = Math.max(0, 900 - (performance.now() - startedAt));
+          const wait = Math.max(0, 1100 - (performance.now() - startedAt));
           setTimeout(() => el.splash.classList.add("done"), wait);
         }
         break;
@@ -538,74 +578,75 @@
         break;
       case "pick_cancelled":
         state.importing = false;
-        syncBusy();
         break;
       case "imported": {
         state.importing = false;
-        el.search.value = "";
-        state.selectedId = message.game.id;
-        state.pos = null;
-        const title = message.game.title;
+        state.query = "";
+        state.channel = gamesChannel();
+        state.pendingFocus = message.game.id;
         sound.play("select");
         toast(message.already_present
-          ? `${title} is already in your library. Its saves were kept.`
+          ? `${message.game.title} is already in your library. Its saves were kept.`
           : message.restored_saves
-            ? `${title} is back, with the saves you kept.`
-            : `${title} was added to your library.`);
-        syncBusy();
+            ? `${message.game.title} is back, with the saves you kept.`
+            : `${message.game.title} was added to your library.`);
         break;
       }
       case "player_started":
         state.launching = false;
         state.running = message.id;
         toast(message.network ? "Game opened with network access." : "Game opened offline in its own window.");
-        renderLibrary();
+        render();
+        updateProfile();
         break;
       case "player_exited":
         if (state.running === message.id) state.running = null;
         state.launching = false;
         toast(message.message, !message.ok);
-        renderLibrary({ focus: !state.dialog });
+        render({ focus: !state.dialog });
+        updateProfile();
         break;
       case "managed":
         toast(message.message);
         break;
-      case "removed": {
-        const row = state.rows[state.rows.length - 1]?.games || [];
-        const index = row.findIndex((game) => game.id === message.id);
-        const neighbour = row[index + 1] || row[index - 1];
-        state.selectedId = neighbour ? neighbour.id : null;
-        state.pos = null;
+      case "removed":
         toast(message.message);
         break;
-      }
       case "error":
-        if (message.operation === "import") { state.importing = false; syncBusy(); }
-        if (message.operation === "launch") { state.launching = false; renderHero(); }
+        if (message.operation === "import") state.importing = false;
+        if (message.operation === "launch") state.launching = false;
         toast(message.message, true);
         break;
+    }
+    if (message.type === "library" && state.pendingFocus) {
+      const index = state.channels[gamesChannel()].items.findIndex((item) => item.kind === "game" && item.game.id === state.pendingFocus);
+      state.pendingFocus = null;
+      if (index >= 0) { state.channel = gamesChannel(); state.focus.games = index; renderChannels(); renderTiles(0, true); }
     }
   }
 
   // Used only by the launcher's explicit --capture-view option to stage a screenshot.
   function capture(view) {
     if (view === "long") {
-      const all = state.rows[state.rows.length - 1]?.games || [];
-      let longest = 0;
-      all.forEach((game, index) => { if (game.title.length > all[longest].title.length) longest = index; });
-      if (all.length) selectPos({ row: state.rows.length - 1, col: longest }, { focus: true, quiet: true });
+      const items = state.channels[gamesChannel()].items;
+      let best = -1;
+      items.forEach((item, index) => { if (item.kind === "game" && (best < 0 || item.game.title.length > items[best].game.title.length)) best = index; });
+      if (best >= 0) { state.focus.games = best; layoutTiles(); }
     } else if (view === "launch") {
       openDialog("network");
     } else if (view === "manage") {
       openDialog("manage");
     } else if (view === "about") {
       openDialog("about");
+    } else if (view === "system") {
+      switchChannel(state.channels.length - 1);
+    } else if (view === "find") {
+      switchChannel(state.channels.findIndex((channel) => channel.key === "find"));
     }
   }
 
   window.GameStrike = Object.freeze({ receive, capture });
-  tick();
-  setInterval(tick, 15000);
+  setInterval(updateProfile, 15000);
   requestAnimationFrame(pollPad);
   send({ type: "ready" });
 })();

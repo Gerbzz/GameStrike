@@ -5,7 +5,7 @@
 <h1 align="center">GameStrike</h1>
 
 <p align="center"><strong>A console-style home on Windows for the HTML games you download.</strong><br>
-Add a game from an <code>.html</code> file or a <code>.zip</code>, pick it from the dashboard with a mouse, keyboard, or controller, and play it in its own window. Offline by default, with saves kept per game. No account, no uploads.</p>
+Add a game from an <code>.html</code> file or a <code>.zip</code>, pick it from a glossy, console-style dashboard with a mouse, keyboard, or controller, and play it in its own window. Offline by default, with saves kept per game. No account, no uploads.</p>
 
 <p align="center">
   <a href="#what-works-today">What works</a> ·
@@ -17,7 +17,7 @@ Add a game from an <code>.html</code> file or a <code>.zip</code>, pick it from 
   <a href="#credits-and-license">Credits</a>
 </p>
 
-![GameStrike dashboard: the selected game in a large hero panel with Play offline, Play with network and Manage actions, above a shelf of game tiles](docs/screenshots/dashboard.png)
+![GameStrike dashboard in the Lime theme: the My Games channel with the focused game tile large on the left and the other games receding in perspective, channel names stacked above, and A/X/Y/B button hints at the bottom](docs/screenshots/dashboard.png)
 
 > [!IMPORTANT]
 > **Early, unreleased software.** There is no installer or signed binary yet; you build it from source. Imported games are untrusted code. Offline mode blocks their network traffic, but the player is **not** an operating-system sandbox. Read [Limitations](#limitations) before running games you don't trust.
@@ -29,7 +29,8 @@ Everything in this section is implemented in this repository and covered by the 
 **Library**
 - Add a game through the Windows file picker: a single `.html`/`.htm` file, or a `.zip` with `index.html` at its root or inside one wrapper folder. GameStrike copies the files into its own library; your original download is never modified.
 - Re-adding the exact same file is recognized, and the game keeps its saves.
-- Browse a dashboard with a hero panel for the selected game and shelves of tiles. A *Jump back in* shelf appears for libraries of more than six games. You can search, and sort by recently played, title, or date added.
+- Browse a console-style dashboard inspired by the classic 2008-era console dashboards. Channel names stack at the top left, and Up/Down switches channel: *Jump Back In*, *Add & Find*, *My Games*, *System*. Within a channel, the focused tile sits large on the left and the rest recede in perspective, with glossy reflections and an *N of M* counter. You can search, and sort by recently played, title, or date added.
+- Five color themes (Lime, Ocean, Sunset, Grape, Graphite), chosen from the *System* channel and remembered.
 - Each game shows its source type, when it was added, when it was last played and how often, and how much data it has stored.
 - **Manage** a game: rename it, clear its saves, or remove it. A removal can keep the saves, so adding the same file again brings them back.
 - Problems are reported rather than hidden. One unreadable folder doesn't hide the rest of the library, and a game whose files have disappeared shows *Files missing* and won't launch.
@@ -41,15 +42,15 @@ Everything in this section is implemented in this repository and covered by the 
 - Only one game runs at a time. While it runs, the launcher shows *Playing*, and the game can't be removed or cleared.
 
 **Input**
-- Mouse, keyboard (arrows, Enter, `N`, `F2`, `Delete`, `Esc`, `Ctrl+F`), and a standard-mapping controller: D-pad or stick to move, **A** to play, **X** for network, **Y** to manage, **B** to go back. A held button never repeats, so it can't confirm a dialog that opens underneath it.
-- Optional interface sounds, synthesized locally. Toggle them with the speaker button.
+- Mouse, keyboard (arrows, Enter, `N`, `F2`, `Delete`, `Esc`, `Ctrl+F`), and a standard-mapping controller: D-pad or stick left/right to move along a channel and up/down to switch channels, **A** to play or select, **X** for network, **Y** to manage, **B** to go back. A held button never repeats, so it can't confirm a dialog that opens underneath it.
+- Interface sounds, synthesized locally (nothing is downloaded). Toggle them in the *System* channel.
 - Reduced motion and high-contrast (forced colors) are respected.
 
 **Command line** (`gamestrike`): `import`, `list`, `rename`, `reset-saves`, and `remove [--keep-saves]`.
 
 ## Screenshots
 
-All images come from the running Windows build of this branch, at commits `c888e7e` to `e04b4e9`, on 2026-10-17. They are not mockups. Every game shown is a labeled **synthetic test fixture** created for testing; no third-party game appears.
+All images come from the running Windows build of this branch, on 2026-10-17. Launcher views are from the final UI in this PR; the player capture is from the manual run at `c888e7e`. They are not mockups. Every game shown is a labeled **synthetic test fixture** created for testing; no third-party game appears.
 
 - **Launcher views** were rendered by the real `gamestrike-launcher.exe` through WebView2 `CapturePreview` (the `--capture-preview` option). They show the window's content area at 1250 × 800 unless noted.
 - **The player** was captured from the screen during a manual run of the real app and cropped to the player window.
@@ -57,8 +58,9 @@ All images come from the running Windows build of this branch, at commits `c888e
 | | |
 | --- | --- |
 | ![Network consent dialog with Go back and Allow network & play](docs/screenshots/network-dialog.png) **Network consent.** Offline is the default; network needs this extra step. | ![Manage dialog with Rename, Clear saves, Remove from library, Back](docs/screenshots/manage-dialog.png) **Manage** (Y on a controller). |
-| ![Empty library welcome panel with Add your first game](docs/screenshots/empty-library.png) **First launch** with an empty library. | ![About dialog with the PWDS publisher logo](docs/screenshots/about.png) **About**, with the publisher credit. |
-| ![Dashboard at the 880 by 620 minimum window size](docs/screenshots/minimum-880x620.png) **Minimum window size**, 880 × 620. | ![Player window titled Save Counter (Synthetic Test), GameStrike, Offline, showing localStorage points 2 and IndexedDB opens 1](docs/screenshots/player-offline-save-counter.png) **A game in its own offline player window.** |
+| ![Empty library showing a single Add your first game tile](docs/screenshots/empty-library.png) **First launch** with an empty library. | ![About dialog with the PWDS publisher logo](docs/screenshots/about.png) **About**, with the publisher credit. |
+| ![System channel with Sounds, Theme, and About tiles](docs/screenshots/system-channel.png) **System channel**: sounds, color theme, and About. | ![Dashboard at the 880 by 620 minimum window size](docs/screenshots/minimum-880x620.png) **Minimum window size**, 880 × 620. |
+| ![Player window titled Save Counter (Synthetic Test), GameStrike, Offline, showing localStorage points 2 and IndexedDB opens 1](docs/screenshots/player-offline-save-counter.png) **A game in its own offline player window.** | |
 
 Screenshots of the earlier design are kept in [docs/history](docs/history).
 
@@ -114,14 +116,14 @@ Results as of 2026-10-17 on Windows 11 Pro, WebView2 runtime as installed on the
 
 **Automated, all passing locally and in [Windows CI](https://github.com/Gerbzz/GameStrike/actions/workflows/windows-source.yml):**
 - Rust: 26 library tests, 12 player tests, 3 launcher tests, and 1 player command-line test. They cover zip-slip, drive paths, device names, corrupt and empty files, expansion limits, duplicate and legacy re-imports, removal with and without saves, restoring kept saves, clearing saves, the per-game lock, rename validation, tolerant scanning, missing files, the launcher's origin and command allow-list, and CSP headers.
-- JavaScript: 10 tests of sorting, search, grid and shelf movement, controller edge detection and repeat, generated covers, and formatting.
+- JavaScript: 11 tests of sorting, search, grid and shelf movement, the perspective tile layout, controller edge detection and repeat, generated covers, and formatting.
 - **Real player isolation test** (`tests/player_isolation.rs`). It runs the real WebView2 player against a bundled probe page, with a harness listening on loopback over TCP and UDP.
   - Offline, twice: 0 TCP and 0 UDP connections reached the harness. Fetch, XHR, WebSocket, image, `file://`, other-origin requests, and popups were all blocked.
   - Network mode, as a control: the same probe reached the harness (8 TCP connections, 4 UDP packets), which shows the offline zeros mean "blocked", not "unobservable".
   - Saves: `localStorage` and IndexedDB counters reached 3 across relaunches. A second game started at 1, so the profiles are separate.
   - A second player for a running game is refused.
 
-**Manual run of the real app** (computer use, build at `c888e7e`, the grid design before the dashboard restyle):
+**Manual run of the real app** (computer use, build at `c888e7e`, before the console-style restyle; the Rust side is unchanged since apart from `bc6fd31`):
 - Native picker: cancel left the library unchanged; an HTML import was added and selected.
 - Offline launch, then the player closed back to the launcher with an exit message.
 - Relaunch: the save counter kept its `localStorage` points and IndexedDB count, and play count went to 2.
@@ -131,7 +133,7 @@ Results as of 2026-10-17 on Windows 11 Pro, WebView2 runtime as installed on the
 
 That run found two issues, both fixed in `bc6fd31`: the offline summary counted WebView2's own background requests as the game's, and the corrupt-ZIP error was too technical.
 
-**Not yet verified by hand:** the dashboard design (`e04b4e9`) has been rendered and captured, but not driven interactively. Rename, clear saves, remove, duplicate re-import, network launch, and a physical controller were checked only by automated tests.
+**Not yet verified by hand:** the console-style dashboard has been rendered and captured from the real launcher, but not driven interactively. Rename, clear saves, remove, duplicate re-import, network launch, and a physical controller were checked only by automated tests.
 
 ## Limitations
 

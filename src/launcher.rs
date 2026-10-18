@@ -85,6 +85,7 @@ mod windows_launcher {
         Launch,
         Manage,
         About,
+        System,
     }
 
     pub fn run() -> Result<(), Box<dyn Error>> {
@@ -146,6 +147,7 @@ mod windows_launcher {
                             CaptureView::Launch => Some("window.GameStrike.capture('launch')"),
                             CaptureView::Manage => Some("window.GameStrike.capture('manage')"),
                             CaptureView::About => Some("window.GameStrike.capture('about')"),
+                            CaptureView::System => Some("window.GameStrike.capture('system')"),
                         }
                     };
                     if let Some(script) = prepare {
@@ -454,7 +456,7 @@ mod windows_launcher {
                 ))
             }
             _ => Err(
-                "usage: gamestrike-launcher [--library DIRECTORY [--capture-preview PNG [--capture-view library|long|launch|manage|about | --window-size WIDTH HEIGHT]]]".into(),
+                "usage: gamestrike-launcher [--library DIRECTORY [--capture-preview PNG [--capture-view library|long|launch|manage|about|system | --window-size WIDTH HEIGHT]]]".into(),
             ),
         }
     }
@@ -466,7 +468,8 @@ mod windows_launcher {
             Some("launch") => Ok(CaptureView::Launch),
             Some("manage") => Ok(CaptureView::Manage),
             Some("about") => Ok(CaptureView::About),
-            _ => Err("capture view must be library, long, launch, manage, or about".into()),
+            Some("system") => Ok(CaptureView::System),
+            _ => Err("capture view must be library, long, launch, manage, about, or system".into()),
         }
     }
 

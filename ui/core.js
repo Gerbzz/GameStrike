@@ -66,6 +66,17 @@
     return { row, col };
   }
 
+  // Perspective row: the focused tile is full size on the left; following tiles shrink and
+  // overlap toward the right; earlier tiles slide out to the left. Units are tile widths/heights.
+  const SCALES = [1, 0.74, 0.6, 0.5, 0.42, 0.36];
+  function tileLayout(offset) {
+    if (offset < 0) return { x: -0.35 * Math.min(-offset, 2), y: 0, s: 0.9, opacity: 0, z: 0, visible: false };
+    if (offset >= SCALES.length) return { x: 2.6, y: -0.12, s: 0.3, opacity: 0, z: 0, visible: false };
+    let x = 0;
+    for (let k = 1; k <= offset; k += 1) x += k === 1 ? 0.985 : SCALES[k - 1] * 0.6;
+    return { x: Number(x.toFixed(4)), y: Number((-0.035 * offset).toFixed(4)), s: SCALES[offset], opacity: 1, z: 100 - offset, visible: true };
+  }
+
   // Standard-mapping gamepad edges. Buttons fire once per press; directions repeat while held.
   function createPadReader({ initialDelay = 380, repeatDelay = 140, threshold = 0.55 } = {}) {
     let previous = {};
@@ -145,7 +156,7 @@
     return title.length >= 1 && [...title].length <= 80 ? title : null;
   }
 
-  const api = Object.freeze({ filterAndSort, gridMove, shelfMove, createPadReader, cover, formatBytes, formatWhen, cleanTitle });
+  const api = Object.freeze({ filterAndSort, gridMove, shelfMove, tileLayout, createPadReader, cover, formatBytes, formatWhen, cleanTitle });
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.GameStrikeCore = api;
 })(typeof window === "object" ? window : globalThis);

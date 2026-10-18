@@ -116,3 +116,20 @@ test("shelves move like a console dashboard and skip empty rows", () => {
   assert.deepEqual(core.shelfMove([0, 4], { row: 0, col: 9 }, "left"), { row: 1, col: 2 }, "an invalid position recovers");
   assert.equal(core.shelfMove([0, 0], { row: 0, col: 0 }, "down"), null);
 });
+
+test("tile perspective: focused tile is full size, later tiles shrink, overlap, and stay ordered", () => {
+  const focused = core.tileLayout(0);
+  assert.deepEqual([focused.x, focused.s, focused.opacity], [0, 1, 1]);
+  let previous = focused;
+  for (let offset = 1; offset < 6; offset += 1) {
+    const tile = core.tileLayout(offset);
+    assert.ok(tile.visible && tile.opacity === 1, `tile ${offset} is visible`);
+    assert.ok(tile.s < previous.s, "each later tile is smaller");
+    assert.ok(tile.x > previous.x, "each later tile is further right");
+    assert.ok(tile.x < previous.x + previous.s, "tiles overlap like stacked blades");
+    assert.ok(tile.z < previous.z, "nearer tiles draw on top");
+    previous = tile;
+  }
+  assert.equal(core.tileLayout(-1).opacity, 0, "passed tiles slide out");
+  assert.equal(core.tileLayout(6).visible, false, "far tiles are hidden");
+});
