@@ -117,16 +117,17 @@ test("shelves move like a console dashboard and skip empty rows", () => {
   assert.equal(core.shelfMove([0, 0], { row: 0, col: 0 }, "down"), null);
 });
 
-test("tile perspective: focused tile is full size, later tiles shrink, overlap, and stay ordered", () => {
+test("tile perspective: focused tile is full size, later tiles recede edge to edge", () => {
   const focused = core.tileLayout(0);
-  assert.deepEqual([focused.x, focused.s, focused.opacity], [0, 1, 1]);
+  assert.deepEqual([focused.x, focused.sx, focused.sy, focused.opacity], [0, 1, 1, 1]);
   let previous = focused;
   for (let offset = 1; offset < 6; offset += 1) {
     const tile = core.tileLayout(offset);
     assert.ok(tile.visible && tile.opacity === 1, `tile ${offset} is visible`);
-    assert.ok(tile.s < previous.s, "each later tile is smaller");
-    assert.ok(tile.x > previous.x, "each later tile is further right");
-    assert.ok(tile.x < previous.x + previous.s, "tiles overlap like stacked blades");
+    assert.ok(tile.sx < previous.sx && tile.sy < previous.sy, "each later tile is smaller");
+    assert.ok(tile.sx / tile.sy < previous.sx / previous.sy + 1e-9, "width shrinks faster than height, like perspective");
+    assert.ok(Math.abs(tile.x - (previous.x + previous.sx)) < 1e-3, "tiles sit edge to edge");
+    assert.ok(tile.y <= previous.y, "later tiles rise slightly toward the horizon");
     assert.ok(tile.z < previous.z, "nearer tiles draw on top");
     previous = tile;
   }

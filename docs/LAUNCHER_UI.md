@@ -21,17 +21,21 @@ Unknown message types and unknown fields are rejected. Game titles reach the pag
 
 ## Layout
 
-The launcher follows the classic console-dashboard pattern: channels stacked vertically, and a row of tiles per channel.
+The launcher has three dashboard styles over the same channels and actions. The style is set from *System* and stored in the WebView profile at `LIBRARY/launcher-ui`.
 
-- **Splash**: the GameStrike mark with the PWDS credit while the library loads (at least 1.1 s). The publisher logo appears again only in About.
-- **Backdrop**: a themed sky fading into light haze, slow bokeh circles, and a curved glossy floor, all in CSS. Five themes (Lime by default, Ocean, Sunset, Grape, Graphite) only change custom properties.
+- **Blades** (default): channels stacked vertically, and a row of tiles per channel, described below.
+- **Original**: a black-green backdrop with glowing tubes, a pulsing orb, and the current channel as a vertical list of glossy pills (six visible, with *more* markers). Up/Down moves within the menu; Left/Right changes menu.
+- **PWDS Orange**: the Blades layout with an orange palette and the PWDS logo in the profile and corner.
+- **Startup**: each style has its own CSS animation of about 3.4 to 4.2 s. Any key, click, or controller button skips it, and it is skipped entirely for reduced motion. The PWDS credit appears in every startup sequence and in About.
+- **Backdrop** (Blades): a themed sky fading into light haze, slow bokeh circles, and a curved glossy floor, all in CSS. Five colors (Lime by default, Ocean, Sunset, Grape, Graphite) only change custom properties.
 - **Channels**, top left: *Jump Back In* (only after something has been played), *Add & Find*, *My Games* (where the launcher opens), and *System*. The current channel is large, with a square marker; earlier channels fade upward above it. Up/Down or a click switches channel.
-- **Tiles**: the focused tile is full size on the left, and later tiles shrink and overlap toward the right (`core.tileLayout`), with spring transitions and a soft reflection. Game tiles use a generated color and the title's initials, which are decoration, not the game's art, plus the title, source, last-played time, and *Playing* or *Files missing* badges. Other tiles carry an icon disc: Add a game, Find a game, Sort, Show all games, Sounds, Theme, About, and unreadable folders when there are any.
+- **Tiles**: the focused tile is full size on the left, and later tiles sit edge to edge, shrinking faster in width than in height so they recede in perspective (`core.tileLayout`; proportions measured from the reference dashboard), with spring transitions and a soft reflection. Game tiles use a generated color and the title's initials, which are decoration, not the game's art, plus the title, source, last-played time, and *Playing* or *Files missing* badges. Other tiles carry an icon disc: Add a game, Find a game, Sort, Show all games, Sounds, Theme, About, and unreadable folders when there are any.
 - **Under the row**: an *N of M* counter, and for games, plays, game-data size, and date added.
 - **Profile corner**, top right: the GameStrike mark, the game count or the game now playing, and the time. The mark repeats bottom right with a ripple.
 - **Hints**, bottom left: A/X/Y/B glyphs that change with the focused tile (*Play offline* or *Select*), plus keyboard shortcuts on wide windows.
 - **Dialogs** are light glossy blades: Search, network consent (focus starts on *Go back*), Manage (which also states that controller and network needs are not checked), Rename, Clear saves, Remove (with *Keep saves* checked by default), unreadable folders, and About. Focused dialog buttons always show a ring.
 - **Sounds**: short tones synthesized with Web Audio (nothing is fetched), on by default, toggled in *System*, and remembered.
+- **Captures**: `--capture-view` accepts only a fixed list of names: library, long, launch, manage, about, system, original, pwds, boot-blades, boot-original, and boot-pwds. Captures use default preferences and never save them.
 
 Captures from the real launcher at 1250 × 800 and at the 880 × 620 minimum are in the README.
 

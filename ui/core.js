@@ -66,15 +66,18 @@
     return { row, col };
   }
 
-  // Perspective row: the focused tile is full size on the left; following tiles shrink and
-  // overlap toward the right; earlier tiles slide out to the left. Units are tile widths/heights.
-  const SCALES = [1, 0.74, 0.6, 0.5, 0.42, 0.36];
+  // Perspective row measured from the classic console dashboard: the focused tile is full size on
+  // the left and later tiles sit edge to edge, shrinking faster in width than height so they read as
+  // receding into the distance. Earlier tiles slide out to the left. Units are tile widths/heights.
+  const WIDTHS = [1, 0.74, 0.44, 0.29, 0.2, 0.15];
+  const HEIGHTS = [1, 0.74, 0.58, 0.48, 0.42, 0.38];
+  const RISE = [0, -0.024, -0.035, -0.047, -0.05, -0.052];
   function tileLayout(offset) {
-    if (offset < 0) return { x: -0.35 * Math.min(-offset, 2), y: 0, s: 0.9, opacity: 0, z: 0, visible: false };
-    if (offset >= SCALES.length) return { x: 2.6, y: -0.12, s: 0.3, opacity: 0, z: 0, visible: false };
+    if (offset < 0) return { x: -0.4 * Math.min(-offset, 2), y: 0, sx: 0.9, sy: 0.9, opacity: 0, z: 0, visible: false };
+    if (offset >= WIDTHS.length) return { x: 2.9, y: -0.055, sx: 0.1, sy: 0.34, opacity: 0, z: 0, visible: false };
     let x = 0;
-    for (let k = 1; k <= offset; k += 1) x += k === 1 ? 0.985 : SCALES[k - 1] * 0.6;
-    return { x: Number(x.toFixed(4)), y: Number((-0.035 * offset).toFixed(4)), s: SCALES[offset], opacity: 1, z: 100 - offset, visible: true };
+    for (let k = 0; k < offset; k += 1) x += WIDTHS[k];
+    return { x: Number(x.toFixed(4)), y: RISE[offset], sx: WIDTHS[offset], sy: HEIGHTS[offset], opacity: 1, z: 100 - offset, visible: true };
   }
 
   // Standard-mapping gamepad edges. Buttons fire once per press; directions repeat while held.

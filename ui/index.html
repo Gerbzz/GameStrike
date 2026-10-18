@@ -9,17 +9,40 @@
   <script src="/core.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
-<body data-theme="lime">
+<body data-theme="lime" data-style="blades">
   <div class="backdrop" aria-hidden="true">
     <div class="glow"></div>
     <div class="bokeh"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
     <div class="floor"></div>
   </div>
 
-  <div id="splash" class="splash" aria-hidden="true">
-    <img class="splash-mark" src="/mark.svg" alt="">
-    <div class="splash-name">GameStrike</div>
-    <div class="splash-publisher"><span>by</span><img src="/pwds.svg" alt="PWDS"></div>
+  <div class="og-backdrop" aria-hidden="true"><span class="tube t1"></span><span class="tube t2"></span><span class="tube t3"></span><span class="tube t4"></span></div>
+
+  <!-- Startup sequences. Only the active dashboard style's sequence is shown; any input skips it. -->
+  <div id="boot" class="boot" aria-hidden="true">
+    <div class="boot-scene scene-blades">
+      <span class="ribbon r1"></span><span class="ribbon r2"></span><span class="ribbon r3"></span><span class="ribbon r4"></span><span class="ribbon r5"></span>
+      <span class="boot-flash"></span>
+      <img class="boot-mark" src="/mark.svg" alt="">
+      <div class="boot-title">GameStrike</div>
+      <div class="boot-by"><span>by</span><img src="/pwds.svg" alt="PWDS"></div>
+    </div>
+    <div class="boot-scene scene-original">
+      <span class="goo g1"></span><span class="goo g2"></span><span class="goo g3"></span>
+      <span class="otube o1"></span><span class="otube o2"></span><span class="otube o3"></span>
+      <span class="og-core"></span>
+      <img class="boot-mark" src="/mark.svg" alt="">
+      <div class="boot-title">GAMESTRIKE</div>
+      <div class="boot-by">by PWDS</div>
+    </div>
+    <div class="boot-scene scene-pwds">
+      <span class="pw-beam b1"></span><span class="pw-beam b2"></span><span class="pw-beam b3"></span><span class="pw-beam b4"></span>
+      <span class="pw-ring"></span>
+      <img class="pw-logo" src="/pwds.svg" alt="">
+      <div class="pw-presents">presents</div>
+      <img class="boot-mark" src="/mark.svg" alt="">
+      <div class="boot-title">GameStrike</div>
+    </div>
   </div>
 
   <div id="shell" class="shell">
@@ -30,7 +53,7 @@
         <div class="profile-name">GameStrike</div>
         <div id="profile-sub" class="profile-sub"></div>
       </div>
-      <div class="profile-pic"><img src="/mark.svg" alt=""></div>
+      <div class="profile-pic"><img class="pic-mark" src="/mark.svg" alt=""><img class="pic-pwds" src="/pwds.svg" alt=""></div>
     </div>
 
     <main class="stage-wrap">
@@ -41,6 +64,15 @@
       </div>
     </main>
 
+    <section id="og" class="og" aria-label="Library" hidden>
+      <div class="og-orb" aria-hidden="true"><span class="og-ring"></span><span class="og-ring two"></span><img src="/mark.svg" alt=""></div>
+      <div class="og-panel">
+        <div id="og-header" class="og-header"></div>
+        <div id="og-list" class="og-list" role="listbox"></div>
+        <div id="og-detail" class="og-detail" role="status" aria-live="polite"></div>
+      </div>
+    </section>
+
     <footer class="hints" aria-hidden="true">
       <span id="hint-a"><span class="glyph a">A</span><span class="hint-label">Select</span></span>
       <span id="hint-x" hidden><span class="glyph x">X</span>Play with network</span>
@@ -49,7 +81,7 @@
       <span class="keys">Arrows move · Enter selects · N network · F2 rename · Del remove · / search</span>
     </footer>
 
-    <div class="corner" aria-hidden="true"><span class="ripple"></span><span class="ripple two"></span><img src="/mark.svg" alt=""></div>
+    <div class="corner" aria-hidden="true"><span class="ripple"></span><span class="ripple two"></span><img class="corner-mark" src="/mark.svg" alt=""><img class="corner-pwds" src="/pwds.svg" alt=""></div>
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

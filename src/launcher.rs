@@ -42,7 +42,7 @@ mod windows_launcher {
         OFN_PATHMUSTEXIST, OPENFILENAMEW,
     };
     use wry::{
-        WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows,
+        WebContext, WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows,
         http::{Request, Response, StatusCode, header},
     };
 
@@ -78,15 +78,23 @@ mod windows_launcher {
         error_line: Option<String>,
     }
 
+    /// A named UI state for `--capture-view`. Only names in this list reach the page script.
+    const CAPTURE_VIEWS: [&str; 11] = [
+        "library",
+        "long",
+        "launch",
+        "manage",
+        "about",
+        "system",
+        "original",
+        "pwds",
+        "boot-blades",
+        "boot-original",
+        "boot-pwds",
+    ];
+
     #[derive(Clone, Copy)]
-    enum CaptureView {
-        Library,
-        LongTitle,
-        Launch,
-        Manage,
-        About,
-        System,
-    }
+    struct CaptureView(&'static str);
 
     pub fn run() -> Result<(), Box<dyn Error>> {
         let (root, mut capture_path, window_size, capture_view) = launch_options()?;
@@ -102,7 +110,9 @@ mod windows_launcher {
             .build(&event_loop)?;
         let proxy = event_loop.create_proxy();
         let background_proxy = event_loop.create_proxy();
-        let webview = WebViewBuilder::new()
+        // UI preferences (style, color, sounds) live with the library, not beside the executable.
+        let mut ui_context = WebContext::new(Some(root.join("launcher-ui")));
+        let webview = WebViewBuilder::new_with_web_context(&mut ui_context)
             .with_focused(capture_path.is_none())
             .with_custom_protocol("gamestrikeui".into(), |_, request| serve_ui(request))
             .with_https_scheme(true)
@@ -124,7 +134,7 @@ mod windows_launcher {
         let mut running: Option<Uuid> = None;
         let mut picking = false;
         event_loop.run(move |event, _, flow| {
-            let _keep_alive = (&window, &webview);
+            let _keep_alive = (&window, &webview, &ui_context);
             *flow = ControlFlow::Wait;
             match event {
                 Event::UserEvent(UiEvent::Command(CommandMessage::Ready {})) => {
@@ -141,18 +151,12 @@ mod windows_launcher {
                     let prepare = if view_prepared {
                         None
                     } else {
-                        match capture_view {
-                            CaptureView::Library => None,
-                            CaptureView::LongTitle => Some("window.GameStrike.capture('long')"),
-                            CaptureView::Launch => Some("window.GameStrike.capture('launch')"),
-                            CaptureView::Manage => Some("window.GameStrike.capture('manage')"),
-                            CaptureView::About => Some("window.GameStrike.capture('about')"),
-                            CaptureView::System => Some("window.GameStrike.capture('system')"),
-                        }
+                        // Every view, including the plain library, skips or freezes the boot animation.
+                        Some(format!("window.GameStrike.capture('{}')", capture_view.0))
                     };
                     if let Some(script) = prepare {
                         view_prepared = true;
-                        if let Err(error) = webview.evaluate_script(script) {
+                        if let Err(error) = webview.evaluate_script(&script) {
                             eprintln!("Could not prepare launcher preview: {error}");
                             std::process::exit(2);
                         }
@@ -421,15 +425,15 @@ mod windows_launcher {
                     .join("Library"),
                 None,
                 default_size,
-                CaptureView::Library,
+                CaptureView("library"),
             )),
             [_, flag, root] if flag == "--library" => {
-                Ok((PathBuf::from(root), None, default_size, CaptureView::Library))
+                Ok((PathBuf::from(root), None, default_size, CaptureView("library")))
             }
             [_, flag, root, capture_flag, output]
                 if flag == "--library" && capture_flag == "--capture-preview" =>
             {
-                Ok((PathBuf::from(root), Some(PathBuf::from(output)), default_size, CaptureView::Library))
+                Ok((PathBuf::from(root), Some(PathBuf::from(output)), default_size, CaptureView("library")))
             }
             [_, flag, root, capture_flag, output, view_flag, view]
                 if flag == "--library"
@@ -452,25 +456,22 @@ mod windows_launcher {
                     PathBuf::from(root),
                     Some(PathBuf::from(output)),
                     LogicalSize::new(width as f64, height as f64),
-                    CaptureView::Library,
+                    CaptureView("library"),
                 ))
             }
             _ => Err(
-                "usage: gamestrike-launcher [--library DIRECTORY [--capture-preview PNG [--capture-view library|long|launch|manage|about|system | --window-size WIDTH HEIGHT]]]".into(),
+                "usage: gamestrike-launcher [--library DIRECTORY [--capture-preview PNG [--capture-view VIEW | --window-size WIDTH HEIGHT]]]".into(),
             ),
         }
     }
 
     fn parse_capture_view(raw: &OsString) -> Result<CaptureView, Box<dyn Error>> {
-        match raw.to_str() {
-            Some("library") => Ok(CaptureView::Library),
-            Some("long") => Ok(CaptureView::LongTitle),
-            Some("launch") => Ok(CaptureView::Launch),
-            Some("manage") => Ok(CaptureView::Manage),
-            Some("about") => Ok(CaptureView::About),
-            Some("system") => Ok(CaptureView::System),
-            _ => Err("capture view must be library, long, launch, manage, about, or system".into()),
-        }
+        raw.to_str()
+            .and_then(|name| CAPTURE_VIEWS.iter().find(|view| **view == name))
+            .map(|view| CaptureView(view))
+            .ok_or_else(|| {
+                format!("capture view must be one of: {}", CAPTURE_VIEWS.join(", ")).into()
+            })
     }
 
     fn capture_preview(
@@ -796,6 +797,17 @@ mod windows_launcher {
                 (ui.to_owned(), "not json".to_owned()),
             ] {
                 assert_eq!(parse_command(&origin, &body), None, "{origin} {body}");
+            }
+        }
+
+        #[test]
+        fn capture_views_come_only_from_the_fixed_list() {
+            assert_eq!(
+                parse_capture_view(&OsString::from("boot-pwds")).unwrap().0,
+                "boot-pwds"
+            );
+            for bad in ["", "LIBRARY", "about'); alert(1); ('", "boot-xbox"] {
+                assert!(parse_capture_view(&OsString::from(bad)).is_err(), "{bad}");
             }
         }
 

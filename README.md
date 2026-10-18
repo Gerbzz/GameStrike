@@ -29,8 +29,12 @@ Everything in this section is implemented in this repository and covered by the 
 **Library**
 - Add a game through the Windows file picker: a single `.html`/`.htm` file, or a `.zip` with `index.html` at its root or inside one wrapper folder. GameStrike copies the files into its own library; your original download is never modified.
 - Re-adding the exact same file is recognized, and the game keeps its saves.
-- Browse a console-style dashboard inspired by the classic 2008-era console dashboards. Channel names stack at the top left, and Up/Down switches channel: *Jump Back In*, *Add & Find*, *My Games*, *System*. Within a channel, the focused tile sits large on the left and the rest recede in perspective, with glossy reflections and an *N of M* counter. You can search, and sort by recently played, title, or date added.
-- Five color themes (Lime, Ocean, Sunset, Grape, Graphite), chosen from the *System* channel and remembered.
+- Browse a console dashboard in one of three **styles**, chosen in the *System* channel and remembered:
+  - **Blades** (default). Inspired by the Xbox 360 dashboard: channel names stack at the top left, with earlier ones fading above, and Up/Down switches channel (*Jump Back In*, *Add & Find*, *My Games*, *System*). The focused tile sits large on the left while the rest recede edge to edge in perspective, with glossy reflections, a curved floor, and an *N of M* counter. Five colors: Lime, Ocean, Sunset, Grape, Graphite.
+  - **Original.** Inspired by the original Xbox dashboard: a black-green void with glowing tubes, a pulsing green orb, and glossy pill menus. Up/Down moves through a menu; Left/Right changes menu.
+  - **PWDS Orange.** The Blades layout in PWDS orange, with the PWDS mark.
+- Each style has its own **startup animation**, skippable with any key, click, or controller button: green ribbons swirling into a flash (Blades), green goo and tubes forming an orb (Original), and orange beams igniting the PWDS logo, then *presents GameStrike* (PWDS Orange). Reduced-motion users skip straight to the dashboard.
+- Search, and sort by recently played, title, or date added, from the *Add & Find* channel.
 - Each game shows its source type, when it was added, when it was last played and how often, and how much data it has stored.
 - **Manage** a game: rename it, clear its saves, or remove it. A removal can keep the saves, so adding the same file again brings them back.
 - Problems are reported rather than hidden. One unreadable folder doesn't hide the rest of the library, and a game whose files have disappeared shows *Files missing* and won't launch.
@@ -52,15 +56,16 @@ Everything in this section is implemented in this repository and covered by the 
 
 All images come from the running Windows build of this branch, on 2026-10-17. Launcher views are from the final UI in this PR; the player capture is from the manual run at `c888e7e`. They are not mockups. Every game shown is a labeled **synthetic test fixture** created for testing; no third-party game appears.
 
-- **Launcher views** were rendered by the real `gamestrike-launcher.exe` through WebView2 `CapturePreview` (the `--capture-preview` option). They show the window's content area at 1250 × 800 unless noted.
+- **Launcher views** were rendered by the real `gamestrike-launcher.exe` through WebView2 `CapturePreview` (the `--capture-preview` option). They show the window's content area at 1250 × 800 unless noted. Startup frames were paused at a fixed point in the real animation. Captures use default preferences and never change saved ones.
 - **The player** was captured from the screen during a manual run of the real app and cropped to the player window.
 
 | | |
 | --- | --- |
 | ![Network consent dialog with Go back and Allow network & play](docs/screenshots/network-dialog.png) **Network consent.** Offline is the default; network needs this extra step. | ![Manage dialog with Rename, Clear saves, Remove from library, Back](docs/screenshots/manage-dialog.png) **Manage** (Y on a controller). |
 | ![Empty library showing a single Add your first game tile](docs/screenshots/empty-library.png) **First launch** with an empty library. | ![About dialog with the PWDS publisher logo](docs/screenshots/about.png) **About**, with the publisher credit. |
-| ![System channel with Sounds, Theme, and About tiles](docs/screenshots/system-channel.png) **System channel**: sounds, color theme, and About. | ![Dashboard at the 880 by 620 minimum window size](docs/screenshots/minimum-880x620.png) **Minimum window size**, 880 × 620. |
-| ![Player window titled Save Counter (Synthetic Test), GameStrike, Offline, showing localStorage points 2 and IndexedDB opens 1](docs/screenshots/player-offline-save-counter.png) **A game in its own offline player window.** | |
+| ![Original style: a glowing green orb beside glossy green pill menus listing the games](docs/screenshots/style-original.png) **Original style.** | ![PWDS Orange style: the blades dashboard in orange with the PWDS logo in the corners](docs/screenshots/style-pwds.png) **PWDS Orange style.** |
+| ![Blades startup: the GameStrike mark and name on a white glow](docs/screenshots/boot-blades.png) **Blades startup**, final frame. | ![Original startup: a glowing green orb with GAMESTRIKE in spaced letters among green light tubes](docs/screenshots/boot-original.png) **Original startup**, final frame. |
+| ![PWDS startup: the orange PWDS logo inside a glowing orange ring on black](docs/screenshots/boot-pwds.png) **PWDS Orange startup**, at the logo. | ![System channel with Style, Color, Sounds, and About tiles](docs/screenshots/system-channel.png) **System channel**: style, color, sounds, About. | ![Dashboard at the 880 by 620 minimum window size](docs/screenshots/minimum-880x620.png) **Minimum window size**, 880 × 620. | ![Player window titled Save Counter (Synthetic Test), GameStrike, Offline, showing localStorage points 2 and IndexedDB opens 1](docs/screenshots/player-offline-save-counter.png) **A game in its own offline player window.** |
 
 Screenshots of the earlier design are kept in [docs/history](docs/history).
 
@@ -115,7 +120,7 @@ The details and remaining open questions are in [docs/PLAYER_SECURITY.md](docs/P
 Results as of 2026-10-17 on Windows 11 Pro, WebView2 runtime as installed on the dev PC and on GitHub's `windows-latest` runner.
 
 **Automated, all passing locally and in [Windows CI](https://github.com/Gerbzz/GameStrike/actions/workflows/windows-source.yml):**
-- Rust: 26 library tests, 12 player tests, 3 launcher tests, and 1 player command-line test. They cover zip-slip, drive paths, device names, corrupt and empty files, expansion limits, duplicate and legacy re-imports, removal with and without saves, restoring kept saves, clearing saves, the per-game lock, rename validation, tolerant scanning, missing files, the launcher's origin and command allow-list, and CSP headers.
+- Rust: 26 library tests, 12 player tests, 4 launcher tests, and 1 player command-line test. They cover zip-slip, drive paths, device names, corrupt and empty files, expansion limits, duplicate and legacy re-imports, removal with and without saves, restoring kept saves, clearing saves, the per-game lock, rename validation, tolerant scanning, missing files, the launcher's origin and command allow-list, and CSP headers.
 - JavaScript: 11 tests of sorting, search, grid and shelf movement, the perspective tile layout, controller edge detection and repeat, generated covers, and formatting.
 - **Real player isolation test** (`tests/player_isolation.rs`). It runs the real WebView2 player against a bundled probe page, with a harness listening on loopback over TCP and UDP.
   - Offline, twice: 0 TCP and 0 UDP connections reached the harness. Fetch, XHR, WebSocket, image, `file://`, other-origin requests, and popups were all blocked.
@@ -146,7 +151,7 @@ That run found two issues, both fixed in `bc6fd31`: the offline summary counted 
 
 ## Credits and license
 
-GameStrike is published by [PWDS (ProWebDevSolutions)](https://prowebdevsolutions.com). The geometric GameStrike mark is original artwork for this project. The PWDS logos in `assets/branding` are the official PWDS assets and are not covered by any open-source license. The colored A/B/X/Y glyphs follow the common controller color convention and are drawn in CSS; no console maker's assets or trademarks are used.
+GameStrike is published by [PWDS (ProWebDevSolutions)](https://prowebdevsolutions.com). The geometric GameStrike mark is original artwork for this project. The PWDS logos in `assets/branding` are the official PWDS assets and are not covered by any open-source license. The *Blades* and *Original* styles are original recreations inspired by the look of the Xbox 360 and original Xbox dashboards. They use no Microsoft logos, artwork, sounds, or fonts, and GameStrike is not affiliated with or endorsed by Microsoft; Xbox is a trademark of Microsoft Corporation. The colored A/B/X/Y glyphs follow the common controller color convention and are drawn in CSS.
 
 Built with [Wry](https://github.com/tauri-apps/wry) and [Tao](https://github.com/tauri-apps/tao) (Apache-2.0/MIT), [webview2-com](https://github.com/wravery/webview2-rs) (MIT), [zip](https://github.com/zip-rs/zip2) (MIT), and [serde](https://serde.rs) (Apache-2.0/MIT). The README layout takes cues from [PhotoCraft](https://github.com/storytold/photocraft): a status callout, features kept separate from limitations, and command-first build steps. No code or assets were copied from it.
 

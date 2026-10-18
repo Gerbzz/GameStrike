@@ -4,8 +4,10 @@
   const core = window.GameStrikeCore;
   const $ = (id) => document.getElementById(id);
   const send = (message) => window.ipc.postMessage(JSON.stringify(message));
-  const startedAt = performance.now();
   const THEMES = [["lime", "Lime"], ["ocean", "Ocean"], ["sunset", "Sunset"], ["grape", "Grape"], ["graphite", "Graphite"]];
+  // Dashboard styles: the blades layout, the 2001-era orb and pill menus, and the blades layout in PWDS orange.
+  const STYLES = [["blades", "Blades"], ["original", "Original"], ["pwds", "PWDS Orange"]];
+  const BOOT_MS = { blades: 3400, original: 3900, pwds: 4200 };
   const SORTS = [["recent", "Recently played"], ["title-asc", "Title A–Z"], ["title-desc", "Title Z–A"], ["added", "Recently added"]];
 
   const stored = (key, fallback) => { try { return localStorage.getItem(key) ?? fallback; } catch (_) { return fallback; } };
@@ -19,6 +21,8 @@
     query: "",
     sort: stored("gamestrike-sort", "recent"),
     theme: stored("gamestrike-theme", "lime"),
+    style: stored("gamestrike-style", "blades"),
+    booted: false,
     channels: [],
     channel: 0,
     focus: {},
@@ -29,10 +33,12 @@
   };
   if (!SORTS.some(([key]) => key === state.sort)) state.sort = "recent";
   if (!THEMES.some(([key]) => key === state.theme)) state.theme = "lime";
+  if (!STYLES.some(([key]) => key === state.style)) state.style = "blades";
   document.body.dataset.theme = state.theme;
+  document.body.dataset.style = state.style;
 
   const el = {
-    splash: $("splash"), channels: $("channels"), stage: $("stage"), counter: $("counter"), note: $("under-note"),
+    boot: $("boot"), og: $("og"), ogHeader: $("og-header"), ogList: $("og-list"), ogDetail: $("og-detail"), channels: $("channels"), stage: $("stage"), counter: $("counter"), note: $("under-note"),
     profileSub: $("profile-sub"), toast: $("toast"),
     hintA: $("hint-a"), hintX: $("hint-x"), hintY: $("hint-y"),
   };
@@ -68,6 +74,29 @@
     };
   })();
 
+  // ---------- startup sequence ----------
+  // Plays the active style's boot animation once. Any key, click, or controller button skips it.
+  let bootTimer = null;
+  function finishBoot() {
+    if (state.booted) return;
+    state.booted = true;
+    clearTimeout(bootTimer);
+    el.boot.classList.add("done");
+    if (state.loaded) render({ focus: !state.dialog });
+  }
+  function startBoot() {
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    bootTimer = setTimeout(finishBoot, reduce ? 0 : BOOT_MS[state.style]);
+    for (const type of ["keydown", "mousedown"]) {
+      window.addEventListener(type, (event) => {
+        if (state.booted) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        finishBoot();
+      }, { capture: true });
+    }
+  }
+
   // ---------- helpers ----------
   const gameById = (id) => state.games.find((game) => game.id === id) || null;
   const sourceLabel = (game) => (game.source_kind === "zip" ? "ZIP archive" : "HTML file");
@@ -91,6 +120,7 @@
     mute: '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="m16 9 6 6m0-6-6 6"/></svg>',
     theme: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg>',
     about: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v6M12 7.5v.1"/></svg>',
+    style: '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="9" height="12" rx="1.5"/><rect x="13.5" y="8" width="6" height="8" rx="1"/><path d="M21 9.5v5"/></svg>',
     warn: '<svg viewBox="0 0 24 24"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17v.1"/></svg>',
   };
 
@@ -106,7 +136,7 @@
     if (recent.length) channels.push({ key: "recent", title: "Jump Back In", items: recent.map((game) => ({ kind: "game", game })) });
     channels.push({ key: "find", title: "Add & Find", items: [{ kind: "add" }, { kind: "search" }, { kind: "sort" }] });
     channels.push({ key: "games", title: state.query ? `My Games · “${state.query}”` : "My Games", items });
-    const system = [{ kind: "sound" }, { kind: "theme" }, { kind: "about" }];
+    const system = [{ kind: "style" }, ...(state.style === "blades" ? [{ kind: "theme" }] : []), { kind: "sound" }, { kind: "about" }];
     if (state.problems.length) system.unshift({ kind: "problems" });
     channels.push({ key: "system", title: "System", items: system });
     return channels;
@@ -201,7 +231,8 @@
         "no-match": ["search", "No games match", "Press A to search again"],
         sort: ["sort", `Sort: ${label(SORTS, state.sort)}`, "Press A to change the order"],
         sound: [sound.enabled ? "sound" : "mute", `Sounds: ${sound.enabled ? "On" : "Off"}`, "Interface sounds"],
-        theme: ["theme", `Theme: ${label(THEMES, state.theme)}`, "Press A for the next color"],
+        theme: ["theme", `Color: ${label(THEMES, state.theme)}`, "Press A for the next color"],
+        style: ["style", `Style: ${label(STYLES, state.style)}`, "Blades, Original, or PWDS Orange"],
         about: ["about", "About GameStrike", "Version, publisher, and safety notes"],
         problems: ["warn", `${state.problems.length} unreadable ${state.problems.length === 1 ? "folder" : "folders"}`, "See what could not be read"],
       }[item.kind];
@@ -248,7 +279,8 @@
       const layout = core.tileLayout(offset);
       node.style.setProperty("--x", layout.x);
       node.style.setProperty("--y", layout.y);
-      node.style.setProperty("--s", layout.s);
+      node.style.setProperty("--sx", layout.sx);
+      node.style.setProperty("--sy", layout.sy);
       node.style.opacity = layout.opacity;
       node.style.zIndex = layout.z;
       node.style.visibility = layout.visible || offset < 0 ? "visible" : "hidden";
@@ -257,10 +289,59 @@
       node.classList.toggle("behind", offset > 0);
       node.setAttribute("aria-selected", String(offset === 0));
       node.tabIndex = offset === 0 ? 0 : -1;
-      if (offset === 0 && focus && !state.dialog) node.focus({ preventScroll: true });
+      if (offset === 0 && focus && !state.dialog && state.style !== "original") node.focus({ preventScroll: true });
     }
     el.counter.textContent = `${index + 1} of ${channel.items.length}`;
     describe(item);
+    renderOriginal(focus);
+  }
+
+  function itemText(item) {
+    if (item.kind === "game") return [item.game.title, item.game.id === state.running ? "Playing" : !item.game.files_ok ? "Files missing" : item.game.last_played ? core.formatWhen(item.game.last_played) : "New"];
+    const tileNode = el.stage.querySelector(`.tile[data-index="${current().channel.items.indexOf(item)}"]`);
+    return [tileNode?.querySelector(".tile-title")?.textContent || "", ""];
+  }
+
+  function renderOriginal(focus) {
+    if (state.style !== "original") return;
+    const { channel, index } = current();
+    const header = document.createElement("small");
+    header.textContent = `${state.channel + 1} / ${state.channels.length} · ◀ ▶ changes menu`;
+    el.ogHeader.replaceChildren(document.createTextNode(channel.title), header);
+    const windowSize = 6;
+    const first = Math.max(0, Math.min(index - 2, channel.items.length - windowSize));
+    const rows = [];
+    if (first > 0) rows.push(more(`▲ ${first} more`));
+    channel.items.slice(first, first + windowSize).forEach((item, offset) => {
+      const position = first + offset;
+      const node = document.createElement("button");
+      node.type = "button";
+      node.className = "og-item";
+      node.setAttribute("role", "option");
+      node.tabIndex = position === index ? 0 : -1;
+      node.classList.toggle("focused", position === index);
+      node.setAttribute("aria-selected", String(position === index));
+      const [name, note] = itemText(item);
+      const nameNode = document.createElement("span");
+      nameNode.textContent = name;
+      const noteNode = document.createElement("small");
+      noteNode.textContent = note;
+      node.append(nameNode, noteNode);
+      node.addEventListener("click", () => { if (position === current().index) activate(); else focusIndex(position); });
+      rows.push(node);
+    });
+    const rest = channel.items.length - (first + windowSize);
+    if (rest > 0) rows.push(more(`▼ ${rest} more`));
+    el.ogList.replaceChildren(...rows);
+    el.ogDetail.textContent = el.note.textContent || `${index + 1} of ${channel.items.length}`;
+    if (focus && !state.dialog) el.ogList.querySelector(".og-item.focused")?.focus({ preventScroll: true });
+  }
+
+  function more(text) {
+    const node = document.createElement("div");
+    node.className = "og-more";
+    node.textContent = text;
+    return node;
   }
 
   function describe(item) {
@@ -333,9 +414,21 @@
         sound.play("select");
         return render();
       }
+      case "style": {
+        const next = STYLES[(STYLES.findIndex(([key]) => key === state.style) + 1) % STYLES.length][0];
+        setStyle(next);
+        sound.play("select");
+        return render();
+      }
       case "about": return openDialog("about");
       case "problems": return openDialog("problems");
     }
+  }
+
+  function setStyle(next, persist = true) {
+    state.style = next;
+    document.body.dataset.style = next;
+    if (persist) store("gamestrike-style", next);
   }
 
   function focusedGame() {
@@ -495,10 +588,10 @@
     if (event.ctrlKey && event.key.toLowerCase() === "f") { event.preventDefault(); openDialog("search"); return; }
     if (event.ctrlKey || event.altKey || event.metaKey) return;
     switch (event.key) {
-      case "ArrowLeft": event.preventDefault(); moveTile(-1); break;
-      case "ArrowRight": event.preventDefault(); moveTile(1); break;
-      case "ArrowUp": event.preventDefault(); switchChannel(state.channel - 1); break;
-      case "ArrowDown": event.preventDefault(); switchChannel(state.channel + 1); break;
+      case "ArrowLeft": event.preventDefault(); navigate("left"); break;
+      case "ArrowRight": event.preventDefault(); navigate("right"); break;
+      case "ArrowUp": event.preventDefault(); navigate("up"); break;
+      case "ArrowDown": event.preventDefault(); navigate("down"); break;
       case "Home": event.preventDefault(); focusIndex(0); break;
       case "End": event.preventDefault(); focusIndex(current().channel.items.length - 1); break;
       case "Enter": case " ": event.preventDefault(); activate(); break;
@@ -509,6 +602,14 @@
       case "Escape": case "Backspace": event.preventDefault(); back(); break;
     }
   });
+
+  function navigate(direction) {
+    const vertical = direction === "up" || direction === "down";
+    const step = direction === "left" || direction === "up" ? -1 : 1;
+    // Blades: left/right moves along a channel, up/down changes channel. Original: the reverse.
+    if (vertical === (state.style === "original")) moveTile(step);
+    else switchChannel(state.channel + step);
+  }
 
   function back() {
     if (state.channel !== gamesChannel()) { switchChannel(gamesChannel()); return; }
@@ -532,6 +633,7 @@
     const pad = Array.from(navigator.getGamepads?.() || []).find(Boolean) || null;
     const actions = readPad(pad, now);
     // Ignore input while a game window is open or this window is in the background.
+    if (actions.length && !state.booted) { finishBoot(); requestAnimationFrame(pollPad); return; }
     if (actions.length && !state.running && document.hasFocus()) {
       for (const action of actions) handlePad(action);
     }
@@ -546,10 +648,7 @@
       else if (action === "right" || action === "down") moveDialogFocus(1);
       return;
     }
-    if (action === "left") moveTile(-1);
-    else if (action === "right") moveTile(1);
-    else if (action === "up") switchChannel(state.channel - 1);
-    else if (action === "down") switchChannel(state.channel + 1);
+    if (["left", "right", "up", "down"].includes(action)) navigate(action);
     else if (action === "a") activate();
     else if (action === "x") openDialog("network");
     else if (action === "y") openDialog("manage");
@@ -565,12 +664,9 @@
         state.running = message.running || null;
         const first = !state.loaded;
         state.loaded = true;
-        render({ focus: !state.dialog });
+        render({ focus: !state.dialog && state.booted });
         updateProfile();
-        if (first) {
-          const wait = Math.max(0, 1100 - (performance.now() - startedAt));
-          setTimeout(() => el.splash.classList.add("done"), wait);
-        }
+        if (first && state.booted) render({ focus: true });
         break;
       }
       case "importing":
@@ -627,6 +723,20 @@
 
   // Used only by the launcher's explicit --capture-view option to stage a screenshot.
   function capture(view) {
+    // Captures always start from the same look and never change saved preferences.
+    const boot = /^boot-(blades|original|pwds)$/.exec(view);
+    state.theme = "lime";
+    document.body.dataset.theme = "lime";
+    setStyle(boot ? boot[1] : view === "original" || view === "pwds" ? view : "blades", false);
+    render({ focus: false });
+    if (boot) {
+      el.boot.style.setProperty("--seek", { blades: "2.75s", original: "3.45s", pwds: "1.95s" }[boot[1]]);
+      el.boot.classList.add("frozen");
+      clearTimeout(bootTimer);
+      return;
+    }
+    finishBoot();
+    if (view === "original" || view === "pwds") return;
     if (view === "long") {
       const items = state.channels[gamesChannel()].items;
       let best = -1;
@@ -646,6 +756,7 @@
   }
 
   window.GameStrike = Object.freeze({ receive, capture });
+  startBoot();
   setInterval(updateProfile, 15000);
   requestAnimationFrame(pollPad);
   send({ type: "ready" });
