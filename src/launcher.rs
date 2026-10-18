@@ -1,12 +1,16 @@
 //! Trusted local library UI. Imported HTML is never loaded in this WebView.
-#[cfg(not(windows))]
+//!
+//! Runs on Windows (WebView2), Linux (WebKitGTK), and macOS (WKWebView). Only the file picker and
+//! the `--capture-preview` screenshot differ per platform; see the `platform` module.
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 fn main() {
-    eprintln!("The GameStrike visual library currently requires Windows.");
+    eprintln!("The GameStrike launcher supports Windows, Linux, and macOS only.");
+    std::process::exit(1);
 }
 
-#[cfg(windows)]
-mod windows_launcher {
-    use gamestrike::{ImportOutcome, Library};
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+mod launcher_app {
+    use gamestrike::{ImportOutcome, Library, clear_engine_data};
     use serde::Deserialize;
     use serde_json::{Value, json};
     use std::{
@@ -16,8 +20,6 @@ mod windows_launcher {
         ffi::OsString,
         fs,
         io::{BufRead, BufReader},
-        mem::size_of,
-        os::windows::ffi::OsStringExt,
         path::{Path, PathBuf},
         process::{Child, Command, ExitStatus, Stdio},
         sync::{Arc, Mutex},
@@ -28,21 +30,11 @@ mod windows_launcher {
         dpi::LogicalSize,
         event::{Event, WindowEvent},
         event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy},
-        platform::windows::WindowExtWindows,
         window::WindowBuilder,
     };
     use uuid::Uuid;
-    use webview2_com::{
-        CapturePreviewCompletedHandler,
-        Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
-    };
-    use windows::Win32::System::Com::{STREAM_SEEK_SET, StructuredStorage::CreateStreamOnHGlobal};
-    use windows_sys::Win32::UI::Controls::Dialogs::{
-        CommDlgExtendedError, GetOpenFileNameW, OFN_EXPLORER, OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR,
-        OFN_PATHMUSTEXIST, OPENFILENAMEW,
-    };
     use wry::{
-        WebContext, WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows,
+        WebContext, WebViewBuilder,
         http::{Request, Response, StatusCode, header},
     };
 
@@ -112,23 +104,29 @@ mod windows_launcher {
         let background_proxy = event_loop.create_proxy();
         // UI preferences (style, color, sounds) live with the library, not beside the executable.
         let mut ui_context = WebContext::new(Some(root.join("launcher-ui")));
-        let webview = WebViewBuilder::new_with_web_context(&mut ui_context)
+        #[allow(unused_mut)]
+        let mut builder = WebViewBuilder::new_with_web_context(&mut ui_context)
             .with_focused(capture_path.is_none())
             .with_custom_protocol("gamestrikeui".into(), |_, request| serve_ui(request))
-            .with_https_scheme(true)
             .with_url("gamestrikeui://localhost/index.html")
             .with_navigation_handler(|url| url == "about:blank" || is_ui_origin(&url))
             .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny)
             .with_download_started_handler(|_, _| false)
             .with_drag_drop_handler(|_| true)
-            .with_default_context_menus(false)
             .with_devtools(false)
             .with_ipc_handler(move |request| {
                 if let Some(command) = parse_command(&request.uri().to_string(), request.body()) {
                     let _ = proxy.send_event(UiEvent::Command(command));
                 }
-            })
-            .build(&window)?;
+            });
+        #[cfg(windows)]
+        {
+            use wry::WebViewBuilderExtWindows;
+            builder = builder
+                .with_https_scheme(true)
+                .with_default_context_menus(false);
+        }
+        let webview = platform::build_webview(builder, &window)?;
 
         let mut view_prepared = false;
         let mut running: Option<Uuid> = None;
@@ -166,7 +164,7 @@ mod windows_launcher {
                             let _ = proxy.send_event(UiEvent::CapturePreview);
                         });
                     } else if let Some(path) = capture_path.take()
-                        && let Err(error) = capture_preview(&webview, path, background_proxy.clone())
+                        && let Err(error) = platform::capture_preview(&webview, path, background_proxy.clone())
                     {
                         eprintln!("Could not capture launcher: {error}");
                         std::process::exit(2);
@@ -188,7 +186,7 @@ mod windows_launcher {
                         return;
                     }
                     picking = true;
-                    let picked = pick_game_file(window.hwnd());
+                    let picked = platform::pick_game_file(&window);
                     match picked {
                         Ok(Some(path)) => {
                             let name = path
@@ -269,7 +267,10 @@ mod windows_launcher {
                         if running == Some(uuid) {
                             return Err("Close the game before clearing its saves.".to_owned());
                         }
-                        library.reset_saves(uuid).map_err(|error| error.to_string())
+                        // On macOS the WebKit data store sits outside the library; it goes first.
+                        clear_engine_data(&root, uuid)
+                            .and_then(|()| library.reset_saves(uuid))
+                            .map_err(|error| error.to_string())
                     });
                     match result {
                         Ok(()) => send(&webview, json!({"type":"managed", "id":id, "message":"Saves cleared. The next launch starts fresh."})),
@@ -281,6 +282,9 @@ mod windows_launcher {
                     let result = parse_id(&id).and_then(|uuid| {
                         if running == Some(uuid) {
                             return Err("Close the game before removing it.".to_owned());
+                        }
+                        if !keep_saves {
+                            clear_engine_data(&root, uuid).map_err(|error| error.to_string())?;
                         }
                         library.remove(uuid, keep_saves).map_err(|error| error.to_string())
                     });
@@ -420,9 +424,7 @@ mod windows_launcher {
         let default_size = LogicalSize::new(1250.0, 800.0);
         match args.as_slice() {
             [_] => Ok((
-                PathBuf::from(env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is unavailable")?)
-                    .join("GameStrike")
-                    .join("Library"),
+                gamestrike::default_library_root()?,
                 None,
                 default_size,
                 CaptureView("library"),
@@ -474,56 +476,15 @@ mod windows_launcher {
             })
     }
 
-    fn capture_preview(
-        webview: &wry::WebView,
-        path: PathBuf,
-        proxy: EventLoopProxy<UiEvent>,
-    ) -> Result<(), Box<dyn Error>> {
-        // WebView2 captures the rendered library, rather than a staged HTML mock.
-        let stream = unsafe { CreateStreamOnHGlobal(Default::default(), true)? };
-        let output = stream.clone();
-        let handler = CapturePreviewCompletedHandler::create(Box::new(move |completed| {
-            let result = (|| -> std::result::Result<(), String> {
-                completed.map_err(|error| error.to_string())?;
-                unsafe { output.Seek(0, STREAM_SEEK_SET, None) }
-                    .map_err(|error| error.to_string())?;
-                let mut png = Vec::new();
-                let mut chunk = [0u8; 8192];
-                loop {
-                    let mut count = 0u32;
-                    unsafe {
-                        output.Read(
-                            chunk.as_mut_ptr().cast(),
-                            chunk.len() as u32,
-                            Some(&mut count),
-                        )
-                    }
-                    .ok()
-                    .map_err(|error| error.to_string())?;
-                    if count == 0 {
-                        break;
-                    }
-                    png.extend_from_slice(&chunk[..count as usize]);
-                    if png.len() > 16 * 1024 * 1024 {
-                        return Err("launcher preview exceeds 16 MiB".to_owned());
-                    }
-                }
-                if !png.starts_with(b"\x89PNG\r\n\x1a\n") {
-                    return Err("launcher preview is not a PNG".to_owned());
-                }
-                fs::write(path, png).map_err(|error| error.to_string())
-            })();
-            let _ = proxy.send_event(UiEvent::CaptureComplete(result));
-            Ok(())
-        }));
-        unsafe {
-            webview.webview().CapturePreview(
-                COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
-                &stream,
-                &handler,
-            )?;
+    /// Checks and saves a captured PNG. Every platform's capture ends here.
+    fn save_png(path: &Path, png: &[u8]) -> std::result::Result<(), String> {
+        if png.len() > 32 * 1024 * 1024 {
+            return Err("launcher preview exceeds 32 MiB".to_owned());
         }
-        Ok(())
+        if !png.starts_with(b"\x89PNG\r\n\x1a\n") {
+            return Err("launcher preview is not a PNG".to_owned());
+        }
+        fs::write(path, png).map_err(|error| error.to_string())
     }
 
     fn launch(
@@ -536,9 +497,7 @@ mod windows_launcher {
         library
             .player_paths(id)
             .map_err(|error| error.to_string())?;
-        let player = env::current_exe()
-            .map_err(|error| error.to_string())?
-            .with_file_name("gamestrike-player.exe");
+        let player = gamestrike::sibling_player().map_err(|error| error.to_string())?;
         if !player.is_file() {
             return Err(
                 "GameStrike player is missing. Build gamestrike-player beside the launcher.".into(),
@@ -585,18 +544,21 @@ mod windows_launcher {
         }
     }
 
+    /// The launcher's own origin as this platform's engine reports it. Wry maps the scheme to
+    /// `https://gamestrikeui.localhost` on Windows only; on Linux and macOS that https URL would
+    /// be a network request, so only `gamestrikeui://localhost` is accepted there.
     fn is_ui_origin(url: &str) -> bool {
         let Ok(uri) = url.parse::<wry::http::Uri>() else {
             return false;
         };
-        (uri.scheme_str() == Some("https")
-            && uri
-                .authority()
-                .is_some_and(|authority| authority.as_str() == "gamestrikeui.localhost"))
-            || (uri.scheme_str() == Some("gamestrikeui")
-                && uri
-                    .authority()
-                    .is_some_and(|authority| authority.as_str() == "localhost"))
+        let authority = uri.authority().map(|authority| authority.as_str());
+        let custom = uri.scheme_str() == Some("gamestrikeui") && authority == Some("localhost");
+        if cfg!(windows) {
+            (uri.scheme_str() == Some("https") && authority == Some("gamestrikeui.localhost"))
+                || custom
+        } else {
+            custom
+        }
     }
 
     fn serve_ui(request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
@@ -652,44 +614,286 @@ mod windows_launcher {
         response
     }
 
-    fn pick_game_file(owner: isize) -> std::result::Result<Option<PathBuf>, String> {
-        let mut selected = vec![0u16; 32_768];
-        let filter: Vec<u16> = "HTML games (*.html;*.htm;*.zip)\0*.html;*.htm;*.zip\0HTML files (*.html;*.htm)\0*.html;*.htm\0ZIP archives (*.zip)\0*.zip\0\0".encode_utf16().collect();
-        let title: Vec<u16> = "Add a local HTML game\0".encode_utf16().collect();
-        let mut dialog = OPENFILENAMEW {
-            lStructSize: size_of::<OPENFILENAMEW>() as u32,
-            hwndOwner: owner as *mut _,
-            lpstrFilter: filter.as_ptr(),
-            lpstrFile: selected.as_mut_ptr(),
-            nMaxFile: selected.len() as u32,
-            lpstrTitle: title.as_ptr(),
-            Flags: OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR,
-            ..Default::default()
+    /// The native file picker, `--capture-preview` screenshots, and WebView placement.
+    /// Pickers return only a path; `Library::import` validates the file and ZIP on every platform.
+    #[cfg(windows)]
+    mod platform {
+        use super::{UiEvent, save_png};
+        use std::{
+            error::Error, ffi::OsString, mem::size_of, os::windows::ffi::OsStringExt, path::PathBuf,
         };
-        // The dialog supplies only a selected path; Library::import validates the file and ZIP.
-        if unsafe { GetOpenFileNameW(&mut dialog) } == 0 {
-            let code = unsafe { CommDlgExtendedError() };
-            return if code == 0 {
-                Ok(None)
-            } else {
-                Err(format!("File picker failed (Windows error {code:#x})."))
-            };
+        use tao::{
+            event_loop::EventLoopProxy, platform::windows::WindowExtWindows, window::Window,
+        };
+        use webview2_com::{
+            CapturePreviewCompletedHandler,
+            Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+        };
+        use windows::Win32::System::Com::{
+            STREAM_SEEK_SET, StructuredStorage::CreateStreamOnHGlobal,
+        };
+        use windows_sys::Win32::UI::Controls::Dialogs::{
+            CommDlgExtendedError, GetOpenFileNameW, OFN_EXPLORER, OFN_FILEMUSTEXIST,
+            OFN_NOCHANGEDIR, OFN_PATHMUSTEXIST, OPENFILENAMEW,
+        };
+        use wry::{WebViewBuilder, WebViewExtWindows};
+
+        pub(super) fn build_webview(
+            builder: WebViewBuilder<'_>,
+            window: &Window,
+        ) -> Result<wry::WebView, Box<dyn Error>> {
+            Ok(builder.build(window)?)
         }
-        let end = selected
-            .iter()
-            .position(|unit| *unit == 0)
-            .unwrap_or(selected.len());
-        Ok(Some(PathBuf::from(OsString::from_wide(&selected[..end]))))
+
+        pub(super) fn capture_preview(
+            webview: &wry::WebView,
+            path: PathBuf,
+            proxy: EventLoopProxy<UiEvent>,
+        ) -> Result<(), Box<dyn Error>> {
+            // WebView2 captures the rendered library, rather than a staged HTML mock.
+            let stream = unsafe { CreateStreamOnHGlobal(Default::default(), true)? };
+            let output = stream.clone();
+            let handler = CapturePreviewCompletedHandler::create(Box::new(move |completed| {
+                let result = (|| -> std::result::Result<(), String> {
+                    completed.map_err(|error| error.to_string())?;
+                    unsafe { output.Seek(0, STREAM_SEEK_SET, None) }
+                        .map_err(|error| error.to_string())?;
+                    let mut png = Vec::new();
+                    let mut chunk = [0u8; 8192];
+                    loop {
+                        let mut count = 0u32;
+                        unsafe {
+                            output.Read(
+                                chunk.as_mut_ptr().cast(),
+                                chunk.len() as u32,
+                                Some(&mut count),
+                            )
+                        }
+                        .ok()
+                        .map_err(|error| error.to_string())?;
+                        if count == 0 {
+                            break;
+                        }
+                        png.extend_from_slice(&chunk[..count as usize]);
+                        if png.len() > 32 * 1024 * 1024 {
+                            return Err("launcher preview exceeds 32 MiB".to_owned());
+                        }
+                    }
+                    save_png(&path, &png)
+                })();
+                let _ = proxy.send_event(UiEvent::CaptureComplete(result));
+                Ok(())
+            }));
+            unsafe {
+                webview.webview().CapturePreview(
+                    COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+                    &stream,
+                    &handler,
+                )?;
+            }
+            Ok(())
+        }
+
+        pub(super) fn pick_game_file(
+            window: &Window,
+        ) -> std::result::Result<Option<PathBuf>, String> {
+            let mut selected = vec![0u16; 32_768];
+            let filter: Vec<u16> = "HTML games (*.html;*.htm;*.zip)\0*.html;*.htm;*.zip\0HTML files (*.html;*.htm)\0*.html;*.htm\0ZIP archives (*.zip)\0*.zip\0\0".encode_utf16().collect();
+            let title: Vec<u16> = "Add a local HTML game\0".encode_utf16().collect();
+            let mut dialog = OPENFILENAMEW {
+                lStructSize: size_of::<OPENFILENAMEW>() as u32,
+                hwndOwner: window.hwnd() as *mut _,
+                lpstrFilter: filter.as_ptr(),
+                lpstrFile: selected.as_mut_ptr(),
+                nMaxFile: selected.len() as u32,
+                lpstrTitle: title.as_ptr(),
+                Flags: OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR,
+                ..Default::default()
+            };
+            if unsafe { GetOpenFileNameW(&mut dialog) } == 0 {
+                let code = unsafe { CommDlgExtendedError() };
+                return if code == 0 {
+                    Ok(None)
+                } else {
+                    Err(format!("File picker failed (Windows error {code:#x})."))
+                };
+            }
+            let end = selected
+                .iter()
+                .position(|unit| *unit == 0)
+                .unwrap_or(selected.len());
+            Ok(Some(PathBuf::from(OsString::from_wide(&selected[..end]))))
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    mod platform {
+        use super::{UiEvent, save_png};
+        use gtk::prelude::{FileChooserExt, NativeDialogExt};
+        use std::{error::Error, path::PathBuf};
+        use tao::{event_loop::EventLoopProxy, platform::unix::WindowExtUnix, window::Window};
+        use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt};
+        use wry::{WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
+
+        pub(super) fn build_webview(
+            builder: WebViewBuilder<'_>,
+            window: &Window,
+        ) -> Result<wry::WebView, Box<dyn Error>> {
+            let container = window
+                .default_vbox()
+                .ok_or("the launcher window has no GTK container")?;
+            Ok(builder.build_gtk(container)?)
+        }
+
+        pub(super) fn capture_preview(
+            webview: &wry::WebView,
+            path: PathBuf,
+            proxy: EventLoopProxy<UiEvent>,
+        ) -> Result<(), Box<dyn Error>> {
+            // WebKitGTK renders the visible library into a cairo surface.
+            webview.webview().snapshot(
+                SnapshotRegion::Visible,
+                SnapshotOptions::NONE,
+                None::<&webkit2gtk::gio::Cancellable>,
+                move |surface| {
+                    let result = (|| -> std::result::Result<(), String> {
+                        let surface = surface.map_err(|error| error.to_string())?;
+                        let mut png = Vec::new();
+                        surface
+                            .write_to_png(&mut png)
+                            .map_err(|error| error.to_string())?;
+                        save_png(&path, &png)
+                    })();
+                    let _ = proxy.send_event(UiEvent::CaptureComplete(result));
+                },
+            );
+            Ok(())
+        }
+
+        pub(super) fn pick_game_file(
+            window: &Window,
+        ) -> std::result::Result<Option<PathBuf>, String> {
+            let dialog = gtk::FileChooserNative::new(
+                Some("Add a local HTML game"),
+                Some(window.gtk_window()),
+                gtk::FileChooserAction::Open,
+                Some("Add"),
+                Some("Cancel"),
+            );
+            let filter = gtk::FileFilter::new();
+            filter.set_name(Some("HTML games (*.html, *.htm, *.zip)"));
+            for pattern in ["*.html", "*.htm", "*.zip", "*.HTML", "*.HTM", "*.ZIP"] {
+                filter.add_pattern(pattern);
+            }
+            dialog.add_filter(filter);
+            dialog.set_modal(true);
+            let picked = (dialog.run() == gtk::ResponseType::Accept)
+                .then(|| dialog.filename())
+                .flatten();
+            dialog.hide();
+            Ok(picked)
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    mod platform {
+        use super::{UiEvent, save_png};
+        use block2::RcBlock;
+        use objc2::MainThreadMarker;
+        use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage, NSOpenPanel};
+        use objc2_foundation::{NSDictionary, NSError, ns_string};
+        use std::{cell::RefCell, error::Error, path::PathBuf};
+        use tao::{event_loop::EventLoopProxy, window::Window};
+        use wry::{WebViewBuilder, WebViewExtMacOS};
+
+        /// `NSModalResponseOK`.
+        const MODAL_RESPONSE_OK: isize = 1;
+
+        pub(super) fn build_webview(
+            builder: WebViewBuilder<'_>,
+            window: &Window,
+        ) -> Result<wry::WebView, Box<dyn Error>> {
+            Ok(builder.build(window)?)
+        }
+
+        pub(super) fn capture_preview(
+            webview: &wry::WebView,
+            path: PathBuf,
+            proxy: EventLoopProxy<UiEvent>,
+        ) -> Result<(), Box<dyn Error>> {
+            // WKWebView renders the visible library; AppKit encodes it as PNG.
+            let path = RefCell::new(Some(path));
+            let handler = RcBlock::new(move |image: *mut NSImage, error: *mut NSError| {
+                let Some(path) = path.borrow_mut().take() else {
+                    return;
+                };
+                let result = (|| -> std::result::Result<(), String> {
+                    let image = unsafe { image.as_ref() }.ok_or_else(|| {
+                        unsafe { error.as_ref() }
+                            .map(|error| error.localizedDescription().to_string())
+                            .unwrap_or_else(|| "WebKit returned no snapshot".to_owned())
+                    })?;
+                    let tiff = image
+                        .TIFFRepresentation()
+                        .ok_or("snapshot has no bitmap data")?;
+                    let bitmap = NSBitmapImageRep::imageRepWithData(&tiff)
+                        .ok_or("snapshot is unreadable")?;
+                    let png = unsafe {
+                        bitmap.representationUsingType_properties(
+                            NSBitmapImageFileType::PNG,
+                            &NSDictionary::new(),
+                        )
+                    }
+                    .ok_or("snapshot could not be encoded as PNG")?;
+                    save_png(&path, &png.to_vec())
+                })();
+                let _ = proxy.send_event(UiEvent::CaptureComplete(result));
+            });
+            unsafe {
+                webview
+                    .webview()
+                    .takeSnapshotWithConfiguration_completionHandler(None, &handler);
+            }
+            Ok(())
+        }
+
+        pub(super) fn pick_game_file(
+            _window: &Window,
+        ) -> std::result::Result<Option<PathBuf>, String> {
+            let mtm = MainThreadMarker::new().ok_or("the file picker needs the main thread")?;
+            let panel = NSOpenPanel::openPanel(mtm);
+            panel.setCanChooseFiles(true);
+            panel.setCanChooseDirectories(false);
+            panel.setAllowsMultipleSelection(false);
+            panel.setMessage(Some(ns_string!(
+                "Add a local HTML game (.html, .htm, or .zip)"
+            )));
+            if panel.runModal() != MODAL_RESPONSE_OK {
+                return Ok(None);
+            }
+            let url = panel.URL().ok_or("the file picker returned no file")?;
+            let path = url.path().ok_or("the picked file has no path")?;
+            Ok(Some(PathBuf::from(path.to_string())))
+        }
     }
 
     #[cfg(test)]
     mod tests {
         use super::*;
 
+        /// The launcher UI URL as this platform's engine requests it.
+        fn ui(path: &str) -> String {
+            if cfg!(windows) {
+                format!("https://gamestrikeui.localhost{path}")
+            } else {
+                format!("gamestrikeui://localhost{path}")
+            }
+        }
+
         #[test]
         fn ui_protocol_serves_only_bundled_paths_on_its_exact_origin() {
             let allowed = Request::builder()
-                .uri("https://gamestrikeui.localhost/index.html")
+                .uri(ui("/index.html"))
                 .body(Vec::new())
                 .unwrap();
             let response = serve_ui(allowed);
@@ -697,7 +901,7 @@ mod windows_launcher {
             assert!(response.body().as_ref().starts_with(b"<!doctype html>"));
 
             let mark = Request::builder()
-                .uri("https://gamestrikeui.localhost/mark.svg")
+                .uri(ui("/mark.svg"))
                 .body(Vec::new())
                 .unwrap();
             let mark_response = serve_ui(mark);
@@ -721,25 +925,43 @@ mod windows_launcher {
             assert!(csp.contains("default-src 'none'") && csp.contains("connect-src 'none'"));
 
             for url in [
-                "https://other.localhost/index.html",
-                "https://gamestrikeui.localhost/fox.png",
-                "https://gamestrikeui.localhost/../Cargo.toml",
-                "https://gamestrike1234.localhost/index.html",
-                "https://gamestrikeui.localhost.evil/index.html",
-                "https://gamestrikeui.localhost/private.txt",
+                "https://other.localhost/index.html".to_owned(),
+                ui("/fox.png"),
+                ui("/../Cargo.toml"),
+                "https://gamestrike1234.localhost/index.html".to_owned(),
+                "https://gamestrikeui.localhost.evil/index.html".to_owned(),
+                "gamestrikeui://localhost.evil/index.html".to_owned(),
+                ui("/private.txt"),
             ] {
-                let request = Request::builder().uri(url).body(Vec::new()).unwrap();
+                let request = Request::builder().uri(&url).body(Vec::new()).unwrap();
                 assert_ne!(serve_ui(request).status(), StatusCode::OK, "{url}");
             }
         }
 
         #[test]
+        fn ui_origin_is_the_platform_form_only() {
+            assert!(is_ui_origin(&ui("/index.html")));
+            // On WebKit platforms the https form would be a network URL, never the launcher.
+            assert_eq!(
+                is_ui_origin("https://gamestrikeui.localhost/index.html"),
+                cfg!(windows)
+            );
+            for url in [
+                "gamestrikeui://other/index.html",
+                "file:///index.html",
+                "https://user@gamestrikeui.localhost/index.html",
+            ] {
+                assert!(!is_ui_origin(url), "{url}");
+            }
+        }
+
+        #[test]
         fn ipc_accepts_only_known_commands_from_the_ui_origin() {
-            let ui = "https://gamestrikeui.localhost/index.html";
+            let ui = ui("/index.html");
             let id = Uuid::new_v4().to_string();
             assert_eq!(
                 parse_command(
-                    ui,
+                    &ui,
                     &format!(r#"{{"type":"launch_game","id":"{id}","network":false}}"#)
                 ),
                 Some(CommandMessage::LaunchGame {
@@ -749,7 +971,7 @@ mod windows_launcher {
             );
             assert_eq!(
                 parse_command(
-                    ui,
+                    &ui,
                     &format!(r#"{{"type":"remove_game","id":"{id}","keep_saves":true}}"#)
                 ),
                 Some(CommandMessage::RemoveGame {
@@ -813,7 +1035,12 @@ mod windows_launcher {
 
         #[test]
         fn player_exit_messages_report_failures_and_offline_blocks() {
+            #[cfg(unix)]
+            use std::os::unix::process::ExitStatusExt;
+            #[cfg(windows)]
             use std::os::windows::process::ExitStatusExt;
+            // A wait status of 256 is exit code 1 on Unix; Windows takes the exit code directly.
+            let exit_one = if cfg!(windows) { 1 } else { 256 };
             let ok = PlayerReport {
                 status: Some(ExitStatus::from_raw(0)),
                 blocked: Some(3),
@@ -826,7 +1053,7 @@ mod windows_launcher {
             );
             assert!(!describe_exit(&ok, true).0.contains("blocked"));
             let failed = PlayerReport {
-                status: Some(ExitStatus::from_raw(1)),
+                status: Some(ExitStatus::from_raw(exit_one)),
                 error_line: player_error(
                     r#"Error: Custom { kind: InvalidData, error: "this game is already open in a player window" }"#,
                 ),
@@ -851,7 +1078,7 @@ mod windows_launcher {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    windows_launcher::run()
+    launcher_app::run()
 }
