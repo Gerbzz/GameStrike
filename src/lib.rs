@@ -195,7 +195,15 @@ impl Library {
                         .join(existing.id.to_string())
                         .join("content");
                     if hash_content_tree(&old_content).is_ok_and(|digest| digest == staged_digest) {
-                        return Ok(Some(existing.clone()));
+                        // A pre-fingerprint manifest can be read and re-imported. Record the
+                        // exact source hash now so a later keep-saves removal can identify it.
+                        let mut existing = existing.clone();
+                        existing.source_sha256 = Some(source_sha256.clone());
+                        write_json_atomic(
+                            &self.game_dir(existing.id).join("game.json"),
+                            &existing,
+                        )?;
+                        return Ok(Some(existing));
                     }
                 }
             }
@@ -391,25 +399,39 @@ impl Library {
     pub fn remove(&self, id: Uuid, keep_saves: bool) -> Result<()> {
         let game = self.game(id)?;
         let lock = self.lock_game(id)?;
-        // Move the folder out of `games/` first so a partial delete is never listed.
-        let trash = self
-            .root
-            .join("incoming")
-            .join(format!("removed-{id}-{}", Uuid::new_v4().simple()));
-        fs::rename(self.game_dir(id), &trash)?;
         let profile = self.profile_dir(id);
         let has_profile = fs::symlink_metadata(&profile).is_ok_and(|metadata| metadata.is_dir());
-        match (&game.source_sha256, keep_saves && has_profile) {
-            (Some(sha), true) => write_json_atomic(
-                &self.retained_marker(id),
+        let marker = self.retained_marker(id);
+        if keep_saves && has_profile {
+            let sha = game.source_sha256.as_ref().ok_or_else(|| {
+                invalid("re-add the original game file before removing this legacy game with saves")
+            })?;
+            if fs::symlink_metadata(&marker).is_ok() {
+                return Err(invalid("a retained-saves marker already exists for this game").into());
+            }
+            // Do every fallible preparation before hiding the game from the library.
+            write_json_atomic(
+                &marker,
                 &RetainedSaves {
                     source_kind: game.source_kind.clone(),
                     source_sha256: sha.clone(),
                     title: game.title.clone(),
                 },
-            )?,
-            _ if has_profile && !keep_saves => fs::remove_dir_all(&profile)?,
-            _ => {}
+            )?;
+        }
+        // Move the folder out of `games/` first so a partial delete is never listed.
+        let trash = self
+            .root
+            .join("incoming")
+            .join(format!("removed-{id}-{}", Uuid::new_v4().simple()));
+        if let Err(error) = fs::rename(self.game_dir(id), &trash) {
+            if keep_saves && has_profile {
+                let _ = fs::remove_file(&marker);
+            }
+            return Err(error.into());
+        }
+        if has_profile && !keep_saves {
+            fs::remove_dir_all(&profile)?;
         }
         drop(lock);
         if !keep_saves {
@@ -894,6 +916,92 @@ mod tests {
         value.as_object_mut().unwrap().remove("source_sha256");
         fs::write(manifest, serde_json::to_vec(&value).unwrap()).unwrap();
         assert_eq!(library.list().unwrap()[0].source_sha256, None);
+    }
+
+    #[test]
+    fn removing_legacy_game_requires_safe_fingerprint_migration() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("Legacy.html");
+        fs::write(&source, b"<html>legacy game</html>").unwrap();
+        let root = dir.path().join("library");
+        let library = Library::open(&root).unwrap();
+        let first = library.import(&source).unwrap();
+        let manifest = root
+            .join("games")
+            .join(first.id.to_string())
+            .join("game.json");
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        value.as_object_mut().unwrap().remove("source_sha256");
+        fs::write(manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+        let (_, profile) = library.player_paths(first.id).unwrap();
+        fs::write(profile.join("save-marker"), b"legacy progress").unwrap();
+
+        assert!(library.remove(first.id, true).is_err());
+        assert_eq!(library.list().unwrap().len(), 1);
+        assert_eq!(
+            fs::read(profile.join("save-marker")).unwrap(),
+            b"legacy progress"
+        );
+
+        let migrated = library.import_with_result(&source).unwrap();
+        assert!(migrated.already_present);
+        assert_eq!(migrated.game.id, first.id);
+        assert!(migrated.game.source_sha256.is_some());
+        library.remove(first.id, true).unwrap();
+        let second = library.import_with_result(&source).unwrap();
+        assert!(second.restored_saves);
+        assert_eq!(second.game.id, first.id);
+        assert_eq!(
+            fs::read(profile.join("save-marker")).unwrap(),
+            b"legacy progress"
+        );
+    }
+
+    #[test]
+    fn failed_retained_marker_write_keeps_game_in_library() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("Game.html");
+        fs::write(&source, b"<html>game</html>").unwrap();
+        let root = dir.path().join("library");
+        let library = Library::open(&root).unwrap();
+        let game = library.import(&source).unwrap();
+        let (_, profile) = library.player_paths(game.id).unwrap();
+        fs::write(profile.join("save-marker"), b"progress").unwrap();
+        fs::create_dir(
+            root.join("profiles")
+                .join(format!("{}.retained.json", game.id)),
+        )
+        .unwrap();
+
+        assert!(library.remove(game.id, true).is_err());
+        assert_eq!(library.list().unwrap().len(), 1);
+        assert!(library.entry_file(game.id).is_ok());
+        assert_eq!(fs::read(profile.join("save-marker")).unwrap(), b"progress");
+    }
+
+    #[test]
+    fn failed_game_move_cleans_new_retained_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("Game.html");
+        fs::write(&source, b"<html>game</html>").unwrap();
+        let root = dir.path().join("library");
+        let library = Library::open(&root).unwrap();
+        let game = library.import(&source).unwrap();
+        let (_, profile) = library.player_paths(game.id).unwrap();
+        fs::write(profile.join("save-marker"), b"progress").unwrap();
+        fs::remove_dir(root.join("incoming")).unwrap();
+        fs::write(root.join("incoming"), b"blocked").unwrap();
+
+        assert!(library.remove(game.id, true).is_err());
+        assert_eq!(library.list().unwrap().len(), 1);
+        assert!(
+            !root
+                .join("profiles")
+                .join(format!("{}.retained.json", game.id))
+                .exists()
+        );
+        assert_eq!(fs::read(profile.join("save-marker")).unwrap(), b"progress");
     }
 
     #[test]
