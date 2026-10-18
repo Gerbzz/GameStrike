@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>GameStrike isolation probe starting</title>
+<h1>GameStrike isolation probe</h1>
+<p>First-party test fixture. It tries to leave the game sandbox and reports what happened.
+The loopback target 127.0.0.1:47391 is a listener started by the test harness.</p>
+<pre id="results"></pre>
+<script>
+  const target = "127.0.0.1:47391";
+  const results = [];
+  const record = (name, value) => results.push(`${name}=${value}`);
+  const settle = (name, promise, ok = "resolved", bad = "rejected") =>
+    promise.then(() => record(name, ok), () => record(name, bad));
+  const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms));
+
+  // Saves: one localStorage counter and one IndexedDB counter.
+  const launch = Number(localStorage.getItem("probe-launches") || 0) + 1;
+  localStorage.setItem("probe-launches", String(launch));
+  record("launch", launch);
+  const idb = new Promise((resolve, reject) => {
+    const open = indexedDB.open("gamestrike-probe", 1);
+    open.onupgradeneeded = () => open.result.createObjectStore("saves");
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const store = open.result.transaction("saves", "readwrite").objectStore("saves");
+      const get = store.get("count");
+      get.onsuccess = () => {
+        const next = (get.result || 0) + 1;
+        store.put(next, "count").onsuccess = () => resolve(next);
+      };
+      get.onerror = () => reject(get.error);
+    };
+  });
+  const pending = [idb.then((count) => record("idb", count), () => record("idb", "error"))];
+
+  // Host bridges: GameStrike registers no IPC handler or host objects in the player.
+  record("ipc", typeof window.ipc);
+  record("hostObjects", typeof window.chrome?.webview?.hostObjects);
+  try {
+    if (window.chrome?.webview?.postMessage) {
+      window.chrome.webview.postMessage("probe");
+      record("postMessage", "sent");
+    } else {
+      record("postMessage", "absent");
+    }
+  } catch (_) {
+    record("postMessage", "threw");
+  }
+
+  // Same-origin assets must keep working.
+  pending.push(settle("self-fetch", fetch("/index.html").then((r) => { if (!r.ok) throw new Error(); })));
+
+  // Network paths. The harness counts what reaches the loopback listener.
+  pending.push(settle("fetch", Promise.race([fetch(`http://${target}/fetch`), timeout(3000)])));
+  pending.push(new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", `http://${target}/xhr`);
+    xhr.onload = () => { record("xhr", "loaded"); resolve(); };
+    xhr.onerror = () => { record("xhr", "error"); resolve(); };
+    try { xhr.send(); } catch (_) { record("xhr", "threw"); resolve(); }
+  }));
+  pending.push(new Promise((resolve) => {
+    try {
+      const socket = new WebSocket(`ws://${target}/ws`);
+      socket.onopen = () => { record("ws", "open"); socket.close(); resolve(); };
+      socket.onerror = () => { record("ws", "error"); resolve(); };
+      setTimeout(() => { record("ws", "timeout"); resolve(); }, 3000);
+    } catch (_) {
+      record("ws", "threw");
+      resolve();
+    }
+  }));
+  pending.push(new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => { record("img", "loaded"); resolve(); };
+    image.onerror = () => { record("img", "error"); resolve(); };
+    image.src = `http://${target}/img`;
+  }));
+  const script = document.createElement("script");
+  script.src = `http://${target}/script.js`;
+  document.head.append(script);
+  const frame = document.createElement("iframe");
+  frame.src = `http://${target}/frame`;
+  document.body.append(frame);
+  try { record("beacon", navigator.sendBeacon(`http://${target}/beacon`, "x") ? "queued" : "refused"); }
+  catch (_) { record("beacon", "threw"); }
+  try {
+    const events = new EventSource(`http://${target}/events`);
+    setTimeout(() => events.close(), 1500);
+  } catch (_) { /* counted by the harness */ }
+
+  // WebRTC is not covered by CSP; the harness listens for STUN on UDP.
+  if (window.RTCPeerConnection) {
+    try {
+      const peer = new RTCPeerConnection({ iceServers: [{ urls: `stun:${target}` }] });
+      peer.createDataChannel("probe");
+      peer.createOffer().then((offer) => peer.setLocalDescription(offer)).catch(() => {});
+      setTimeout(() => peer.close(), 2500);
+      record("webrtc", "created");
+    } catch (_) {
+      record("webrtc", "threw");
+    }
+  } else {
+    record("webrtc", "unavailable");
+  }
+
+  // Local files and other origins.
+  pending.push(settle("file-fetch", fetch("file:///C:/Windows/win.ini")));
+  pending.push(settle("other-origin", Promise.race([fetch("https://gamestrike-other.localhost/index.html"), timeout(3000)])));
+  const popup = window.open("about:blank", "_blank");
+  record("popup", popup === null ? "null" : "handle");
+  if (popup) popup.close();
+
+  Promise.all(pending).then(() => setTimeout(() => {
+    results.sort();
+    document.getElementById("results").textContent = results.join("\n");
+    document.title = `GameStrike isolation probe launch=${launch};${results.join(";")}`;
+  }, 2600));
+</script>
+</html>

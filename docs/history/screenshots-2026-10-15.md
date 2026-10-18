@@ -1,3 +1,5 @@
+> **Historical record.** These PNGs show the launcher design from October 15, 2026, before the redesign. They are kept unaltered for provenance; the main README shows the current UI.
+
 # Screenshot provenance
 
 These development previews document the tested source commit below. They are app-window captures, not a binary release.

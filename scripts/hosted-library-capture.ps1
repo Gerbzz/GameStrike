@@ -1,120 +1,81 @@
+# Captures the real launcher's WebView2 surface for each view, using clearly labeled synthetic
+# games imported through the CLI. Output: $env:RUNNER_TEMP/gamestrike-library-visual/*.png
 $ErrorActionPreference = 'Stop'
-$probeRoot = Join-Path $env:RUNNER_TEMP 'gamestrike-library-visual'
-$library = Join-Path $probeRoot 'library'
-$capture = Join-Path $probeRoot 'launcher.png'
-$fixture = Join-Path $probeRoot 'Studio Sample.html'
-$stdout = Join-Path $probeRoot 'launcher.out.txt'
-$stderr = Join-Path $probeRoot 'launcher.err.txt'
-New-Item -ItemType Directory -Force -Path $library | Out-Null
-[IO.File]::WriteAllText($fixture, '<!doctype html><html><head><title>Studio Sample</title></head><body><h1>Studio Sample</h1></body></html>')
-$cli = Join-Path $PWD 'target/debug/gamestrike.exe'
-& $cli --library $library import $fixture
-if ($LASTEXITCODE -ne 0) { throw 'Synthetic library import failed.' }
-$launcher = Join-Path $PWD 'target/debug/gamestrike-launcher.exe'
-$process = Start-Process -FilePath $launcher -ArgumentList @('--library', $library, '--capture-preview', $capture) -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-try {
-    $complete = $false
-    for ($attempt = 0; $attempt -lt 45; $attempt++) {
-        Start-Sleep -Seconds 1
-        if (Test-Path -LiteralPath $capture) {
-            $probe = [IO.File]::ReadAllBytes($capture)
-            if ($probe.Length -gt 1000) {
-                $trailer = [byte[]](73, 69, 78, 68, 174, 66, 96, 130)
-                $complete = $true
-                for ($i = 0; $i -lt 8; $i++) {
-                    if ($probe[$probe.Length - 8 + $i] -ne $trailer[$i]) { $complete = $false; break }
-                }
-                if ($complete) { break }
-            }
-        }
-        $process.Refresh()
-        if ($process.HasExited) { break }
-    }
-    if (-not $complete) {
-        Write-Host 'Launcher stdout:'; Get-Content -LiteralPath $stdout -ErrorAction SilentlyContinue
-        Write-Host 'Launcher stderr:'; Get-Content -LiteralPath $stderr -ErrorAction SilentlyContinue
-        throw 'Hosted launcher did not produce a complete PNG within 45 seconds.'
-    }
-} finally {
-    $process.Refresh()
-    if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
-}
-Add-Type -AssemblyName System.Drawing
-$bitmap = [System.Drawing.Bitmap]::new($capture)
-try {
-    if ($bitmap.Width -lt 880 -or $bitmap.Height -lt 620) { throw 'Launcher capture dimensions are too small.' }
-    $colors = [System.Collections.Generic.HashSet[int]]::new()
-    $dark = 0
-    $orange = 0
-    for ($y = 0; $y -lt $bitmap.Height; $y += 8) {
-        for ($x = 0; $x -lt $bitmap.Width; $x += 8) {
-            $pixel = $bitmap.GetPixel($x, $y)
-            [void]$colors.Add($pixel.ToArgb())
-            if ($pixel.R -lt 70 -and $pixel.G -lt 70 -and $pixel.B -lt 70) { $dark++ }
-            if ($pixel.R -gt 180 -and $pixel.G -gt 70 -and $pixel.G -lt 190 -and $pixel.B -lt 130) { $orange++ }
-        }
-    }
-    if ($colors.Count -lt 24 -or $dark -lt 200 -or $orange -lt 8) {
-        throw "Launcher capture lacks expected app content: colors=$($colors.Count), dark=$dark, orange=$orange"
-    }
-    Write-Host "CAPTURE_DIMENSIONS:$($bitmap.Width)x$($bitmap.Height)"
-    Write-Host "CAPTURE_PIXELS:colors=$($colors.Count),dark=$dark,orange=$orange"
-} finally {
-    $bitmap.Dispose()
-}
-$bytes = [IO.File]::ReadAllBytes($capture)
-Write-Host "CAPTURE_SHA256:$((Get-FileHash -LiteralPath $capture -Algorithm SHA256).Hash)"
-Write-Host "CAPTURE_BYTES:$($bytes.Length)"
-$encoded = [Convert]::ToBase64String($bytes)
-for ($offset = 0; $offset -lt $encoded.Length; $offset += 4000) {
-    Write-Host ("CAPTURE_CHUNK:" + $encoded.Substring($offset, [Math]::Min(4000, $encoded.Length - $offset)))
+
+# The current workflow file only calls this script after building. Until the proposed workflow in
+# docs/ci/windows-source.proposed.yml is installed (it needs a token with the `workflow` scope),
+# run the extra checks here so every PR still exercises them.
+if ($env:GITHUB_ACTIONS -eq 'true') {
+    rustup component add clippy
+    if ($LASTEXITCODE -ne 0) { throw 'Could not install clippy.' }
+    cargo clippy --locked --features launcher-windows --all-targets -- -D warnings
+    if ($LASTEXITCODE -ne 0) { throw 'Clippy failed.' }
+    cargo test --locked --features launcher-windows --test player_isolation -- --include-ignored --nocapture
+    if ($LASTEXITCODE -ne 0) { throw 'Real player isolation test failed.' }
 }
 
-# The empty library uses the larger hero artwork; capture it independently.
-$emptyLibrary = Join-Path $probeRoot 'empty-library'
-$emptyCapture = Join-Path $probeRoot 'empty.png'
-$emptyStdout = Join-Path $probeRoot 'empty.out.txt'
-$emptyStderr = Join-Path $probeRoot 'empty.err.txt'
-New-Item -ItemType Directory -Force -Path $emptyLibrary | Out-Null
-$emptyProcess = Start-Process -FilePath $launcher -ArgumentList @('--library', $emptyLibrary, '--capture-preview', $emptyCapture) -PassThru -WindowStyle Hidden -RedirectStandardOutput $emptyStdout -RedirectStandardError $emptyStderr
-try {
-    $emptyComplete = $false
-    for ($attempt = 0; $attempt -lt 45; $attempt++) {
-        Start-Sleep -Seconds 1
-        if (Test-Path -LiteralPath $emptyCapture) {
-            $probe = [IO.File]::ReadAllBytes($emptyCapture)
-            if ($probe.Length -gt 1000) {
-                $trailer = [byte[]](73, 69, 78, 68, 174, 66, 96, 130)
-                $emptyComplete = $true
-                for ($i = 0; $i -lt 8; $i++) {
-                    if ($probe[$probe.Length - 8 + $i] -ne $trailer[$i]) { $emptyComplete = $false; break }
-                }
-                if ($emptyComplete) { break }
+$probeRoot = Join-Path $env:RUNNER_TEMP 'gamestrike-library-visual'
+$library = Join-Path $probeRoot 'library'
+$fixtures = Join-Path $probeRoot 'fixtures'
+New-Item -ItemType Directory -Force -Path $library, $fixtures | Out-Null
+$cli = Join-Path $PWD 'target/debug/gamestrike.exe'
+$launcher = Join-Path $PWD 'target/debug/gamestrike-launcher.exe'
+
+$titles = @(
+    'Orbit Garden (Synthetic Test)',
+    'Pixel Harbor (Synthetic Test)',
+    'Lantern Maze (Synthetic Test)',
+    'Comet Courier (Synthetic Test)',
+    'Tiny Tactics (Synthetic Test)',
+    'A Deliberately Long Title For Layout Checks In The Library (Synthetic Test)'
+)
+foreach ($title in $titles) {
+    $file = Join-Path $fixtures "$title.html"
+    [IO.File]::WriteAllText($file, "<!doctype html><title>$title</title><h1>$title</h1><p>GameStrike synthetic test fixture.</p>")
+    & $cli --library $library import $file
+    if ($LASTEXITCODE -ne 0) { throw "Synthetic import failed: $title" }
+}
+
+function Capture-Launcher([string]$Library, [string]$Name, [string[]]$Extra) {
+    $png = Join-Path $probeRoot "$Name.png"
+    $out = Join-Path $probeRoot "$Name.out.txt"
+    $err = Join-Path $probeRoot "$Name.err.txt"
+    $arguments = @('--library', $Library, '--capture-preview', $png) + $Extra
+    $process = Start-Process -FilePath $launcher -ArgumentList $arguments -PassThru -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err
+    try {
+        $complete = $false
+        for ($attempt = 0; $attempt -lt 60; $attempt++) {
+            Start-Sleep -Seconds 1
+            $process.Refresh()
+            if ($process.HasExited) {
+                $complete = (Test-Path -LiteralPath $png) -and $process.ExitCode -eq 0
+                break
             }
         }
-        $emptyProcess.Refresh()
-        if ($emptyProcess.HasExited) { break }
+        if (-not $complete) {
+            Get-Content -LiteralPath $out, $err -ErrorAction SilentlyContinue
+            throw "Launcher did not capture $Name."
+        }
+    } finally {
+        $process.Refresh()
+        if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
     }
-    if (-not $emptyComplete) {
-        Write-Host 'Empty launcher stdout:'; Get-Content -LiteralPath $emptyStdout -ErrorAction SilentlyContinue
-        Write-Host 'Empty launcher stderr:'; Get-Content -LiteralPath $emptyStderr -ErrorAction SilentlyContinue
-        throw 'Hosted empty launcher did not produce a complete PNG within 45 seconds.'
+    Add-Type -AssemblyName System.Drawing
+    $bitmap = [System.Drawing.Bitmap]::new($png)
+    try {
+        if ($bitmap.Width -lt 880 -or $bitmap.Height -lt 620) { throw "$Name capture is too small." }
+        Write-Host "$Name : $($bitmap.Width)x$($bitmap.Height) sha256=$((Get-FileHash -LiteralPath $png -Algorithm SHA256).Hash)"
+    } finally {
+        $bitmap.Dispose()
     }
-} finally {
-    $emptyProcess.Refresh()
-    if (-not $emptyProcess.HasExited) { Stop-Process -Id $emptyProcess.Id -Force }
 }
-$emptyBitmap = [System.Drawing.Bitmap]::new($emptyCapture)
-try {
-    if ($emptyBitmap.Width -lt 880 -or $emptyBitmap.Height -lt 620) { throw 'Empty launcher capture dimensions are too small.' }
-    Write-Host "EMPTY_CAPTURE_DIMENSIONS:$($emptyBitmap.Width)x$($emptyBitmap.Height)"
-} finally {
-    $emptyBitmap.Dispose()
-}
-Write-Host "EMPTY_CAPTURE_SHA256:$((Get-FileHash -LiteralPath $emptyCapture -Algorithm SHA256).Hash)"
-$emptyBytes = [IO.File]::ReadAllBytes($emptyCapture)
-Write-Host "EMPTY_CAPTURE_BYTES:$($emptyBytes.Length)"
-$emptyEncoded = [Convert]::ToBase64String($emptyBytes)
-for ($offset = 0; $offset -lt $emptyEncoded.Length; $offset += 4000) {
-    Write-Host ("EMPTY_CAPTURE_CHUNK:" + $emptyEncoded.Substring($offset, [Math]::Min(4000, $emptyEncoded.Length - $offset)))
-}
+
+Capture-Launcher $library 'library' @()
+Capture-Launcher $library 'long-title' @('--capture-view', 'long')
+Capture-Launcher $library 'network-dialog' @('--capture-view', 'launch')
+Capture-Launcher $library 'manage' @('--capture-view', 'manage')
+Capture-Launcher $library 'about' @('--capture-view', 'about')
+Capture-Launcher $library 'minimum' @('--window-size', '880', '620')
+$empty = Join-Path $probeRoot 'empty-library'
+New-Item -ItemType Directory -Force -Path $empty | Out-Null
+Capture-Launcher $empty 'empty' @()

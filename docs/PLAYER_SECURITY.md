@@ -1,32 +1,58 @@
-# GameStrike player boundary and next verification
+# GameStrike player boundary
 
-## Present boundary
+Imported games are treated as untrusted code. This document describes what the player does, what has been measured, and what is still open. It is not a safety certification.
 
-The library and console-style launcher are trusted local UI. Imported HTML runs only in the separate Wry/WebView2 player process. The player has no Tauri command surface, IPC handler, host objects added by GameStrike, or generic bridge from game JavaScript to launcher actions. Its local asset handler accepts only the selected game's exact origin and canonical files inside that game's content directory. A distinct UUID-derived origin and WebView data directory are used per game. The included first-party save fixture verified `localStorage` persistence and separation across two game IDs under the guarded player build on this Windows PC.
+## Processes and trust
 
-Wry denies top-level navigation away from the selected origin, new windows, downloads, and permission requests in the player source. Direct WebView2 event handlers also deny cross-origin frame navigation and cancel registered external URI launches. They are registered before loading game HTML, and launch fails if the required external-URI interface is absent. The CI-built player ran the exact bundled boundary fixture at standard integrity: native logs denied a popup, cross-origin frame, and data-URI download, while the page reported `popup=null`, `file-fetch=rejected`, and `location=denied`. This controlled run does not verify every subframe, external protocol, worker, or WebView2 version path. Browser accelerator keys and default context menus are disabled. A drag/drop handler is installed; Wry's Windows documentation says its return value is ignored and the handler replaces WebView2 drag/drop handling, so this behavior needs a controlled check and may affect games that use HTML drag/drop. A separate process is not a Windows sandbox. The player queries its Windows process token before WebView creation, accepts only medium integrity RID `0x2000`, and refuses failed, unknown, low, high, system, or protected results. It only reads the token; it never changes it. An elevated launcher must start a standard-integrity child or report the refusal. The player also calls WebView2 settings to disable host objects, web messages, and default script dialogs before navigating to game content. A controlled JavaScript probe of each setting is still needed. [Microsoft's WebView2 security guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/security) recommends standard integrity and explicit restrictions.
+- **Launcher** (`gamestrike-launcher`). The trusted UI, built only from bundled files in `ui/`. Its IPC accepts six JSON commands from its own origin; see [LAUNCHER_UI.md](LAUNCHER_UI.md). It never loads game HTML.
+- **Player** (`gamestrike-player`). One process per running game, started by the launcher with a validated game UUID and `--offline` or `--allow-network`. It has no IPC handler, adds no host objects, and disables WebView2 web messages and host objects before navigating. `player_source_registers_no_host_bridge` fails the build's tests if an IPC handler, `WebMessageReceived` handler, host object, or initialization script is added.
+- **Integrity.** For imported games, the player queries its own Windows token and refuses to start unless it is at standard (medium) integrity. It never modifies the token. Fixture modes (`--smoke`, `--boundary-smoke`, `--probe-offline`, `--probe-network`) skip this check because they run only exact bundled first-party bytes; this lets CI runners with elevated tokens exercise them.
+- **Per-game lock.** The player holds an exclusive OS file lock on `profiles/<id>.lock`, so a second player, a removal, or a save reset for that game is refused while it runs. The OS releases the lock if the player crashes.
 
-## Network policy
+## Per-game origin, storage, and files
 
-Wry's top-level navigation callback is not a complete network filter. Strict offline mode is **unavailable** in this checkpoint. The player requires `--allow-network` for normal launch; `--smoke` and `--boundary-smoke` accept only their exact bundled first-party fixtures. This is an explicit consent gate, not an offline mode or a claim that arbitrary downloaded games are safe. Imported games stay labeled `network: unknown`; users cannot infer offline compatibility from a successful import.
+Each game is served from `https://gamestrike<uuid>.localhost/` through a Wry custom protocol, with its own WebView2 user-data folder under `LIBRARY/profiles/<uuid>`. Origins and profiles never overlap, so `localStorage`, IndexedDB, and cookies are separate per game and persist across launches.
 
-Microsoft's [`ICoreWebView2_22` documentation](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2_22) provides a request filter with source kinds for frames, shared workers and service workers; it must be installed before main-page navigation. Cached Wry 0.57 uses that newer filter when available for its **game-origin custom protocol**, with a legacy fallback. It does not register a catch-all filter for remote URLs. A [tracked WebView2 issue](https://github.com/MicrosoftEdge/WebView2Feedback/issues/4303) reports that `WebResourceRequested` does not fire for WebSocket connections; therefore, even a catch-all `WebResourceRequested` handler by itself is insufficient evidence of strict offline play. This remains a source/documentation finding, not a runtime network test on this PC.
+The asset handler serves only canonical regular files inside that game's `content` folder (no `..`, drive paths, device names, or links). It returns 403 or 404 otherwise, and adds `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and the mode's CSP to every response, errors included.
 
-Before offering offline play, implement and verify a policy that covers main frames, subframes, scripts, images, CSS, `fetch`, WebSockets, workers and service workers, beacons, forms, redirects, and external protocols. Keep one game-specific origin available for imported assets and block every other request; fail closed if the runtime lacks the needed hooks. Verify with a loopback server and network observation, including WebSockets, then repeat storage persistence tests. If any meaningful path bypasses the policy, keep strict offline unavailable. Network-enabled play remains a deliberate per-game choice with a clear disclosure.
+Top-level and frame navigation outside the game's origin is cancelled, including `file://`. New windows, downloads, permission requests, and external protocol launches are all denied. Accelerator keys, devtools, and the default context menu are disabled.
 
-## Trusted launcher path
+## Offline mode (default)
 
-The launcher source uses bundled assets in its own Wry view with a fixed origin and a narrow IPC command set. The file picker supplies import paths; the UI only supplies a validated game UUID and explicit network choice to launch the separate player. Game HTML must never be put in the launcher view or given its IPC access. Launch controls display unknown controller and network requirements and provide visible keyboard and gamepad focus states. Launcher gamepad navigation does not imply a game's controls support gamepads. Windows CI built both binaries and passed the launcher origin test; the launcher rendered the reviewed local [screenshots](screenshots/README.md). Picker, physical-controller, and launcher-to-player interactions remain unverified.
+1. **CSP:** `default-src 'self' data: blob: 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'self'; form-action 'self'`.
+2. **Owned sink-hole proxy:** `--proxy-server=http://127.0.0.1:<port>` with `--proxy-bypass-list=<-loopback>`, so loopback goes through the proxy too. The proxy is a listener inside the player that answers every connection with 403 and contacts nothing.
+3. **WebRTC:** `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` and `--webrtc-ip-handling-policy=disable_non_proxied_udp`. The first switch alone did not stop STUN UDP in WebView2, as measured below; with both, no UDP was observed.
 
-## Remaining controlled checks
+When the game closes, the player reports how many blocked requests came from the game. WebView2's own configuration traffic (Microsoft service domains) and the runtime's requests for the game's own origin are still blocked, but they are not counted against the game.
 
-- Verify refusal under a controlled actual elevated-token process; current pure decision tests reject high/system RIDs, and the native test queried only a medium token. Do not alter a user's token or security settings for this test.
-- Verify that normal player launch without `--allow-network` fails before WebView creation. The smoke-fixture unit test already rejects changed or extra files.
-- Repeat save persistence after future browser policy changes; the guarded player already reopened the first fixture profile at launch 5 and the second at launch 2.
-- Repeat the exact first-party `boundary-smoke.html` under a second game ID to check profile separation. The first ID completed at `launch=3` after prior probe runs. Interpret page results alongside native callback logs; a rejected `fetch` alone does not prove every browser request path was blocked. No registered external protocol is invoked by the fixture.
-- Probe host-object, web-message, dialog, download, permission, and frame/external-protocol behavior with controlled HTML. A successful fixture load confirms setter success, not every browser behavior.
-- Check frame navigation, protocol handling, browser permissions, and local network access at runtime before expanding arbitrary-game support.
+## Network mode
 
-## Latest verified build
+The CSP is reduced to `object-src 'none'; base-uri 'self'`, and no proxy is used. Every other boundary above still applies. The launcher asks for consent each time, with focus starting on *Go back*.
 
-[Windows source checks run 38665296183](https://github.com/Gerbzz/GameStrike/actions/runs/38665296183) built the launcher and player from commit `175016d86c62460e17f1342af687958b772c96c0` and passed Rust and JavaScript tests. The extracted player was run at standard Windows integrity against the exact first-party save fixture, which advanced to launch 5 using its existing profile. The corrected boundary probe completed and reported `launch=3;popup=null;file-fetch=rejected;location=denied`; native callbacks denied the popup, cross-origin frame, and download. A prior sandboxed run correctly refused low integrity. These are controlled outcomes, not a general safety certification or proof of strict offline operation. No local Cargo build was run for this checkpoint; the verified CI binaries were downloaded into ignored staging. Native file-picker and physical-controller checks remain blocked by the Windows computer-use helper initialization error (`HRESULT 0x80070003`).
+## Measurements
+
+These come from `tests/player_isolation.rs`, which drives the real player against `fixtures/isolation-probe.html` while a harness listens on `127.0.0.1:47391` over TCP and UDP. Run on the dev PC (Windows 11 Pro) on 2026-10-17, and in GitHub Actions `windows-latest` (runs 39068938218 and 39069702468):
+
+| Probe | Offline | Network (control) |
+| --- | --- | --- |
+| TCP connections reaching the harness | **0** (two runs) | 8 |
+| UDP (WebRTC STUN) packets reaching the harness | **0** with both WebRTC switches (4 with only the first) | 4 |
+| `fetch`, XHR, WebSocket, image to loopback | rejected or error | `fetch` resolved |
+| `fetch("file:///C:/Windows/win.ini")` | rejected | rejected |
+| Fetch of another game's origin | rejected | — |
+| `window.open` | `null` | `null` |
+| `window.ipc` (Wry IPC) | `undefined` | `undefined` |
+| `window.chrome.webview.postMessage` / `hostObjects` | present; no host handler or objects exist | same |
+| `localStorage` and IndexedDB counters, game 1 | 1, then 2, then 3 after game 2 ran | — |
+| Same counters, game 2 | — | 1 |
+| Second player for a locked game | refused ("already open") | — |
+
+A manual run of the real app also confirmed save persistence across exit and relaunch, offline loading of a wrapped ZIP's relative assets, and rejection of zip-slip and corrupt archives. See the README's Verification section.
+
+## Open items
+
+- The player is not an OS sandbox (no AppContainer or job object). A WebView2 engine exploit is out of scope for these defences.
+- `window.chrome.webview` is still defined in game pages. Nothing is registered behind it, but removing it entirely would need a reliable per-frame mechanism.
+- The probe doesn't exercise DNS prefetch, `<link rel=preconnect>`, service-worker registration, or `navigator.sendBeacon` delivery directly. The beacon is queued, but CSP and the proxy should stop it; the harness received no TCP connections at all.
+- In network mode, the runtime's own requests for `https://gamestrike<uuid>.localhost` outside the custom protocol resolve to localhost:443.
+- Refusal at elevated integrity is covered by unit tests of the decision. It has not been exercised from a real elevated launcher on the dev PC.

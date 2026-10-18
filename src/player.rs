@@ -14,12 +14,19 @@ mod windows_player {
         env,
         error::Error,
         fs,
-        io::{self, Read},
+        io::{self, Read, Write},
+        net::{Ipv4Addr, TcpListener},
         path::{Path, PathBuf},
-        sync::mpsc,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+            mpsc,
+        },
+        thread,
         time::{Duration, Instant},
     };
     use tao::{
+        dpi::LogicalSize,
         event::{Event, WindowEvent},
         event_loop::{ControlFlow, EventLoop},
         window::WindowBuilder,
@@ -35,7 +42,7 @@ mod windows_player {
         WebViewBuilderExtWindows, WebViewExtWindows,
         http::{
             Request, Response, StatusCode,
-            header::{CONTENT_TYPE, HeaderValue},
+            header::{CONTENT_TYPE, HeaderName, HeaderValue},
         },
     };
 
@@ -126,6 +133,50 @@ mod windows_player {
         }
     }
 
+    /// How the player was asked to run. Fixture modes load only exact bundled first-party HTML.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Mode {
+        Offline,
+        Network,
+        Fixture(Fixture),
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Fixture {
+        Save,
+        Boundary,
+        ProbeOffline,
+        ProbeNetwork,
+    }
+
+    impl Mode {
+        fn parse(flag: Option<&str>) -> Option<Self> {
+            Some(match flag? {
+                "--offline" => Mode::Offline,
+                "--allow-network" => Mode::Network,
+                "--smoke" => Mode::Fixture(Fixture::Save),
+                "--boundary-smoke" => Mode::Fixture(Fixture::Boundary),
+                "--probe-offline" => Mode::Fixture(Fixture::ProbeOffline),
+                "--probe-network" => Mode::Fixture(Fixture::ProbeNetwork),
+                _ => return None,
+            })
+        }
+
+        fn offline(self) -> bool {
+            !matches!(
+                self,
+                Mode::Network | Mode::Fixture(Fixture::Boundary | Fixture::ProbeNetwork)
+            )
+        }
+
+        fn fixture(self) -> Option<Fixture> {
+            match self {
+                Mode::Fixture(fixture) => Some(fixture),
+                _ => None,
+            }
+        }
+    }
+
     pub fn run() -> Result<(), Box<dyn Error>> {
         let args: Vec<_> = env::args_os().collect();
         if args.len() != 6
@@ -134,13 +185,13 @@ mod windows_player {
         {
             return Err(player_usage().into());
         }
-        let boundary_smoke = args[5].to_str() == Some("--boundary-smoke");
-        let smoke = match args[5].to_str() {
-            Some("--allow-network") => false,
-            Some("--smoke" | "--boundary-smoke") => true,
-            _ => return Err(player_usage().into()),
-        };
-        ensure_standard_integrity()?;
+        let mode = Mode::parse(args[5].to_str()).ok_or_else(player_usage)?;
+        let fixture = mode.fixture();
+        // Imported content needs a standard-integrity token. Fixture modes run only exact
+        // bundled first-party bytes, so CI runners with elevated tokens can still exercise them.
+        if fixture.is_none() {
+            ensure_standard_integrity()?;
+        }
         let library = Library::open(PathBuf::from(&args[2]))?;
         let id = Uuid::parse_str(args[4].to_str().ok_or("game ID is not UTF-8")?)?;
         let game = library
@@ -149,9 +200,25 @@ mod windows_player {
             .find(|game| game.id == id)
             .ok_or("game ID is not in this library")?;
         let (content, profile) = library.player_paths(id)?;
-        if smoke {
-            verify_smoke_fixture(&content, boundary_smoke)?;
+        let _lock = library.lock_game(id)?;
+        if let Some(fixture) = fixture {
+            verify_smoke_fixture(&content, fixture)?;
         }
+        let blocked = Arc::new(AtomicUsize::new(0));
+        let browser_args = if mode.offline() {
+            let port = start_sinkhole_proxy(
+                Arc::clone(&blocked),
+                format!("gamestrike{}.localhost", id.simple()),
+            )?;
+            offline_browser_args(port)
+        } else {
+            BASE_BROWSER_ARGS.to_owned()
+        };
+        let csp = if mode.offline() {
+            OFFLINE_CSP
+        } else {
+            NETWORK_CSP
+        };
 
         // Wry maps this custom scheme to HTTPS on Windows. The scheme and
         // persistent browser data folder are unique and stable for this game.
@@ -166,14 +233,25 @@ mod windows_player {
 
         let event_loop = EventLoop::new();
         let window = WindowBuilder::new()
-            .with_title(format!("GameStrike | {} | by PWDS", game.title))
+            .with_title(format!(
+                "{} · GameStrike{}",
+                game.title,
+                if mode.offline() {
+                    " · Offline"
+                } else {
+                    " · Network allowed"
+                }
+            ))
+            .with_inner_size(LogicalSize::new(1280.0, 800.0))
+            .with_min_inner_size(LogicalSize::new(480.0, 360.0))
             .build(&event_loop)?;
         let mut context = WebContext::new(Some(profile));
         let (title_sender, title_receiver) = mpsc::channel::<String>();
         let mut builder = WebViewBuilder::new_with_web_context(&mut context)
             .with_custom_protocol(scheme, move |_, request| {
-                serve_asset(&content, &asset_scheme, &asset_host, request)
+                serve_asset(&content, &asset_scheme, &asset_host, csp, request)
             })
+            .with_additional_browser_args(browser_args)
             .with_https_scheme(true)
             .with_navigation_handler(move |url| {
                 if url == "about:blank" {
@@ -197,9 +275,9 @@ mod windows_player {
             .with_browser_accelerator_keys(false)
             .with_default_context_menus(false)
             .with_devtools(false);
-        if smoke {
+        if let Some(fixture) = fixture {
             builder = builder.with_document_title_changed_handler(move |title| {
-                if fixture_reported(&title, boundary_smoke) {
+                if fixture_reported(&title, fixture) {
                     let _ = title_sender.send(title);
                 }
             });
@@ -210,29 +288,31 @@ mod windows_player {
 
         // Configure handlers before navigating to imported JavaScript.
         webview.load_url(&entry_url)?;
-        eprintln!(
-            "This game's web content can request network resources; launch only games you trust with that access."
-        );
+        if !mode.offline() {
+            eprintln!(
+                "This game's web content can request network resources; launch only games you trust with that access."
+            );
+        }
         let started = Instant::now();
         let mut observed_at = None;
         event_loop.run(move |event, _, control_flow| {
-            let _keep_browser_state = (&context, &webview);
-            *control_flow = if smoke {
+            let _keep_browser_state = (&context, &webview, &_lock);
+            *control_flow = if fixture.is_some() {
                 ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(100))
             } else {
                 ControlFlow::Wait
             };
-            if smoke {
-                if observed_at.is_none() {
-                    if let Ok(title) = title_receiver.try_recv() {
-                        println!("{title}");
-                        observed_at = Some(Instant::now());
-                    }
+            let mut exit = false;
+            if fixture.is_some() {
+                if observed_at.is_none()
+                    && let Ok(title) = title_receiver.try_recv()
+                {
+                    println!("{title}");
+                    observed_at = Some(Instant::now());
                 }
-                if observed_at.is_some_and(|at: Instant| at.elapsed() >= Duration::from_secs(1)) {
-                    *control_flow = ControlFlow::Exit;
-                }
-                if started.elapsed() >= Duration::from_secs(15) {
+                exit =
+                    observed_at.is_some_and(|at: Instant| at.elapsed() >= Duration::from_secs(1));
+                if started.elapsed() >= Duration::from_secs(30) {
                     eprintln!("Benign fixture did not report completion.");
                     std::process::exit(2);
                 }
@@ -242,20 +322,98 @@ mod windows_player {
                 ..
             } = event
             {
+                exit = true;
+            }
+            if exit {
+                // The launcher reads this line to tell the player what offline mode stopped.
+                println!("{BLOCKED_PREFIX}{}", blocked.load(Ordering::SeqCst));
+                let _ = io::stdout().flush();
                 *control_flow = ControlFlow::Exit;
             }
         });
     }
 
-    fn player_usage() -> &'static str {
-        "usage: gamestrike-player --library DIRECTORY --id GAME_UUID --allow-network\nStrict offline play is not available yet; imported games require explicit network opt-in."
+    const BLOCKED_PREFIX: &str = "gamestrike-network-blocked=";
+    const BASE_BROWSER_ARGS: &str =
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection";
+    /// Offline pages may use their own origin plus inline, data:, and blob: content.
+    const OFFLINE_CSP: &str = "default-src 'self' data: blob: 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'self'; form-action 'self'";
+    /// Network play still blocks plugins and base-URL hijacking.
+    const NETWORK_CSP: &str = "object-src 'none'; base-uri 'self'";
+
+    /// All HTTP(S) and WebSocket traffic is sent to a proxy this process owns, including
+    /// loopback, and WebRTC may not use UDP outside that proxy. The CSP blocks the same
+    /// requests earlier; the proxy covers paths CSP does not, such as WebRTC.
+    fn offline_browser_args(port: u16) -> String {
+        format!(
+            "{BASE_BROWSER_ARGS} --proxy-server=http://127.0.0.1:{port} --proxy-bypass-list=<-loopback> --force-webrtc-ip-handling-policy=disable_non_proxied_udp --webrtc-ip-handling-policy=disable_non_proxied_udp"
+        )
     }
 
-    fn fixture_reported(title: &str, boundary: bool) -> bool {
-        if boundary {
-            title.starts_with("GameStrike boundary fixture launch=")
-        } else {
-            title.starts_with("GameStrike fixture launch ")
+    /// Accepts each proxy connection, counts it, and answers 403 without contacting anything.
+    /// WebView2 itself contacts Microsoft configuration services, and the runtime asks for a few
+    /// URLs on the game's own origin outside the custom protocol. Neither is the game reaching
+    /// out, so neither is counted in the summary shown to the player. Both are still blocked.
+    fn counts_as_game_request(target: &str, own_host: &str) -> bool {
+        let host = target.rsplit_once(':').map_or(target, |(host, _)| host);
+        let host = host
+            .trim_start_matches("http://")
+            .trim_start_matches("https://");
+        let host = host.split('/').next().unwrap_or(host).to_ascii_lowercase();
+        const RUNTIME: [&str; 6] = [
+            "skype.com",
+            "microsoft.com",
+            "msedge.net",
+            "live.com",
+            "windows.com",
+            "bing.com",
+        ];
+        !host.is_empty()
+            && host != "unknown"
+            && host != own_host
+            && !RUNTIME
+                .iter()
+                .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
+    }
+
+    fn start_sinkhole_proxy(blocked: Arc<AtomicUsize>, own_host: String) -> io::Result<u16> {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+        let port = listener.local_addr()?.port();
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                let mut head = [0u8; 512];
+                let count = stream.read(&mut head).unwrap_or(0);
+                let line = String::from_utf8_lossy(&head[..count]);
+                let target = line
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("unknown");
+                if counts_as_game_request(target, &own_host) {
+                    blocked.fetch_add(1, Ordering::SeqCst);
+                }
+                eprintln!("GameStrike offline mode blocked a request to {target}");
+                let _ = stream.write_all(
+                    b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                );
+            }
+        });
+        Ok(port)
+    }
+
+    fn player_usage() -> &'static str {
+        "usage: gamestrike-player --library DIRECTORY --id GAME_UUID --offline|--allow-network\n--offline blocks network requests; --allow-network lets the game contact local and remote services."
+    }
+
+    fn fixture_reported(title: &str, fixture: Fixture) -> bool {
+        match fixture {
+            Fixture::Boundary => title.starts_with("GameStrike boundary fixture launch="),
+            Fixture::Save => title.starts_with("GameStrike fixture launch "),
+            Fixture::ProbeOffline | Fixture::ProbeNetwork => {
+                title.starts_with("GameStrike isolation probe launch=")
+            }
         }
     }
 
@@ -336,18 +494,20 @@ mod windows_player {
         Ok(())
     }
 
-    fn verify_smoke_fixture(content: &Path, boundary: bool) -> Result<(), Box<dyn Error>> {
+    fn verify_smoke_fixture(content: &Path, fixture: Fixture) -> Result<(), Box<dyn Error>> {
+        let expected = match fixture {
+            Fixture::Save => include_bytes!("../fixtures/save-counter.html").as_slice(),
+            Fixture::Boundary => include_bytes!("../fixtures/boundary-smoke.html").as_slice(),
+            Fixture::ProbeOffline | Fixture::ProbeNetwork => {
+                include_bytes!("../fixtures/isolation-probe.html").as_slice()
+            }
+        };
         let mut entries = fs::read_dir(content)?;
         let only_entry = entries.next().ok_or("smoke fixture is missing")??;
         if only_entry.file_name().to_str() != Some("index.html")
             || !only_entry.file_type()?.is_file()
             || entries.next().is_some()
-            || fs::read(only_entry.path())?.as_slice()
-                != if boundary {
-                    include_bytes!("../fixtures/boundary-smoke.html").as_slice()
-                } else {
-                    include_bytes!("../fixtures/save-counter.html").as_slice()
-                }
+            || fs::read(only_entry.path())?.as_slice() != expected
         {
             return Err("--smoke only runs the exact bundled benign fixture".into());
         }
@@ -364,6 +524,30 @@ mod windows_player {
     }
 
     fn serve_asset(
+        root: &Path,
+        scheme: &str,
+        host: &str,
+        csp: &'static str,
+        request: Request<Vec<u8>>,
+    ) -> Response<Cow<'static, [u8]>> {
+        let mut response = serve_asset_body(root, scheme, host, request);
+        let headers = response.headers_mut();
+        headers.insert(
+            HeaderName::from_static("content-security-policy"),
+            HeaderValue::from_static(csp),
+        );
+        headers.insert(
+            HeaderName::from_static("x-content-type-options"),
+            HeaderValue::from_static("nosniff"),
+        );
+        headers.insert(
+            HeaderName::from_static("referrer-policy"),
+            HeaderValue::from_static("no-referrer"),
+        );
+        response
+    }
+
+    fn serve_asset_body(
         root: &Path,
         scheme: &str,
         host: &str,
@@ -494,14 +678,17 @@ mod windows_player {
         fn boundary_probe_waits_for_results_instead_of_initial_title() {
             assert!(!fixture_reported(
                 "GameStrike boundary fixture starting",
-                true
+                Fixture::Boundary
             ));
             assert!(fixture_reported(
                 "GameStrike boundary fixture launch=2;popup=null",
-                true
+                Fixture::Boundary
             ));
-            assert!(fixture_reported("GameStrike fixture launch 3", false));
-            assert!(!fixture_reported("GameStrike save fixture", false));
+            assert!(fixture_reported(
+                "GameStrike fixture launch 3",
+                Fixture::Save
+            ));
+            assert!(!fixture_reported("GameStrike save fixture", Fixture::Save));
         }
 
         #[test]
@@ -516,7 +703,7 @@ mod windows_player {
                 .uri("https://game.localhost/index.html")
                 .body(Vec::new())
                 .unwrap();
-            let response = serve_asset(&content, "game", "game.localhost", request);
+            let response = serve_asset(&content, "game", "game.localhost", OFFLINE_CSP, request);
             assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(response.body().as_ref(), b"<title>fixture</title>");
 
@@ -525,7 +712,8 @@ mod windows_player {
                     .uri(format!("https://game.localhost{path}"))
                     .body(Vec::new())
                     .unwrap();
-                let response = serve_asset(&content, "game", "game.localhost", request);
+                let response =
+                    serve_asset(&content, "game", "game.localhost", OFFLINE_CSP, request);
                 assert_ne!(response.status(), StatusCode::OK);
                 assert!(
                     !response
@@ -561,9 +749,109 @@ mod windows_player {
                 .body(Vec::new())
                 .unwrap();
             assert_eq!(
-                serve_asset(dir.path(), "game", "game.localhost", request).status(),
+                serve_asset(dir.path(), "game", "game.localhost", OFFLINE_CSP, request).status(),
                 StatusCode::FORBIDDEN
             );
+        }
+
+        #[test]
+        fn player_source_registers_no_host_bridge() {
+            // Built from pieces so this test does not match itself.
+            let source = include_str!("player.rs");
+            for forbidden in [
+                ["with_ipc", "_handler"].concat(),
+                ["add_Web", "MessageReceived"].concat(),
+                ["AddHost", "ObjectToScript"].concat(),
+                ["with_initialization", "_script"].concat(),
+                ["SetAreHostObjectsAllowed(", "true"].concat(),
+                ["SetIsWebMessageEnabled(", "true"].concat(),
+            ] {
+                assert!(!source.contains(&forbidden), "{forbidden}");
+            }
+        }
+
+        #[test]
+        fn network_needs_an_explicit_flag_and_unknown_modes_fail() {
+            assert_eq!(Mode::parse(Some("--offline")), Some(Mode::Offline));
+            assert!(Mode::Offline.offline());
+            assert!(!Mode::parse(Some("--allow-network")).unwrap().offline());
+            assert!(Mode::parse(Some("--probe-offline")).unwrap().offline());
+            assert!(!Mode::parse(Some("--probe-network")).unwrap().offline());
+            assert!(Mode::parse(Some("--smoke")).unwrap().offline());
+            for flag in [None, Some(""), Some("--network"), Some("--OFFLINE")] {
+                assert_eq!(Mode::parse(flag), None, "{flag:?}");
+            }
+            assert_eq!(Mode::Offline.fixture(), None);
+            assert_eq!(Mode::Network.fixture(), None);
+        }
+
+        #[test]
+        fn offline_mode_routes_everything_through_the_owned_proxy() {
+            let args = offline_browser_args(4321);
+            assert!(args.contains("--proxy-server=http://127.0.0.1:4321"));
+            assert!(args.contains("--proxy-bypass-list=<-loopback>"));
+            assert!(args.contains("--force-webrtc-ip-handling-policy=disable_non_proxied_udp --webrtc-ip-handling-policy=disable_non_proxied_udp"));
+            assert!(args.starts_with(BASE_BROWSER_ARGS));
+            for directive in ["default-src 'self' data: blob:", "object-src 'none'"] {
+                assert!(OFFLINE_CSP.contains(directive), "{directive}");
+            }
+            assert!(!OFFLINE_CSP.contains("http:") && !OFFLINE_CSP.contains('*'));
+        }
+
+        #[test]
+        fn sinkhole_proxy_answers_403_and_counts_attempts() {
+            let blocked = Arc::new(AtomicUsize::new(0));
+            let port =
+                start_sinkhole_proxy(Arc::clone(&blocked), "game.localhost".to_owned()).unwrap();
+            let mut stream = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
+            stream
+                .write_all(b"CONNECT example.test:443 HTTP/1.1\r\nHost: example.test\r\n\r\n")
+                .unwrap();
+            let mut reply = String::new();
+            stream.read_to_string(&mut reply).unwrap();
+            assert!(reply.starts_with("HTTP/1.1 403"), "{reply}");
+            assert_eq!(blocked.load(Ordering::SeqCst), 1);
+        }
+
+        #[test]
+        fn runtime_and_own_origin_requests_are_blocked_but_not_blamed_on_the_game() {
+            let own = "gamestrikeabc.localhost";
+            assert!(counts_as_game_request("cdn.example.test:443", own));
+            assert!(counts_as_game_request("http://127.0.0.1:8080/x", own));
+            for target in [
+                "config.edge.skype.com:443",
+                "gamestrikeabc.localhost:443",
+                "unknown",
+                "edge.microsoft.com:443",
+                "microsoft.com:443",
+            ] {
+                assert!(!counts_as_game_request(target, own), "{target}");
+            }
+            assert!(counts_as_game_request("notmicrosoft.com:443", own));
+        }
+
+        #[test]
+        fn every_asset_response_carries_the_selected_csp() {
+            let dir = tempfile::tempdir().unwrap();
+            fs::write(dir.path().join("index.html"), b"fixture").unwrap();
+            let content = fs::canonicalize(dir.path()).unwrap();
+            for (url, csp) in [
+                ("https://game.localhost/index.html", OFFLINE_CSP),
+                ("https://game.localhost/missing.js", OFFLINE_CSP),
+                ("https://other.localhost/index.html", NETWORK_CSP),
+            ] {
+                let request = Request::builder().uri(url).body(Vec::new()).unwrap();
+                let response = serve_asset(&content, "game", "game.localhost", csp, request);
+                assert_eq!(
+                    response.headers().get("content-security-policy").unwrap(),
+                    csp,
+                    "{url}"
+                );
+                assert_eq!(
+                    response.headers().get("x-content-type-options").unwrap(),
+                    "nosniff"
+                );
+            }
         }
 
         #[test]
@@ -593,13 +881,13 @@ mod windows_player {
             let dir = tempfile::tempdir().unwrap();
             let entry = dir.path().join("index.html");
             fs::write(&entry, include_bytes!("../fixtures/save-counter.html")).unwrap();
-            assert!(verify_smoke_fixture(dir.path(), false).is_ok());
-            assert!(verify_smoke_fixture(dir.path(), true).is_err());
+            assert!(verify_smoke_fixture(dir.path(), Fixture::Save).is_ok());
+            assert!(verify_smoke_fixture(dir.path(), Fixture::Boundary).is_err());
             fs::write(&entry, b"<html>different fixture</html>").unwrap();
-            assert!(verify_smoke_fixture(dir.path(), false).is_err());
+            assert!(verify_smoke_fixture(dir.path(), Fixture::Save).is_err());
             fs::write(&entry, include_bytes!("../fixtures/save-counter.html")).unwrap();
             fs::write(dir.path().join("extra.js"), b"// extra file").unwrap();
-            assert!(verify_smoke_fixture(dir.path(), false).is_err());
+            assert!(verify_smoke_fixture(dir.path(), Fixture::Save).is_err());
         }
     }
 }
