@@ -461,6 +461,133 @@ impl Library {
     }
 }
 
+/// The operating systems GameStrike knows where to keep a library on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostOs {
+    Windows,
+    MacOs,
+    /// Linux and other freedesktop-style systems.
+    Unix,
+}
+
+impl HostOs {
+    pub fn current() -> Self {
+        if cfg!(windows) {
+            HostOs::Windows
+        } else if cfg!(target_os = "macos") {
+            HostOs::MacOs
+        } else {
+            HostOs::Unix
+        }
+    }
+}
+
+/// Where the launcher keeps its library when `--library` is not given.
+///
+/// - Windows: `%LOCALAPPDATA%\GameStrike\Library` (unchanged, so existing libraries and saves keep working)
+/// - macOS: `~/Library/Application Support/GameStrike/Library`
+/// - Linux: `$XDG_DATA_HOME/gamestrike/library`, or `~/.local/share/gamestrike/library`
+pub fn default_library_root() -> Result<PathBuf> {
+    default_library_root_for(HostOs::current(), |name| std::env::var_os(name))
+}
+
+/// [`default_library_root`] for a given OS and environment, so every branch can be tested anywhere.
+pub fn default_library_root_for(
+    os: HostOs,
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<PathBuf> {
+    // Relative values would make the library depend on the current directory, so they are ignored.
+    let absolute = |name: &str| {
+        env(name)
+            .map(PathBuf::from)
+            .filter(|path| is_absolute_on(os, path))
+    };
+    match os {
+        HostOs::Windows => Ok(absolute("LOCALAPPDATA")
+            .ok_or_else(|| invalid("LOCALAPPDATA is unavailable"))?
+            .join("GameStrike")
+            .join("Library")),
+        HostOs::MacOs => Ok(absolute("HOME")
+            .ok_or_else(|| invalid("HOME is unavailable"))?
+            .join("Library")
+            .join("Application Support")
+            .join("GameStrike")
+            .join("Library")),
+        HostOs::Unix => {
+            let data = match absolute("XDG_DATA_HOME") {
+                Some(data) => data,
+                None => absolute("HOME")
+                    .ok_or_else(|| invalid("neither XDG_DATA_HOME nor HOME is set"))?
+                    .join(".local")
+                    .join("share"),
+            };
+            Ok(data.join("gamestrike").join("library"))
+        }
+    }
+}
+
+/// `Path::is_absolute` follows the build OS; this follows `os`, so each branch is testable anywhere.
+fn is_absolute_on(os: HostOs, path: &Path) -> bool {
+    let text = path.to_string_lossy();
+    let bytes = text.as_bytes();
+    match os {
+        HostOs::Windows => {
+            (bytes.len() >= 3
+                && bytes[0].is_ascii_alphabetic()
+                && bytes[1] == b':'
+                && (bytes[2] == b'\\' || bytes[2] == b'/'))
+                || text.starts_with(r"\\")
+        }
+        HostOs::MacOs | HostOs::Unix => text.starts_with('/'),
+    }
+}
+
+/// The `gamestrike-player` executable that sits beside the running program.
+pub fn sibling_player() -> io::Result<PathBuf> {
+    Ok(std::env::current_exe()?
+        .with_file_name(format!("gamestrike-player{}", std::env::consts::EXE_SUFFIX)))
+}
+
+/// Deletes browser data the engine keeps outside the library folder.
+///
+/// On Windows and Linux every save lives in `LIBRARY/profiles/<id>`, so this does nothing. On macOS,
+/// WKWebView keeps each game's data store under an identifier equal to the game ID, which only
+/// WebKit can delete; the sibling player does that with `--clear-engine-data`. Call this before
+/// [`Library::reset_saves`] or a removal without kept saves.
+pub fn clear_engine_data(root: &Path, id: Uuid) -> Result<()> {
+    if HostOs::current() != HostOs::MacOs {
+        return Ok(());
+    }
+    let player = sibling_player()?;
+    if !player.is_file() {
+        return Err(invalid(
+            "gamestrike-player is needed beside this program to clear saves on macOS",
+        )
+        .into());
+    }
+    let output = std::process::Command::new(player)
+        .arg("--library")
+        .arg(root)
+        .arg("--id")
+        .arg(id.to_string())
+        .arg("--clear-engine-data")
+        .stdin(std::process::Stdio::null())
+        .output()?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        let detail = detail.lines().last().unwrap_or("").trim();
+        Err(io::Error::other(format!(
+            "could not clear the game's WebKit data ({}){}{}",
+            output.status,
+            if detail.is_empty() { "" } else { ": " },
+            detail.chars().take(200).collect::<String>()
+        ))
+        .into())
+    }
+}
+
 fn read_manifest(folder: &Path, folder_name: &str) -> Result<Game> {
     let path = folder.join("game.json");
     let metadata = fs::symlink_metadata(&path).map_err(|_| invalid("game.json is missing"))?;
@@ -1644,6 +1771,96 @@ mod tests {
         assert!(library.list().unwrap().is_empty());
         assert_eq!(fs::read_dir(root.join("incoming")).unwrap().count(), 0);
         assert!(!dir.path().join("outside.txt").exists());
+    }
+
+    fn env_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<std::ffi::OsString> {
+        let pairs: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+        move |name| {
+            pairs
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.into())
+        }
+    }
+
+    #[test]
+    fn default_library_locations_follow_each_os_convention() {
+        // Windows keeps the original location, so existing libraries and saves are found again.
+        assert_eq!(
+            default_library_root_for(
+                HostOs::Windows,
+                env_of(&[("LOCALAPPDATA", r"C:\Users\Test\AppData\Local")])
+            )
+            .unwrap(),
+            PathBuf::from(r"C:\Users\Test\AppData\Local")
+                .join("GameStrike")
+                .join("Library")
+        );
+        assert!(default_library_root_for(HostOs::Windows, env_of(&[])).is_err());
+        assert!(
+            default_library_root_for(HostOs::Windows, env_of(&[("LOCALAPPDATA", "relative")]))
+                .is_err()
+        );
+
+        assert_eq!(
+            default_library_root_for(HostOs::MacOs, env_of(&[("HOME", "/Users/test")])).unwrap(),
+            PathBuf::from("/Users/test")
+                .join("Library")
+                .join("Application Support")
+                .join("GameStrike")
+                .join("Library")
+        );
+        assert!(default_library_root_for(HostOs::MacOs, env_of(&[])).is_err());
+
+        assert_eq!(
+            default_library_root_for(
+                HostOs::Unix,
+                env_of(&[("XDG_DATA_HOME", "/data/test"), ("HOME", "/home/test")])
+            )
+            .unwrap(),
+            PathBuf::from("/data/test")
+                .join("gamestrike")
+                .join("library")
+        );
+        // A relative XDG_DATA_HOME is invalid by the spec and falls back to HOME.
+        for env in [
+            env_of(&[("HOME", "/home/test")]),
+            env_of(&[("XDG_DATA_HOME", "data"), ("HOME", "/home/test")]),
+        ] {
+            assert_eq!(
+                default_library_root_for(HostOs::Unix, env).unwrap(),
+                PathBuf::from("/home/test")
+                    .join(".local")
+                    .join("share")
+                    .join("gamestrike")
+                    .join("library")
+            );
+        }
+        assert!(default_library_root_for(HostOs::Unix, env_of(&[("HOME", "home")])).is_err());
+        assert!(default_library_root().is_ok() || std::env::var_os("HOME").is_none());
+    }
+
+    #[test]
+    fn engine_data_outside_the_library_is_cleared_only_on_macos() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = clear_engine_data(dir.path(), Uuid::new_v4());
+        if HostOs::current() == HostOs::MacOs {
+            // The test binary has no gamestrike-player beside it, so this must fail, not pretend.
+            assert!(result.is_err());
+        } else {
+            assert!(result.is_ok());
+        }
+        let player = sibling_player().unwrap();
+        assert!(
+            player
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("gamestrike-player")
+        );
     }
 
     #[test]
