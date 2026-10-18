@@ -333,7 +333,7 @@ body[data-style="blades"] .scene-blades, body[data-style="original"] .scene-orig
 /* Opening a channel: the screen dips to dark for an instant, then the sub-screen zooms out from the orb.
    Timing is tuned by eye from a handful of reference frames, not from frame-level measurement. */
 .og::before { content: ""; position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
-.og.sub::before { animation: og-dip .45s ease-out both; }
-.og.sub .og-panel { animation-duration: .6s; animation-timing-function: cubic-bezier(.2, .8, .2, 1); }
+.og.sub::before { animation: og-dip .3s ease-out both; }
+.og.sub .og-panel { animation-duration: .45s; animation-timing-function: cubic-bezier(.2, .8, .2, 1); }
 @keyframes og-dip { 0% { opacity: 0; } 22% { opacity: .85; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .og.sub::before { animation: none !important; } }
