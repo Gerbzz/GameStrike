@@ -832,52 +832,56 @@ mod game_player {
 
         /// Deletes the game's WKWebsiteDataStore. Waits for WebKit, with a time limit.
         pub(super) fn remove_data_store(id: Uuid) -> Result<(), Box<dyn Error>> {
-            use objc2_foundation::{NSDate, NSRunLoop};
+            use block2::RcBlock;
+            use objc2_app_kit::NSApplication;
+            use objc2_foundation::{NSDate, NSError, NSRunLoop};
             use std::{
-                sync::{Arc, Mutex},
+                cell::RefCell,
+                rc::Rc,
                 time::{Duration, Instant},
             };
-            use wry::WebViewExtDarwin;
 
             require_supported_macos()?;
-            if MainThreadMarker::new().is_none() {
-                return Err("clearing WebKit data must run on the main thread".into());
-            }
-            let bytes = *id.as_bytes();
-            let deadline = Instant::now() + Duration::from_secs(30);
-            // WebKit answers on the main queue, so the main run loop is spun until it does.
-            let wait = |done: &dyn Fn() -> bool| -> Result<(), Box<dyn Error>> {
-                while !done() {
-                    if Instant::now() >= deadline {
-                        return Err("WebKit did not answer about the data store in time".into());
-                    }
-                    NSRunLoop::currentRunLoop()
-                        .runUntilDate(&NSDate::dateWithTimeIntervalSinceNow(0.05));
-                }
-                Ok(())
-            };
-
-            let listed: Arc<Mutex<Option<bool>>> = Arc::new(Mutex::new(None));
-            let sink = Arc::clone(&listed);
-            wry::WebView::fetch_data_store_identifiers(move |stores| {
-                *sink.lock().unwrap() = Some(stores.contains(&bytes));
-            })?;
-            wait(&|| listed.lock().unwrap().is_some())?;
-            if *listed.lock().unwrap() == Some(false) {
-                println!("GameStrike found no WebKit data store for this game.");
-                return Ok(());
-            }
-
-            let removed: Arc<Mutex<Option<Result<(), String>>>> = Arc::new(Mutex::new(None));
-            let sink = Arc::clone(&removed);
-            wry::WebView::remove_data_store(&bytes, move |result| {
-                *sink.lock().unwrap() = Some(result.map_err(|error| error.to_string()));
+            let mtm = MainThreadMarker::new()
+                .ok_or("clearing WebKit data must run on the main thread")?;
+            // WebKit expects an initialized application object, even without windows.
+            let _app = NSApplication::sharedApplication(mtm);
+            eprintln!("GameStrike is asking WebKit to remove the game's data store.");
+            let outcome: Rc<RefCell<Option<Result<(), String>>>> = Rc::new(RefCell::new(None));
+            let sink = Rc::clone(&outcome);
+            let handler = RcBlock::new(move |error: *mut NSError| {
+                let result = match unsafe { error.as_ref() } {
+                    None => Ok(()),
+                    Some(error) => Err(error.localizedDescription().to_string()),
+                };
+                *sink.borrow_mut() = Some(result);
             });
-            wait(&|| removed.lock().unwrap().is_some())?;
-            let result = removed.lock().unwrap().take();
+            unsafe {
+                WKWebsiteDataStore::removeDataStoreForIdentifier_completionHandler(
+                    &identifier(id),
+                    &handler,
+                    mtm,
+                );
+            }
+            // WebKit answers on the main queue, so the main run loop is spun until it does.
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while outcome.borrow().is_none() {
+                if Instant::now() >= deadline {
+                    return Err("WebKit did not finish removing the data store in time".into());
+                }
+                NSRunLoop::currentRunLoop()
+                    .runUntilDate(&NSDate::dateWithTimeIntervalSinceNow(0.05));
+            }
+            let result = outcome.borrow_mut().take();
             match result {
                 Some(Ok(())) => {
                     println!("GameStrike removed the game's WebKit data store.");
+                    Ok(())
+                }
+                // WebKit reports an error when no store exists for the identifier, for
+                // example for a game that was never played. Only then is that a success.
+                Some(Err(error)) if !store_folder_exists(id) => {
+                    println!("GameStrike found no WebKit data store for this game ({error}).");
                     Ok(())
                 }
                 Some(Err(error)) => {
@@ -885,6 +889,28 @@ mod game_player {
                 }
                 None => Err("WebKit gave no answer about the data store".into()),
             }
+        }
+
+        /// Whether WebKit's folder for this game's store exists. Used only to interpret a removal
+        /// error, never to skip asking WebKit.
+        fn store_folder_exists(id: Uuid) -> bool {
+            let Some(home) = std::env::var_os("HOME") else {
+                return true;
+            };
+            let Some(name) = std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.file_name().map(|name| name.to_owned()))
+            else {
+                return true;
+            };
+            let stores = std::path::Path::new(&home)
+                .join("Library/WebKit")
+                .join(name)
+                .join("WebsiteDataStore");
+            let lower = id.hyphenated().to_string();
+            [lower.clone(), lower.to_uppercase()]
+                .iter()
+                .any(|folder| stores.join(folder).exists())
         }
     }
 
