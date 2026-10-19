@@ -223,7 +223,8 @@ body.collapsed .side-item span, body.collapsed .side-item .count { display: none
 /* The synthetic-test badge, shown only for libraries marked as test data. */
 .synthetic { align-self: center; margin-left: auto; padding: 7px 14px; border-radius: 999px; font-family: var(--display); font-size: 10px; font-weight: 900; letter-spacing: .2em; text-transform: uppercase; color: #1b1300; background: repeating-linear-gradient(135deg, #ffd23f 0 12px, #f5b700 12px 24px); box-shadow: 0 0 0 1px rgb(0 0 0 / 60%), 0 0 18px rgb(255 200 40 / 35%); white-space: nowrap; }
 .lib-head .head-text { min-width: 0; }
-.lib-head { align-items: center; }
+.lib-head { align-items: center; flex-wrap: wrap; row-gap: 8px; }
+.view-title, .chip { white-space: nowrap; }
 
 /* ---------- generated box art ---------- */
 .tile { container-type: inline-size; }
@@ -301,7 +302,9 @@ body:not([data-input="pad"]) .glyph.pad { display: none; }
 
 /* ---------- responsive ---------- */
 @media (max-width: 1100px) { .hints .wide { display: none; } }
-@media (max-width: 900px) { .hints .key-only { display: none; } .detail-hero { grid-template-columns: 120px 1fr; gap: 16px; } }
+@media (max-width: 900px) { .hints .key-only { display: none; } .detail-hero { grid-template-columns: 120px 1fr; gap: 16px; } .synthetic { font-size: 8.5px; letter-spacing: .12em; padding: 6px 10px; } }
+/* Short windows: tighter sidebar rows and no group headings, so every filter still fits. */
+@media (max-height: 700px) { .filter-group { display: none; } .side-item { min-height: 36px; } .side-top { padding-bottom: 6px; } }
 @media (max-width: 760px) {
   :root { --tile-min: 118px; --gap: 12px; }
   .app { grid-template-columns: var(--side-collapsed) 1fr; }
