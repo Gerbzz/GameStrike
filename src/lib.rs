@@ -388,7 +388,7 @@ impl Library {
         let lock = self.lock_game(id)?;
         let profile = self.profile_dir(id);
         if fs::symlink_metadata(&profile).is_ok_and(|metadata| metadata.is_dir()) {
-            fs::remove_dir_all(&profile)?;
+            remove_profile(&profile)?;
         }
         drop(lock);
         Ok(())
@@ -431,7 +431,7 @@ impl Library {
             return Err(error.into());
         }
         if has_profile && !keep_saves {
-            fs::remove_dir_all(&profile)?;
+            remove_profile(&profile)?;
         }
         drop(lock);
         if !keep_saves {
@@ -626,6 +626,28 @@ fn write_json_atomic(path: &Path, value: &impl Serialize) -> Result<()> {
         let _ = fs::remove_file(&temporary);
     }
     result
+}
+
+/// Deletes a game's browser profile. On Windows the WebView2 runtime's helper processes can keep
+/// files in the profile open for a moment after the player exits, so a refused delete is retried
+/// for up to five seconds before the error is reported.
+fn remove_profile(profile: &Path) -> io::Result<()> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match fs::remove_dir_all(profile) {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::PermissionDenied | io::ErrorKind::DirectoryNotEmpty
+                ) && std::time::Instant::now() < deadline =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 fn directory_size(root: &Path) -> u64 {
