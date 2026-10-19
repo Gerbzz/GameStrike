@@ -935,6 +935,12 @@ mod game_player {
             HeaderName::from_static("referrer-policy"),
             HeaderValue::from_static("no-referrer"),
         );
+        // Game files come from local disk. With no HTTP cache entry, the engine has no stale copy
+        // to revalidate over the network; every load goes back to the custom protocol handler.
+        headers.insert(
+            HeaderName::from_static("cache-control"),
+            HeaderValue::from_static("no-store"),
+        );
         response
     }
 
@@ -1324,6 +1330,7 @@ mod game_player {
                     response.headers().get("x-content-type-options").unwrap(),
                     "nosniff"
                 );
+                assert_eq!(response.headers().get("cache-control").unwrap(), "no-store");
             }
         }
 
