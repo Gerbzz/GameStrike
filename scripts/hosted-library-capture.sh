@@ -37,6 +37,8 @@ trap 'rm -rf "$work"' EXIT
 library="$work/library"
 fixtures="$work/fixtures"
 mkdir -p "$library" "$fixtures"
+# Marks the capture library as synthetic test data; the launcher then shows a badge saying so.
+: >"$library/SYNTHETIC-TEST-LIBRARY"
 
 # --- Player smoke test with the exact bundled save fixture -----------------------------------
 smoke_library="$work/smoke-library"
@@ -57,12 +59,12 @@ echo "Player smoke test: the save counter persisted across two launches."
 
 # --- Launcher captures ------------------------------------------------------------------------
 titles=(
-  'Orbit Garden (Synthetic Test)'
-  'Pixel Harbor (Synthetic Test)'
-  'Lantern Maze (Synthetic Test)'
-  'Comet Courier (Synthetic Test)'
-  'Tiny Tactics (Synthetic Test)'
-  'A Deliberately Long Title For Layout Checks In The Library (Synthetic Test)'
+  'Orbit Garden'
+  'Pixel Harbor'
+  'Lantern Maze'
+  'Comet Courier'
+  'Tiny Tactics'
+  'The Long Voyage of the Lantern Keepers'
 )
 for title in "${titles[@]}"; do
   file="$fixtures/$title.html"
@@ -82,10 +84,10 @@ node "$repo/scripts/make-test-cover.cjs" "$work/cover.png" 125
 "$cli" --library "$library" set-cover "$(id_of 'Pixel Harbor')" "$work/cover.png"
 icon_game="$work/icon-game"
 mkdir -p "$icon_game"
-printf '<!doctype html><title>Signal Tower (Synthetic Test)</title><h1>Signal Tower (Synthetic Test)</h1>' >"$icon_game/index.html"
+printf '<!doctype html><title>Signal Tower</title><h1>Signal Tower</h1>' >"$icon_game/index.html"
 node "$repo/scripts/make-test-cover.cjs" "$icon_game/icon.png" 280
-node "$repo/scripts/make-test-zip.cjs" "$work/Signal Tower (Synthetic Test).zip" "$icon_game/index.html" "$icon_game/icon.png"
-"$cli" --library "$library" import "$work/Signal Tower (Synthetic Test).zip"
+node "$repo/scripts/make-test-zip.cjs" "$work/Signal Tower.zip" "$icon_game/index.html" "$icon_game/icon.png"
+"$cli" --library "$library" import "$work/Signal Tower.zip"
 "$cli" --library "$library" list | tee "$out_dir/library-list.txt"
 grep -F 'Signal Tower' "$out_dir/library-list.txt" | grep -q 'cover: auto' \
   || { echo "the ZIP's icon did not become its automatic cover" >&2; exit 1; }
@@ -127,6 +129,7 @@ capture() {
 
 capture "$library" library
 capture "$library" focus --capture-view focus
+capture "$library" controller --capture-view controller
 capture "$library" long-title --capture-view long
 capture "$library" network-dialog --capture-view launch
 capture "$library" manage --capture-view manage
@@ -138,5 +141,6 @@ capture "$library" boot --capture-view boot
 capture "$library" minimum --window-size 880 620
 empty="$work/empty-library"
 mkdir -p "$empty"
+: >"$empty/SYNTHETIC-TEST-LIBRARY"
 capture "$empty" empty
 echo "Launcher captures are in $out_dir"

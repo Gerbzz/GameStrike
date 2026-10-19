@@ -191,3 +191,28 @@ test("the grid reflows to the window and the sidebar moves row by row", () => {
   assert.equal(core.listMove(2, 5, "end"), 4);
   assert.equal(core.listMove(0, 0, "down"), -1);
 });
+
+test("generated box art uses curated, high-contrast palettes and the full title", () => {
+  const luminance = (hex) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
+  for (const palette of core.PALETTES) {
+    assert.ok(contrast(palette.ink, palette.bg1) >= 7, `${palette.name} title ink is readable`);
+    assert.ok(contrast(palette.accent, palette.bg2) >= 4.5, `${palette.name} accent stands out`);
+    assert.ok(luminance(palette.bg2) < 0.02, `${palette.name} background is deep, not muddy`);
+  }
+  const one = core.coverDesign("6c1f6f7e-0000-4000-8000-000000000001", "Orbit Garden", "itch.io");
+  assert.deepEqual(one, core.coverDesign("6c1f6f7e-0000-4000-8000-000000000001", "Orbit Garden", "itch.io"), "stable per game");
+  assert.equal(one.title, "Orbit Garden");
+  assert.equal(one.size, "l");
+  assert.equal(one.kicker, "itch.io");
+  assert.ok(one.motif >= 0 && one.motif < 6);
+  assert.equal(core.coverDesign("x", "Tetris").size, "xl");
+  assert.equal(core.coverDesign("x", "The Long Voyage of the Lantern Keepers").size, "s");
+  assert.equal(core.coverDesign("x", "  ").title, "Untitled");
+  const palettes = new Set(Array.from({ length: 40 }, (_, i) => core.coverDesign(`game-${i}`, "x").palette.name));
+  assert.ok(palettes.size >= 6, "different games get different palettes");
+});

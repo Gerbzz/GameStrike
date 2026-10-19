@@ -480,6 +480,12 @@ impl Library {
         })
     }
 
+    /// True for a library marked as synthetic test data with a `SYNTHETIC-TEST-LIBRARY` file in its
+    /// root, as the CI capture scripts do. The launcher then shows a "Synthetic test library" badge.
+    pub fn is_synthetic_test_library(&self) -> bool {
+        regular_file(&self.root.join("SYNTHETIC-TEST-LIBRARY"))
+    }
+
     /// Sets or clears the player's own note of where the game came from.
     pub fn set_source(&self, id: Uuid, source: Option<&str>) -> Result<Game> {
         let mut game = self.game(id)?;
@@ -2389,6 +2395,21 @@ mod tests {
         );
         library.ensure_auto_cover(broken.id).unwrap();
         assert!(library.cover_file(broken.id).is_none());
+    }
+
+    #[test]
+    fn only_a_marked_library_counts_as_synthetic_test_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        assert!(!library.is_synthetic_test_library());
+        fs::create_dir(dir.path().join("SYNTHETIC-TEST-LIBRARY")).unwrap();
+        assert!(
+            !library.is_synthetic_test_library(),
+            "a folder is not the marker"
+        );
+        fs::remove_dir(dir.path().join("SYNTHETIC-TEST-LIBRARY")).unwrap();
+        fs::write(dir.path().join("SYNTHETIC-TEST-LIBRARY"), b"").unwrap();
+        assert!(library.is_synthetic_test_library());
     }
 
     #[test]

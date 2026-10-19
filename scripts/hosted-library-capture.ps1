@@ -17,6 +17,8 @@ $probeRoot = Join-Path $env:RUNNER_TEMP 'gamestrike-library-visual'
 $library = Join-Path $probeRoot 'library'
 $fixtures = Join-Path $probeRoot 'fixtures'
 New-Item -ItemType Directory -Force -Path $library, $fixtures | Out-Null
+# Marks the capture library as synthetic test data; the launcher then shows a badge saying so.
+New-Item -ItemType File -Force -Path (Join-Path $library 'SYNTHETIC-TEST-LIBRARY') | Out-Null
 $binDir = if ($env:GAMESTRIKE_BIN_DIR) { $env:GAMESTRIKE_BIN_DIR } else { Join-Path $PWD 'target/debug' }
 $cli = Join-Path $binDir 'gamestrike.exe'
 $launcher = Join-Path $binDir 'gamestrike-launcher.exe'
@@ -39,12 +41,12 @@ foreach ($launch in 1, 2) {
 }
 
 $titles = @(
-    'Orbit Garden (Synthetic Test)',
-    'Pixel Harbor (Synthetic Test)',
-    'Lantern Maze (Synthetic Test)',
-    'Comet Courier (Synthetic Test)',
-    'Tiny Tactics (Synthetic Test)',
-    'A Deliberately Long Title For Layout Checks In The Library (Synthetic Test)'
+    'Orbit Garden',
+    'Pixel Harbor',
+    'Lantern Maze',
+    'Comet Courier',
+    'Tiny Tactics',
+    'The Long Voyage of the Lantern Keepers'
 )
 foreach ($title in $titles) {
     $file = Join-Path $fixtures "$title.html"
@@ -73,9 +75,9 @@ node (Join-Path $PWD 'scripts/make-test-cover.cjs') $coverFile 125
 Invoke-Cli @('set-cover', (Id-Of 'Pixel Harbor'), $coverFile)
 $iconGame = Join-Path $probeRoot 'icon-game'
 New-Item -ItemType Directory -Force -Path $iconGame | Out-Null
-[IO.File]::WriteAllText((Join-Path $iconGame 'index.html'), '<!doctype html><title>Signal Tower (Synthetic Test)</title><h1>Signal Tower (Synthetic Test)</h1>')
+[IO.File]::WriteAllText((Join-Path $iconGame 'index.html'), '<!doctype html><title>Signal Tower</title><h1>Signal Tower</h1>')
 node (Join-Path $PWD 'scripts/make-test-cover.cjs') (Join-Path $iconGame 'icon.png') 280
-$iconZip = Join-Path $probeRoot 'Signal Tower (Synthetic Test).zip'
+$iconZip = Join-Path $probeRoot 'Signal Tower.zip'
 node (Join-Path $PWD 'scripts/make-test-zip.cjs') $iconZip (Join-Path $iconGame 'index.html') (Join-Path $iconGame 'icon.png')
 Invoke-Cli @('import', $iconZip)
 $listing = & $cli --library $library list
@@ -120,6 +122,7 @@ function Capture-Launcher([string]$Library, [string]$Name, [string[]]$Extra) {
 
 Capture-Launcher $library 'library' @()
 Capture-Launcher $library 'focus' @('--capture-view', 'focus')
+Capture-Launcher $library 'controller' @('--capture-view', 'controller')
 Capture-Launcher $library 'long-title' @('--capture-view', 'long')
 Capture-Launcher $library 'network-dialog' @('--capture-view', 'launch')
 Capture-Launcher $library 'manage' @('--capture-view', 'manage')
@@ -131,4 +134,5 @@ Capture-Launcher $library 'boot' @('--capture-view', 'boot')
 Capture-Launcher $library 'minimum' @('--window-size', '880', '620')
 $empty = Join-Path $probeRoot 'empty-library'
 New-Item -ItemType Directory -Force -Path $empty | Out-Null
+New-Item -ItemType File -Force -Path (Join-Path $empty 'SYNTHETIC-TEST-LIBRARY') | Out-Null
 Capture-Launcher $empty 'empty' @()

@@ -263,24 +263,37 @@
       image.alt = "";
       image.decoding = "async";
       image.src = url;
-      image.addEventListener("error", () => image.replaceWith(generatedCover(game)), { once: true });
+      image.addEventListener("error", () => {
+        image.closest(".tile")?.classList.add("art-cover");
+        image.replaceWith(generatedCover(game));
+      }, { once: true });
       return image;
     }
     return generatedCover(game);
   }
 
+  // Box art for a game with no image: a curated palette, a geometric motif, a kicker, and the
+  // full title set in the display face. Clearly generated, never presented as the game's own art.
   function generatedCover(game) {
-    const cover = core.cover(game.id, game.title);
+    const design = core.coverDesign(game.id, game.title, core.cleanSource(game.source) || sourceLabel(game));
     const node = document.createElement("div");
-    node.className = "gen";
-    node.dataset.pattern = String(cover.pattern);
-    node.style.setProperty("--h1", cover.hue);
-    node.style.setProperty("--h2", cover.hue2);
-    node.style.setProperty("--angle", `${cover.angle}deg`);
-    const initials = document.createElement("div");
-    initials.className = "gen-initials";
-    initials.textContent = cover.initials;
-    node.append(initials);
+    node.className = "art";
+    node.dataset.motif = String(design.motif);
+    for (const [name, value] of Object.entries(design.palette)) {
+      if (name !== "name") node.style.setProperty(`--${name}`, value);
+    }
+    const motif = document.createElement("div");
+    motif.className = "art-motif";
+    const kicker = document.createElement("div");
+    kicker.className = "art-kicker";
+    kicker.textContent = design.kicker;
+    const rule = document.createElement("div");
+    rule.className = "art-rule";
+    const title = document.createElement("div");
+    title.className = "art-title";
+    title.dataset.size = design.size;
+    title.textContent = design.title;
+    node.append(motif, kicker, rule, title);
     return node;
   }
 
@@ -317,7 +330,10 @@
     title.textContent = game.title;
     const meta = document.createElement("div");
     meta.className = "tile-meta";
-    meta.textContent = tileMeta(game);
+    const art = !core.coverUrl(game);
+    // Box art already shows the title and source, so the label keeps only the status.
+    if (art) node.classList.add("art-cover");
+    meta.textContent = art && game.files_ok ? (game.last_played ? `Played ${core.formatWhen(game.last_played).toLocaleLowerCase()}` : "New") : tileMeta(game);
     labelBox.append(title, meta);
     const sheen = document.createElement("div");
     sheen.className = "sheen";
@@ -405,7 +421,7 @@
 
   // ---------- navigation ----------
   function navigate(direction) {
-    if (state.detailId) return moveWithin($("detail-actions"), direction);
+    if (state.detailId) return moveWithin(el.detail, direction);
     if (state.zone === "sidebar") {
       const items = sidebarItems();
       if (direction === "right") { if (state.visible.length) { state.zone = "grid"; sound.play("zone"); } }
@@ -718,6 +734,8 @@
 
   // ---------- keyboard ----------
   document.addEventListener("keydown", (event) => {
+    // Prompts show keyboard keys after keyboard input and controller buttons after pad input.
+    document.body.dataset.input = "keyboard";
     if (state.dialog) {
       if (event.key === "Escape") { event.preventDefault(); closeDialog(); return; }
       if (event.key === "Tab") { event.preventDefault(); moveDialogFocus(event.shiftKey ? -1 : 1); return; }
@@ -731,9 +749,9 @@
     if (event.ctrlKey || event.altKey || event.metaKey) return;
     if (state.detailId) {
       if (event.key === "Escape" || event.key === "Backspace") { event.preventDefault(); closeDetail(); return; }
-      if (event.key === "Tab") { event.preventDefault(); moveWithin($("detail-actions"), event.shiftKey ? "up" : "down"); return; }
+      if (event.key === "Tab") { event.preventDefault(); moveWithin(el.detail, event.shiftKey ? "up" : "down"); return; }
       const arrows = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
-      if (arrows[event.key]) { event.preventDefault(); moveWithin($("detail-actions"), arrows[event.key]); return; }
+      if (arrows[event.key]) { event.preventDefault(); moveWithin(el.detail, arrows[event.key]); return; }
       if (event.key.toLowerCase() === "f") { event.preventDefault(); toggleFavorite(detailGame()); }
       return;
     }
@@ -773,6 +791,7 @@
   }
 
   function handlePad(action) {
+    document.body.dataset.input = "pad";
     if (state.dialog) {
       if (action === "b") closeDialog();
       else if (action === "a") document.activeElement?.click();
@@ -784,7 +803,7 @@
       if (action === "b") closeDetail();
       else if (action === "a") document.activeElement?.click();
       else if (action === "x") openDialog("network");
-      else if (["left", "right", "up", "down"].includes(action)) moveWithin($("detail-actions"), action);
+      else if (["left", "right", "up", "down"].includes(action)) moveWithin(el.detail, action);
       return;
     }
     if (["left", "right", "up", "down"].includes(action)) navigate(action);
@@ -800,6 +819,7 @@
       case "library": {
         state.games = Array.isArray(message.games) ? message.games : [];
         state.problems = Array.isArray(message.problems) ? message.problems : [];
+        $("synthetic").hidden = message.synthetic !== true;
         state.running = message.running || null;
         pauseScene(Boolean(state.running));
         state.loaded = true;
@@ -881,7 +901,8 @@
       let best = 0;
       state.visible.forEach((game, index) => { if (game.title.length > state.visible[best].title.length) best = index; });
       state.gridIndex = best;
-    } else if (view === "focus") {
+    } else if (view === "focus" || view === "controller") {
+      if (view === "controller") document.body.dataset.input = "pad";
       // A tile away from the edge, preferring one with a stored cover, so the lift shows clearly.
       const covered = state.visible.findIndex((game) => game.cover);
       state.gridIndex = covered > 0 ? covered : Math.min(1, state.visible.length - 1);

@@ -235,9 +235,43 @@
     return `/cover/${game.id}.png?v=${Number(game.cover_version) || 0}`;
   }
 
+  // Curated box-art palettes: a deep two-stop background, a vivid accent, and the title ink.
+  // Every pair keeps strong contrast, so no generated cover comes out muddy.
+  const PALETTES = Object.freeze([
+    { name: "lime", bg1: "#0d2a3f", bg2: "#03080f", accent: "#8dff4a", ink: "#f0ffe6" },
+    { name: "cyan", bg1: "#06345c", bg2: "#020914", accent: "#3ee8ff", ink: "#e9fcff" },
+    { name: "magenta", bg1: "#55104f", bg2: "#140312", accent: "#ff4fd8", ink: "#fff0fc" },
+    { name: "sunset", bg1: "#6a1f08", bg2: "#180503", accent: "#ff8a2b", ink: "#fff4ea" },
+    { name: "gold", bg1: "#2f2a17", bg2: "#0b0a06", accent: "#ffcc33", ink: "#fff9e3" },
+    { name: "violet", bg1: "#311370", bg2: "#09041d", accent: "#b38cff", ink: "#f4eeff" },
+    { name: "crimson", bg1: "#5c0b18", bg2: "#120205", accent: "#ff3d5a", ink: "#ffecef" },
+    { name: "teal", bg1: "#074640", bg2: "#010f0e", accent: "#29f0c8", ink: "#e8fffb" },
+    { name: "ice", bg1: "#213650", bg2: "#070d14", accent: "#9fd6ff", ink: "#f0f8ff" },
+    { name: "acid", bg1: "#1d470e", bg2: "#050d02", accent: "#d4ff3a", ink: "#f9ffe4" },
+  ]);
+  // Geometric motifs drawn in CSS: rings, sunburst, horizon, chevrons, halftone, slabs.
+  const MOTIFS = 6;
+
+  // A designed cover for a game with no art: palette and motif from the game ID, the full title
+  // as the headline (sized by length), and a small kicker such as the source.
+  function coverDesign(id, title, kicker) {
+    let hash = 2166136261;
+    for (const char of String(id)) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+    const text = String(title || "").replace(/[\u0000-\u001f\u007f]/g, "").trim() || "Untitled";
+    const length = [...text].length;
+    const size = length <= 10 ? "xl" : length <= 18 ? "l" : length <= 30 ? "m" : "s";
+    return {
+      palette: PALETTES[hash % PALETTES.length],
+      motif: (hash >>> 8) % MOTIFS,
+      title: text,
+      size,
+      kicker: String(kicker || "").trim().slice(0, 24),
+    };
+  }
+
   const api = Object.freeze({
     filterAndSort, gridMove, shelfMove, tileLayout, createPadReader, cover, formatBytes, formatWhen, cleanTitle,
-    cleanSource, buildFilters, matchesFilter, applyFilter, gridColumns, listMove, coverUrl,
+    cleanSource, buildFilters, matchesFilter, applyFilter, gridColumns, listMove, coverUrl, coverDesign, PALETTES,
   });
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.GameStrikeCore = api;

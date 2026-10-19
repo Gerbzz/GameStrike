@@ -79,9 +79,10 @@ mod launcher_app {
     }
 
     /// A named UI state for `--capture-view`. Only names in this list reach the page script.
-    const CAPTURE_VIEWS: [&str; 10] = [
+    const CAPTURE_VIEWS: [&str; 11] = [
         "library",
         "focus",
+        "controller",
         "long",
         "launch",
         "manage",
@@ -625,7 +626,7 @@ mod launcher_app {
         match library.scan() {
             Ok(scan) => send(
                 webview,
-                json!({"type":"library", "games":scan.games, "problems":scan.problems, "running":running}),
+                json!({"type":"library", "games":scan.games, "problems":scan.problems, "running":running, "synthetic":library.is_synthetic_test_library()}),
             ),
             Err(error) => send(
                 webview,
