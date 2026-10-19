@@ -45,6 +45,12 @@ pub struct Game {
     /// Seconds since the Unix epoch. Absent in manifests written before this field existed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub added_at: Option<u64>,
+    /// Where the game came from, as the player wrote it (for example "itch.io"). Optional.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Marked as a favorite in the launcher.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub favorite: bool,
 }
 
 pub struct ImportOutcome {
@@ -65,6 +71,13 @@ pub struct LibraryEntry {
     pub play_count: u32,
     /// Bytes in this game's browser profile (saves, caches, and WebView2 state).
     pub save_bytes: u64,
+    /// Which cover the launcher shows: "custom" (set by the player), "auto" (from an image in the
+    /// game's own files), or none, in which case the launcher draws one from the title.
+    pub cover: Option<&'static str>,
+    /// Changes whenever the cover changes, so the launcher can ask for the new image.
+    pub cover_version: u64,
+    /// A previous custom cover can be brought back.
+    pub cover_undo: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -168,6 +181,8 @@ impl Library {
             network_requirement: "unknown".to_owned(),
             source_sha256: Some(source_sha256.clone()),
             added_at: Some(now_unix()),
+            source: None,
+            favorite: false,
         };
         let stage = self.root.join("incoming").join(id.to_string());
         fs::create_dir(&stage)?;
@@ -225,6 +240,8 @@ impl Library {
                 })
             }
             Ok(None) => {
+                // A cover found in the game's own files is optional; a bad one is simply not used.
+                let _ = self.ensure_auto_cover(id);
                 if retained.is_some() {
                     let _ = fs::remove_file(self.retained_marker(id));
                 }
@@ -259,6 +276,9 @@ impl Library {
                     last_played: activity.last_played,
                     play_count: activity.play_count,
                     save_bytes: directory_size(&self.profile_dir(game.id)),
+                    cover: self.cover_kind(game.id),
+                    cover_version: self.cover_version(game.id),
+                    cover_undo: regular_file(&self.game_dir(game.id).join(PREVIOUS_COVER)),
                     game,
                 }
             })
@@ -459,6 +479,254 @@ impl Library {
             .then_some(id)
         })
     }
+
+    /// True for a library marked as synthetic test data with a `SYNTHETIC-TEST-LIBRARY` file in its
+    /// root, as the CI capture scripts do. The launcher then shows a "Synthetic test library" badge.
+    pub fn is_synthetic_test_library(&self) -> bool {
+        regular_file(&self.root.join("SYNTHETIC-TEST-LIBRARY"))
+    }
+
+    /// Sets or clears the player's own note of where the game came from.
+    pub fn set_source(&self, id: Uuid, source: Option<&str>) -> Result<Game> {
+        let mut game = self.game(id)?;
+        game.source = match source {
+            None => None,
+            Some(raw) if raw.trim().is_empty() => None,
+            Some(raw) => Some(
+                clean_source(raw)
+                    .ok_or_else(|| invalid("enter a source with 1 to 32 characters"))?,
+            ),
+        };
+        write_json_atomic(&self.game_dir(id).join("game.json"), &game)?;
+        Ok(game)
+    }
+
+    pub fn set_favorite(&self, id: Uuid, favorite: bool) -> Result<Game> {
+        let mut game = self.game(id)?;
+        game.favorite = favorite;
+        write_json_atomic(&self.game_dir(id).join("game.json"), &game)?;
+        Ok(game)
+    }
+
+    /// Replaces the game's cover with an image file the player picked. The image is untrusted:
+    /// it is decoded by memory-safe Rust code with size limits, scaled down, and saved as a new
+    /// PNG inside the library. The previous custom cover is kept so the change can be undone.
+    pub fn set_cover(&self, id: Uuid, image: impl AsRef<Path>) -> Result<()> {
+        self.game(id)?;
+        let png = cover_png_from_file(image.as_ref())?;
+        let folder = self.game_dir(id);
+        let staged = folder.join(format!("cover-{}.tmp", Uuid::new_v4().simple()));
+        let result = (|| -> Result<()> {
+            let mut file = new_file(&staged)?;
+            file.write_all(&png)?;
+            file.sync_all()?;
+            drop(file);
+            let current = folder.join(CUSTOM_COVER);
+            if regular_file(&current) {
+                fs::rename(&current, folder.join(PREVIOUS_COVER))?;
+            }
+            fs::rename(&staged, &current)?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&staged);
+        }
+        result
+    }
+
+    /// Brings back the previous custom cover. Undoing twice returns to where it started.
+    pub fn undo_cover(&self, id: Uuid) -> Result<()> {
+        self.game(id)?;
+        let folder = self.game_dir(id);
+        let current = folder.join(CUSTOM_COVER);
+        let previous = folder.join(PREVIOUS_COVER);
+        if !regular_file(&previous) {
+            return Err(invalid("there is no earlier cover to bring back").into());
+        }
+        if regular_file(&current) {
+            let swap = folder.join(format!("cover-{}.tmp", Uuid::new_v4().simple()));
+            fs::rename(&current, &swap)?;
+            fs::rename(&previous, &current)?;
+            fs::rename(&swap, &previous)?;
+        } else {
+            fs::rename(&previous, &current)?;
+        }
+        Ok(())
+    }
+
+    /// Goes back to the automatic cover. The custom one is kept, so Undo can restore it.
+    pub fn reset_cover(&self, id: Uuid) -> Result<()> {
+        self.game(id)?;
+        let folder = self.game_dir(id);
+        let current = folder.join(CUSTOM_COVER);
+        if regular_file(&current) {
+            fs::rename(&current, folder.join(PREVIOUS_COVER))?;
+        }
+        Ok(())
+    }
+
+    /// The PNG the launcher shows for this game: the custom cover, else the automatic one.
+    pub fn cover_file(&self, id: Uuid) -> Option<PathBuf> {
+        let folder = self.game_dir(id);
+        [CUSTOM_COVER, AUTO_COVER]
+            .into_iter()
+            .map(|name| folder.join(name))
+            .find(|path| regular_file(path))
+    }
+
+    fn cover_kind(&self, id: Uuid) -> Option<&'static str> {
+        let folder = self.game_dir(id);
+        if regular_file(&folder.join(CUSTOM_COVER)) {
+            Some("custom")
+        } else if regular_file(&folder.join(AUTO_COVER)) {
+            Some("auto")
+        } else {
+            None
+        }
+    }
+
+    fn cover_version(&self, id: Uuid) -> u64 {
+        self.cover_file(id)
+            .and_then(|path| fs::symlink_metadata(path).ok())
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |time| time.as_millis() as u64)
+    }
+
+    /// Looks once for a cover image among the game's own top-level files (an icon, thumbnail,
+    /// or screenshot with a well-known name) and stores a scaled PNG copy of it. A marker
+    /// records that the search ran, so it is not repeated for the same game.
+    pub fn ensure_auto_cover(&self, id: Uuid) -> Result<()> {
+        self.game(id)?;
+        let folder = self.game_dir(id);
+        let auto = folder.join(AUTO_COVER);
+        let searched = folder.join(AUTO_COVER_SEARCHED);
+        if regular_file(&auto) || fs::symlink_metadata(&searched).is_ok() {
+            return Ok(());
+        }
+        let mut files: Vec<(usize, PathBuf)> = Vec::new();
+        for item in fs::read_dir(folder.join("content"))?.flatten() {
+            let name = item.file_name().to_string_lossy().to_ascii_lowercase();
+            let Some(rank) = AUTO_COVER_NAMES.iter().position(|known| *known == name) else {
+                continue;
+            };
+            if regular_file(&item.path()) {
+                files.push((rank, item.path()));
+            }
+        }
+        files.sort();
+        let found = files
+            .into_iter()
+            .find_map(|(_, path)| cover_png_from_file(&path).ok());
+        if let Some(png) = found {
+            let staged = folder.join(format!("cover-{}.tmp", Uuid::new_v4().simple()));
+            let mut file = new_file(&staged)?;
+            file.write_all(&png)?;
+            file.sync_all()?;
+            drop(file);
+            fs::rename(&staged, &auto)?;
+        }
+        File::create(searched)?;
+        Ok(())
+    }
+}
+
+/// A regular file, not a link or folder.
+fn regular_file(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
+}
+
+/// Custom cover chosen by the player, its predecessor (for Undo), and the automatic cover.
+const CUSTOM_COVER: &str = "cover.png";
+const PREVIOUS_COVER: &str = "cover-previous.png";
+const AUTO_COVER: &str = "auto-cover.png";
+const AUTO_COVER_SEARCHED: &str = "auto-cover.searched";
+/// Well-known names for artwork inside a game, best first.
+const AUTO_COVER_NAMES: [&str; 16] = [
+    "cover.png",
+    "cover.jpg",
+    "cover.jpeg",
+    "cover.webp",
+    "thumbnail.png",
+    "thumbnail.jpg",
+    "thumb.png",
+    "screenshot.png",
+    "screenshot.jpg",
+    "splash.png",
+    "icon-512.png",
+    "icon.png",
+    "logo.png",
+    "apple-touch-icon.png",
+    "favicon.png",
+    "icon.webp",
+];
+const MAX_COVER_SOURCE_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_COVER_SOURCE_SIDE: u32 = 8192;
+/// Covers are stored at most this size; the launcher's tiles are portrait.
+pub const COVER_WIDTH: u32 = 600;
+pub const COVER_HEIGHT: u32 = 900;
+/// Largest stored cover the launcher will serve (a 600 × 900 RGBA PNG is far smaller).
+pub const MAX_STORED_COVER_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Decodes an untrusted cover image file; see [`cover_png_from_bytes`].
+pub fn cover_png_from_file(path: &Path) -> Result<Vec<u8>> {
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_file() {
+        return Err(invalid("the cover must be a regular image file").into());
+    }
+    if metadata.len() == 0 || metadata.len() > MAX_COVER_SOURCE_BYTES {
+        return Err(invalid("the cover image is empty or larger than 16 MiB").into());
+    }
+    let mut bytes = Vec::new();
+    File::open(path)?
+        .take(MAX_COVER_SOURCE_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    cover_png_from_bytes(&bytes)
+}
+
+/// Decodes an untrusted PNG, JPEG, GIF, or WebP with memory-safe Rust decoders under strict
+/// limits (16 MiB file, 8192 px per side, 256 MiB of decoder memory), scales it to fit
+/// 600 × 900, and returns a freshly encoded PNG. Only the pixels survive.
+pub fn cover_png_from_bytes(bytes: &[u8]) -> Result<Vec<u8>> {
+    use image::{ImageFormat, ImageReader, Limits, imageops::FilterType};
+    if bytes.len() as u64 > MAX_COVER_SOURCE_BYTES {
+        return Err(invalid("the cover image is larger than 16 MiB").into());
+    }
+    let mut reader = ImageReader::new(io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|_| invalid("the cover could not be read"))?;
+    if !matches!(
+        reader.format(),
+        Some(ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::Gif | ImageFormat::WebP)
+    ) {
+        return Err(invalid("covers must be PNG, JPEG, GIF, or WebP images").into());
+    }
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_COVER_SOURCE_SIDE);
+    limits.max_image_height = Some(MAX_COVER_SOURCE_SIDE);
+    limits.max_alloc = Some(256 * 1024 * 1024);
+    reader.limits(limits);
+    let image = reader
+        .decode()
+        .map_err(|_| invalid("the cover image is damaged or too large"))?;
+    let image = if image.width() > COVER_WIDTH || image.height() > COVER_HEIGHT {
+        image.resize(COVER_WIDTH, COVER_HEIGHT, FilterType::Triangle)
+    } else {
+        image
+    };
+    let image = image::DynamicImage::ImageRgba8(image.to_rgba8());
+    let mut png = Vec::new();
+    image
+        .write_to(&mut io::Cursor::new(&mut png), ImageFormat::Png)
+        .map_err(|_| invalid("the cover could not be saved"))?;
+    Ok(png)
+}
+
+/// Trims, drops control characters, and limits sources to 32 characters.
+fn clean_source(raw: &str) -> Option<String> {
+    let source: String = raw.chars().filter(|c| !c.is_control()).collect();
+    let source = source.trim();
+    (!source.is_empty() && source.chars().count() <= 32).then(|| source.to_owned())
 }
 
 /// The operating systems GameStrike knows where to keep a library on.
@@ -1907,6 +2175,284 @@ mod tests {
                 .to_string_lossy()
                 .starts_with("gamestrike-player")
         );
+    }
+
+    /// A synthetic test image: a two-color gradient, encoded as `format`.
+    fn test_image(width: u32, height: u32, format: image::ImageFormat) -> Vec<u8> {
+        let pixels = image::RgbaImage::from_fn(width, height, |x, y| {
+            image::Rgba([
+                (x * 255 / width.max(1)) as u8,
+                200,
+                (y * 255 / height.max(1)) as u8,
+                255,
+            ])
+        });
+        let mut bytes = Vec::new();
+        image::DynamicImage::ImageRgb8(image::DynamicImage::ImageRgba8(pixels).to_rgb8())
+            .write_to(&mut io::Cursor::new(&mut bytes), format)
+            .unwrap();
+        bytes
+    }
+
+    fn png_size(png: &[u8]) -> (u32, u32) {
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+        let word = |at: usize| u32::from_be_bytes(png[at..at + 4].try_into().unwrap());
+        (word(16), word(20))
+    }
+
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = !0u32;
+        for byte in bytes {
+            crc ^= u32::from(*byte);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 {
+                    (crc >> 1) ^ 0xEDB8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+
+    #[test]
+    fn covers_are_decoded_scaled_and_reencoded_as_png() {
+        for format in [
+            image::ImageFormat::Png,
+            image::ImageFormat::Jpeg,
+            image::ImageFormat::Gif,
+            image::ImageFormat::WebP,
+        ] {
+            let png = cover_png_from_bytes(&test_image(64, 96, format)).unwrap();
+            assert_eq!(png_size(&png), (64, 96), "{format:?}");
+        }
+        // Large images are scaled down to fit 600 × 900, keeping their shape.
+        let (width, height) = png_size(
+            &cover_png_from_bytes(&test_image(2400, 1200, image::ImageFormat::Png)).unwrap(),
+        );
+        assert!(
+            width <= COVER_WIDTH && height <= COVER_HEIGHT,
+            "{width}x{height}"
+        );
+        assert_eq!((width, height), (600, 300));
+    }
+
+    #[test]
+    fn hostile_cover_files_are_refused() {
+        for bytes in [
+            &b""[..],
+            b"<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>",
+            b"<!doctype html><title>not an image</title>",
+            b"\x89PNG\r\n\x1a\n truncated",
+            b"GIF89a broken",
+        ] {
+            assert!(cover_png_from_bytes(bytes).is_err(), "{bytes:?}");
+        }
+        // A valid PNG header announcing a 9000 × 9000 image is refused before decoding pixels.
+        let mut bomb = test_image(4, 4, image::ImageFormat::Png);
+        bomb[16..20].copy_from_slice(&9000u32.to_be_bytes());
+        bomb[20..24].copy_from_slice(&9000u32.to_be_bytes());
+        let crc = crc32(&bomb[12..29]);
+        bomb[29..33].copy_from_slice(&crc.to_be_bytes());
+        let error = cover_png_from_bytes(&bomb).unwrap_err().to_string();
+        assert!(
+            error.contains("too large") || error.contains("damaged"),
+            "{error}"
+        );
+        // Files over the size cap are refused without being read in full.
+        let dir = tempfile::tempdir().unwrap();
+        let big = dir.path().join("big.png");
+        File::create(&big)
+            .unwrap()
+            .set_len(MAX_COVER_SOURCE_BYTES + 1)
+            .unwrap();
+        assert!(cover_png_from_file(&big).is_err());
+        assert!(
+            cover_png_from_file(dir.path()).is_err(),
+            "a folder is not a cover"
+        );
+    }
+
+    #[test]
+    fn custom_covers_can_be_set_undone_and_reset() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let library = Library::open(&root).unwrap();
+        let game = html_game(
+            dir.path(),
+            &library,
+            "Cover Test.html",
+            b"<html>covers</html>",
+        );
+        assert_eq!(library.scan().unwrap().games[0].cover, None);
+        assert!(library.cover_file(game.id).is_none());
+        assert!(library.undo_cover(game.id).is_err(), "nothing to undo yet");
+
+        let first = dir.path().join("first.png");
+        fs::write(&first, test_image(30, 45, image::ImageFormat::Png)).unwrap();
+        let second = dir.path().join("second.jpg");
+        fs::write(&second, test_image(50, 75, image::ImageFormat::Jpeg)).unwrap();
+        library.set_cover(game.id, &first).unwrap();
+        let entry = &library.scan().unwrap().games[0];
+        assert_eq!(entry.cover, Some("custom"));
+        assert!(!entry.cover_undo);
+        let stored = library.cover_file(game.id).unwrap();
+        assert!(
+            stored.starts_with(root.join("games")),
+            "covers live in the library"
+        );
+        assert_eq!(png_size(&fs::read(&stored).unwrap()), (30, 45));
+
+        library.set_cover(game.id, &second).unwrap();
+        assert_eq!(
+            png_size(&fs::read(library.cover_file(game.id).unwrap()).unwrap()),
+            (50, 75)
+        );
+        assert!(library.scan().unwrap().games[0].cover_undo);
+        library.undo_cover(game.id).unwrap();
+        assert_eq!(
+            png_size(&fs::read(library.cover_file(game.id).unwrap()).unwrap()),
+            (30, 45)
+        );
+        library.undo_cover(game.id).unwrap();
+        assert_eq!(
+            png_size(&fs::read(library.cover_file(game.id).unwrap()).unwrap()),
+            (50, 75)
+        );
+
+        library.reset_cover(game.id).unwrap();
+        assert_eq!(library.scan().unwrap().games[0].cover, None);
+        library.undo_cover(game.id).unwrap();
+        assert_eq!(library.scan().unwrap().games[0].cover, Some("custom"));
+
+        // A rejected image leaves the current cover alone, and nothing is staged.
+        let bad = dir.path().join("bad.png");
+        fs::write(&bad, b"<html>not an image</html>").unwrap();
+        assert!(library.set_cover(game.id, &bad).is_err());
+        assert_eq!(
+            png_size(&fs::read(library.cover_file(game.id).unwrap()).unwrap()),
+            (50, 75)
+        );
+        let leftovers = fs::read_dir(root.join("games").join(game.id.to_string()))
+            .unwrap()
+            .filter(|item| {
+                item.as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .ends_with(".tmp")
+            })
+            .count();
+        assert_eq!(leftovers, 0);
+        assert!(library.set_cover(Uuid::new_v4(), &first).is_err());
+    }
+
+    #[test]
+    fn a_game_icon_becomes_its_automatic_cover_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let library = Library::open(&root).unwrap();
+        let source = dir.path().join("Icon Game.zip");
+        let icon = test_image(128, 128, image::ImageFormat::Png);
+        archive(
+            &source,
+            &[
+                ("index.html", b"<html>icon</html>".as_slice()),
+                ("icon.png", icon.as_slice()),
+            ],
+        );
+        let game = library.import(&source).unwrap();
+        let entry = &library.scan().unwrap().games[0];
+        assert_eq!(entry.cover, Some("auto"));
+        assert_eq!(
+            png_size(&fs::read(library.cover_file(game.id).unwrap()).unwrap()),
+            (128, 128)
+        );
+        // The player's own cover wins over the automatic one, and Reset returns to it.
+        let custom = dir.path().join("custom.png");
+        fs::write(&custom, test_image(20, 30, image::ImageFormat::Png)).unwrap();
+        library.set_cover(game.id, &custom).unwrap();
+        assert_eq!(library.scan().unwrap().games[0].cover, Some("custom"));
+        library.reset_cover(game.id).unwrap();
+        assert_eq!(library.scan().unwrap().games[0].cover, Some("auto"));
+
+        // A game whose "icon" is not an image gets no automatic cover, and is searched once.
+        let broken = dir.path().join("Broken Icon.zip");
+        archive(
+            &broken,
+            &[
+                ("index.html", b"<html>broken</html>".as_slice()),
+                ("icon.png", b"<script>x</script>".as_slice()),
+            ],
+        );
+        let broken = library.import(&broken).unwrap();
+        assert!(library.cover_file(broken.id).is_none());
+        assert!(
+            root.join("games")
+                .join(broken.id.to_string())
+                .join(AUTO_COVER_SEARCHED)
+                .exists()
+        );
+        library.ensure_auto_cover(broken.id).unwrap();
+        assert!(library.cover_file(broken.id).is_none());
+    }
+
+    #[test]
+    fn only_a_marked_library_counts_as_synthetic_test_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        assert!(!library.is_synthetic_test_library());
+        fs::create_dir(dir.path().join("SYNTHETIC-TEST-LIBRARY")).unwrap();
+        assert!(
+            !library.is_synthetic_test_library(),
+            "a folder is not the marker"
+        );
+        fs::remove_dir(dir.path().join("SYNTHETIC-TEST-LIBRARY")).unwrap();
+        fs::write(dir.path().join("SYNTHETIC-TEST-LIBRARY"), b"").unwrap();
+        assert!(library.is_synthetic_test_library());
+    }
+
+    #[test]
+    fn source_and_favorite_are_saved_and_validated() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let library = Library::open(&root).unwrap();
+        let game = html_game(dir.path(), &library, "Tagged.html", b"<html>tagged</html>");
+        assert_eq!(game.source, None);
+        assert!(!game.favorite);
+        assert_eq!(
+            library
+                .set_source(game.id, Some("  itch\u{7}.io "))
+                .unwrap()
+                .source
+                .as_deref(),
+            Some("itch.io")
+        );
+        assert!(library.set_source(game.id, Some(&"x".repeat(33))).is_err());
+        assert!(library.set_favorite(game.id, true).unwrap().favorite);
+        let reopened = Library::open(&root).unwrap();
+        let listed = &reopened.list().unwrap()[0];
+        assert_eq!(listed.source.as_deref(), Some("itch.io"));
+        assert!(listed.favorite);
+        assert_eq!(
+            library.set_source(game.id, Some("   ")).unwrap().source,
+            None
+        );
+        assert_eq!(library.set_source(game.id, None).unwrap().source, None);
+        assert!(library.set_favorite(Uuid::new_v4(), true).is_err());
+
+        // Manifests written before these fields existed still load.
+        let manifest = root
+            .join("games")
+            .join(game.id.to_string())
+            .join("game.json");
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        value.as_object_mut().unwrap().remove("favorite");
+        value.as_object_mut().unwrap().remove("source");
+        fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+        let legacy = &library.list().unwrap()[0];
+        assert_eq!((legacy.source.clone(), legacy.favorite), (None, false));
     }
 
     #[test]

@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<!-- The Blades, Original, and PWDS Orange styles. The default Collection style is index.html; both pages
+     share core.js, the library, and the saved preferences. -->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GameStrike</title>
+  <link rel="icon" type="image/svg+xml" href="/mark.svg">
+  <link rel="stylesheet" href="/classic.css">
+  <script src="/core.js" defer></script>
+  <script src="/classic.js" defer></script>
+</head>
+<body data-theme="lime" data-style="blades">
+  <div class="backdrop" aria-hidden="true">
+    <div class="glow"></div>
+    <div class="bokeh"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="floor"></div>
+  </div>
+
+  <div class="og-backdrop" aria-hidden="true"><span class="tube t1"></span><span class="tube t2"></span><span class="tube t3"></span><span class="tube t4"></span></div>
+
+  <!-- Startup sequences. Only the active dashboard style's sequence is shown; any input skips it. -->
+  <div id="boot" class="boot" aria-hidden="true">
+    <div class="boot-scene scene-blades">
+      <span class="ribbon r1"></span><span class="ribbon r2"></span><span class="ribbon r3"></span><span class="ribbon r4"></span><span class="ribbon r5"></span>
+      <span class="boot-flash"></span>
+      <img class="boot-mark" src="/mark.svg" alt="">
+      <div class="boot-title">GameStrike</div>
+      <div class="boot-by"><span>by</span><img src="/pwds.svg" alt="PWDS"></div>
+    </div>
+    <div class="boot-scene scene-original">
+      <span class="goo g1"></span><span class="goo g2"></span><span class="goo g3"></span>
+      <span class="otube o1"></span><span class="otube o2"></span><span class="otube o3"></span>
+      <span class="blob"></span>
+      <span class="og-core"></span>
+      <span class="white-flash"></span>
+      <img class="boot-mark" src="/mark.svg" alt="">
+      <div class="boot-title">GAMESTRIKE</div>
+      <div class="boot-by">by PWDS</div>
+    </div>
+    <div class="boot-scene scene-pwds">
+      <span class="pw-beam b1"></span><span class="pw-beam b2"></span><span class="pw-beam b3"></span><span class="pw-beam b4"></span>
+      <span class="pw-ring"></span>
+      <img class="pw-logo" src="/pwds.svg" alt="">
+      <div class="pw-presents">presents</div>
+      <img class="boot-mark" src="/mark.svg" alt="">
+      <div class="boot-title">GameStrike</div>
+    </div>
+  </div>
+
+  <div id="shell" class="shell">
+    <nav id="channels" class="channels" role="tablist" aria-label="Channels"></nav>
+
+    <div class="profile" aria-live="polite">
+      <div class="profile-text">
+        <div class="profile-name">GameStrike</div>
+        <div id="profile-sub" class="profile-sub"></div>
+      </div>
+      <div class="profile-pic"><img class="pic-mark" src="/mark.svg" alt=""><img class="pic-pwds" src="/pwds.svg" alt=""></div>
+    </div>
+
+    <main class="stage-wrap">
+      <div id="stage" class="stage" role="listbox" aria-orientation="horizontal"></div>
+      <div class="under">
+        <div id="counter" class="counter"></div>
+        <div id="under-note" class="under-note" role="status" aria-live="polite"></div>
+      </div>
+    </main>
+
+    <section id="og" class="og" aria-label="Library" hidden>
+      <div id="og-title" class="og-title"></div>
+      <svg id="og-wires" class="og-wires" aria-hidden="true"></svg>
+      <div class="og-orbits" aria-hidden="true"><span></span><span></span></div>
+      <div id="og-orb" class="og-orb" aria-hidden="true">
+        <span class="shard s1"></span><span class="shard s2"></span><span class="shard s3"></span><span class="shard s4"></span>
+        <span class="goo-shell"></span><span class="core"></span>
+      </div>
+      <div id="og-list" class="og-list" role="listbox"></div>
+      <div id="og-detail" class="og-detail" role="status" aria-live="polite"></div>
+      <section id="og-panel" class="og-panel" hidden>
+        <div class="og-panel-head"><div id="og-panel-count" class="og-panel-count"></div><div id="og-panel-title" class="og-panel-title"></div></div>
+        <div id="og-rows" class="og-rows" role="listbox"></div>
+      </section>
+      <div id="og-info" class="og-info" hidden></div>
+      <div class="og-hint back" aria-hidden="true"><span class="og-glyph">B</span><span>BACK</span></div>
+      <div class="og-hint select" aria-hidden="true"><span class="og-glyph">A</span><span>SELECT</span></div>
+    </section>
+
+    <footer class="hints" aria-hidden="true">
+      <span id="hint-a"><span class="glyph a">A</span><span class="hint-label">Select</span></span>
+      <span id="hint-x" hidden><span class="glyph x">X</span>Play with network</span>
+      <span id="hint-y" hidden><span class="glyph y">Y</span>Manage</span>
+      <span id="hint-b"><span class="glyph b">B</span>Back</span>
+      <span class="keys">Arrows move · Enter selects · N network · F2 rename · Del remove · / search</span>
+    </footer>
+
+    <div class="corner" aria-hidden="true"><span class="ripple"></span><span class="ripple two"></span><img class="corner-mark" src="/mark.svg" alt=""><img class="corner-pwds" src="/pwds.svg" alt=""></div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <div id="search-dialog" class="dialog-backdrop" hidden>
+    <form id="search-form" class="dialog" role="dialog" aria-modal="true" aria-labelledby="search-title">
+      <div class="kicker">Find a game</div>
+      <h2 id="search-title">Search your games</h2>
+      <label class="field" for="search-input"><span>Title contains</span><input id="search-input" type="search" autocomplete="off" spellcheck="false"></label>
+      <p id="search-count" class="small"></p>
+      <div class="dialog-actions">
+        <button id="search-clear" class="button" type="button">Clear search</button>
+        <button id="search-done" class="button primary" type="submit">Show games</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="network-dialog" class="dialog-backdrop" hidden>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="network-title" aria-describedby="network-copy">
+      <div class="kicker">Network access</div>
+      <h2 id="network-title">Play with network?</h2>
+      <p id="network-copy">The game will be able to contact websites and services on your network while it runs. Only allow this for games you trust. Choose offline play if you are unsure.</p>
+      <div class="dialog-actions">
+        <button id="network-cancel" class="button" type="button"><span class="glyph b" aria-hidden="true">B</span>Go back</button>
+        <button id="network-confirm" class="button primary" type="button">Allow network &amp; play</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="manage-dialog" class="dialog-backdrop" hidden>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="manage-title">
+      <div class="kicker">Manage game</div>
+      <h2 id="manage-title"></h2>
+      <p id="manage-facts" class="small"></p>
+      <div class="dialog-actions stacked">
+        <button id="manage-rename" class="button" type="button">Rename</button>
+        <button id="manage-reset" class="button" type="button">Clear saves</button>
+        <button id="manage-remove" class="button danger" type="button">Remove from library</button>
+        <button id="manage-close" class="button ghost" type="button"><span class="glyph b" aria-hidden="true">B</span>Back</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="rename-dialog" class="dialog-backdrop" hidden>
+    <form id="rename-form" class="dialog" role="dialog" aria-modal="true" aria-labelledby="rename-title">
+      <div class="kicker">Rename</div>
+      <h2 id="rename-title">Rename game</h2>
+      <label class="field" for="rename-input"><span>Title</span><input id="rename-input" maxlength="80" autocomplete="off" spellcheck="false" required></label>
+      <p id="rename-error" class="field-error" role="alert" hidden>Enter a title with 1 to 80 characters.</p>
+      <div class="dialog-actions">
+        <button id="rename-cancel" class="button" type="button">Cancel</button>
+        <button id="rename-save" class="button primary" type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="reset-dialog" class="dialog-backdrop" hidden>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="reset-title" aria-describedby="reset-copy">
+      <div class="kicker">Clear saves</div>
+      <h2 id="reset-title">Clear saves?</h2>
+      <p id="reset-copy">This deletes the game's local storage, IndexedDB, and cookies on this PC. The game itself stays in your library.</p>
+      <div class="dialog-actions">
+        <button id="reset-cancel" class="button" type="button">Keep saves</button>
+        <button id="reset-confirm" class="button danger-solid" type="button">Clear saves</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="remove-dialog" class="dialog-backdrop" hidden>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="remove-title" aria-describedby="remove-copy">
+      <div class="kicker">Remove</div>
+      <h2 id="remove-title">Remove game?</h2>
+      <p id="remove-copy">GameStrike deletes its copy of the game files. Your original download is not touched.</p>
+      <label class="check" for="remove-keep"><input id="remove-keep" type="checkbox" checked><span>Keep saves, so adding the same file again restores them</span></label>
+      <div class="dialog-actions">
+        <button id="remove-cancel" class="button" type="button">Cancel</button>
+        <button id="remove-confirm" class="button danger-solid" type="button">Remove</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="problems-dialog" class="dialog-backdrop" hidden>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="problems-title">
+      <div class="kicker">Library check</div>
+      <h2 id="problems-title">Some folders could not be read</h2>
+      <p>These folders in the library are not valid games. GameStrike leaves them untouched.</p>
+      <ul id="problems-list" class="problems"></ul>
+      <div class="dialog-actions"><button id="problems-close" class="button" type="button">Close</button></div>
+    </section>
+  </div>
+
+  <div id="about-dialog" class="dialog-backdrop" hidden>
+    <section class="dialog about" role="dialog" aria-modal="true" aria-labelledby="about-title">
+      <img class="about-mark" src="/mark.svg" alt="">
+      <h2 id="about-title">GameStrike</h2>
+      <p>A local library for the HTML games you keep. Games run in their own player window with their own saves, offline unless you allow network access.</p>
+      <div class="publisher"><span>Published by</span><img src="/pwds.svg" alt="PWDS"></div>
+      <p class="small">No account, no uploads. Imported games are not checked for safety; offline mode blocks their network requests but is not an operating-system sandbox.</p>
+      <div class="dialog-actions"><button id="close-about" class="button" type="button"><span class="glyph b" aria-hidden="true">B</span>Back</button></div>
+    </section>
+  </div>
+</body>
+</html>

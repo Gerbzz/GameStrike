@@ -37,6 +37,8 @@ trap 'rm -rf "$work"' EXIT
 library="$work/library"
 fixtures="$work/fixtures"
 mkdir -p "$library" "$fixtures"
+# Marks the capture library as synthetic test data; the launcher then shows a badge saying so.
+: >"$library/SYNTHETIC-TEST-LIBRARY"
 
 # --- Player smoke test with the exact bundled save fixture -----------------------------------
 smoke_library="$work/smoke-library"
@@ -57,18 +59,58 @@ echo "Player smoke test: the save counter persisted across two launches."
 
 # --- Launcher captures ------------------------------------------------------------------------
 titles=(
-  'Orbit Garden (Synthetic Test)'
-  'Pixel Harbor (Synthetic Test)'
-  'Lantern Maze (Synthetic Test)'
-  'Comet Courier (Synthetic Test)'
-  'Tiny Tactics (Synthetic Test)'
-  'A Deliberately Long Title For Layout Checks In The Library (Synthetic Test)'
+  'Orbit Garden'
+  'Pixel Harbor'
+  'Lantern Maze'
+  'Comet Courier'
+  'Tiny Tactics'
+  'The Long Voyage of the Lantern Keepers'
+  'Neon Drift'
+  'Moss Kingdom'
+  'Frost Relay'
+  'Ember Forge'
+  'Glass Canyon'
+  'Rocket Bakery'
+  'Deep Reef'
+  'Hollow Moon'
+  'Turbo Turnip'
+  'Circuit Monk'
+  'Paper Pilots'
+  'Starfall Inn'
+  'Quiet Lighthouse'
+  'Volt Runner'
 )
 for title in "${titles[@]}"; do
   file="$fixtures/$title.html"
   printf '<!doctype html><title>%s</title><h1>%s</h1><p>GameStrike synthetic test fixture.</p>' "$title" "$title" >"$file"
   "$cli" --library "$library" import "$file"
 done
+
+# Give the synthetic games real library data: sources, favorites, a custom cover, and a ZIP whose
+# own icon becomes its automatic cover. Every image is generated here; none is third-party art.
+id_of() { "$cli" --library "$library" list | grep -F "$1" | cut -f1 | head -1; }
+"$cli" --library "$library" set-source "$(id_of 'Orbit Garden')" itch.io
+"$cli" --library "$library" set-source "$(id_of 'Pixel Harbor')" itch.io
+"$cli" --library "$library" set-source "$(id_of 'Lantern Maze')" Newgrounds
+for title in 'Neon Drift' 'Deep Reef' 'Volt Runner'; do "$cli" --library "$library" set-source "$(id_of "$title")" itch.io; done
+for title in 'Moss Kingdom' 'Paper Pilots'; do "$cli" --library "$library" set-source "$(id_of "$title")" Newgrounds; done
+for title in 'Ember Forge' 'Starfall Inn'; do "$cli" --library "$library" set-source "$(id_of "$title")" 'Game jam'; done
+"$cli" --library "$library" favorite "$(id_of 'Hollow Moon')" on
+"$cli" --library "$library" favorite "$(id_of 'Orbit Garden')" on
+"$cli" --library "$library" favorite "$(id_of 'Comet Courier')" on
+node "$repo/scripts/make-test-cover.cjs" "$work/cover.png" 125
+"$cli" --library "$library" set-cover "$(id_of 'Pixel Harbor')" "$work/cover.png"
+icon_game="$work/icon-game"
+mkdir -p "$icon_game"
+printf '<!doctype html><title>Signal Tower</title><h1>Signal Tower</h1>' >"$icon_game/index.html"
+node "$repo/scripts/make-test-cover.cjs" "$icon_game/icon.png" 280
+node "$repo/scripts/make-test-zip.cjs" "$work/Signal Tower.zip" "$icon_game/index.html" "$icon_game/icon.png"
+"$cli" --library "$library" import "$work/Signal Tower.zip"
+"$cli" --library "$library" list | tee "$out_dir/library-list.txt"
+grep -F 'Signal Tower' "$out_dir/library-list.txt" | grep -q 'cover: auto' \
+  || { echo "the ZIP's icon did not become its automatic cover" >&2; exit 1; }
+grep -F 'Pixel Harbor' "$out_dir/library-list.txt" | grep -q 'cover: custom' \
+  || { echo "the custom cover was not stored" >&2; exit 1; }
 
 # Reads the width and height from a PNG's IHDR chunk.
 png_size() {
@@ -100,20 +142,34 @@ capture() {
   local sum
   sum=$( (command -v sha256sum >/dev/null && sha256sum "$png" || shasum -a 256 "$png") | cut -d' ' -f1)
   echo "$name : ${width}x${height} sha256=$sum"
+  grep -h "scene renderer" "$out_dir/$name.out.txt" | sed "s/^/  /" || true
 }
 
+# The Collection style (the default page) in PWDS Orange, then each of its views.
 capture "$library" library
-capture "$library" long-title --capture-view long
-capture "$library" network-dialog --capture-view launch
-capture "$library" manage --capture-view manage
-capture "$library" about --capture-view about
-# Baseline set for the Blades, Original, and PWDS Orange styles. Later branches compare their own
-# captures against these exact file names to show the styles did not change.
-for pair in legacy-blades:library legacy-system:system legacy-manage:manage legacy-original:original   legacy-original-games:original-games legacy-pwds:pwds legacy-boot-blades:boot-blades   legacy-boot-original:boot-original legacy-boot-pwds:boot-pwds; do
+for pair in focus:focus green:green controller:controller filters:filters search:search favorites:favorites long-title:long detail:detail saves:saves moving:moving settings:settings network-dialog:launch about:about boot:boot; do
   capture "$library" "${pair%%:*}" --capture-view "${pair#*:}"
 done
 capture "$library" minimum --window-size 880 620
+
+# The Blades, Original, and PWDS Orange styles, on a library built exactly like the one the
+# baseline run used (six games named "(Synthetic Test)", nothing else set), and captured right
+# after it is built, as the baseline was. These file names match the baseline run's, so the two
+# sets can be compared image by image.
+legacy="$work/legacy-library"
+mkdir -p "$legacy"
+for title in 'Orbit Garden' 'Pixel Harbor' 'Lantern Maze' 'Comet Courier' 'Tiny Tactics' \
+  'A Deliberately Long Title For Layout Checks In The Library'; do
+  file="$fixtures/$title (Synthetic Test).html"
+  printf '<!doctype html><title>%s</title><h1>%s</h1><p>GameStrike synthetic test fixture.</p>' \
+    "$title (Synthetic Test)" "$title (Synthetic Test)" >"$file"
+  "$cli" --library "$legacy" import "$file"
+done
+for pair in legacy-blades:blades legacy-system:system legacy-manage:blades-manage legacy-original:original legacy-original-games:original-games legacy-pwds:pwds legacy-boot-blades:boot-blades legacy-boot-original:boot-original legacy-boot-pwds:boot-pwds; do
+  capture "$legacy" "${pair%%:*}" --capture-view "${pair#*:}"
+done
 empty="$work/empty-library"
 mkdir -p "$empty"
+: >"$empty/SYNTHETIC-TEST-LIBRARY"
 capture "$empty" empty
 echo "Launcher captures are in $out_dir"
