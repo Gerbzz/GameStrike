@@ -861,9 +861,12 @@
     // Captures start from the same look and never change saved preferences.
     state.capturing = true;
     if (view === "boot") {
-      el.boot.style.setProperty("--seek", "2.9s");
-      el.boot.classList.add("frozen");
+      // Shows the startup sequence near its end, even if it already finished on a fast machine.
       clearTimeout(bootTimer);
+      el.boot.style.setProperty("--seek", "2.9s");
+      el.boot.classList.remove("done");
+      el.boot.classList.add("frozen");
+      setView("boot", true);
       return;
     }
     finishBoot();

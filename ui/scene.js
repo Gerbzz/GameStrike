@@ -21,10 +21,10 @@ const ORB = new THREE.Vector3(2.7, 0.25, -1.6);
 const VIEWS = {
   boot: { position: [2.9, 0.35, 1.25], target: [2.7, 0.25, -1.6] },
   library: { position: [-0.4, 0.6, 10.5], target: [-0.4, 0.1, -1.6] },
-  detail: { position: [4.6, 1.0, 3.4], target: [2.2, 0.2, -1.4] },
+  detail: { position: [6.4, 1.5, 5.2], target: [1.6, 0.2, -1.8] },
   saves: { position: [1.0, -0.6, 6.4], target: [2.3, 0.1, -1.6] },
   settings: { position: [-6.2, 1.8, 4.6], target: [-0.6, 0.3, -2.4] },
-  about: { position: [3.3, 0.45, 2.2], target: [2.7, 0.25, -1.6] },
+  about: { position: [4.2, 0.6, 3.6], target: [2.7, 0.25, -1.6] },
 };
 // Quality steps; the renderer drops a step whenever frames take too long.
 const QUALITY = [
