@@ -516,7 +516,12 @@
     const cover = document.createElement("div");
     cover.className = "tile";
     cover.append(coverNode(game));
-    $("detail-cover").replaceChildren(cover);
+    const reflection = document.createElement("div");
+    reflection.className = "tile reflection";
+    reflection.setAttribute("aria-hidden", "true");
+    reflection.append(coverNode(game));
+    if (!core.coverUrl(game)) { cover.classList.add("art-cover"); reflection.classList.add("art-cover"); }
+    $("detail-cover").replaceChildren(cover, reflection);
     $("detail-kicker").textContent = core.cleanSource(game.source) || sourceLabel(game);
     $("detail-title").textContent = game.title;
     const facts = [

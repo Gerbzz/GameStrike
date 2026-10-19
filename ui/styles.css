@@ -116,9 +116,9 @@ body.collapsed .collapse svg { transform: rotate(180deg); }
 body.collapsed .search { display: none; }
 
 .filters { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 10px; scrollbar-width: thin; }
-.filter-group { margin: 18px 12px 6px; font-family: var(--display); font-size: 9.5px; font-weight: 700; letter-spacing: .24em; text-transform: uppercase; color: var(--muted); }
+.filter-group { margin: 14px 12px 4px; font-family: var(--display); font-size: 9.5px; font-weight: 700; letter-spacing: .24em; text-transform: uppercase; color: var(--muted); }
 body.collapsed .filter-group { visibility: hidden; height: 4px; margin: 8px 0; }
-.side-item { position: relative; width: 100%; display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border: 0; border-radius: 15px; background: none; text-align: left; font-family: var(--display); font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); transition: background .2s, color .2s, box-shadow .2s, transform .25s var(--ease); }
+.side-item { position: relative; width: 100%; display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 0 12px; border: 0; border-radius: 14px; background: none; text-align: left; font-family: var(--display); font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); transition: background .2s, color .2s, box-shadow .2s, transform .25s var(--ease); }
 .side-item svg { width: 22px; height: 22px; flex: none; }
 .side-item span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-item .count { flex: none; font-family: var(--ui); font-size: 12px; font-weight: 700; letter-spacing: 0; opacity: .8; }
@@ -142,16 +142,16 @@ body.collapsed .side-item span, body.collapsed .side-item .count { display: none
 .chip:hover { color: #fff; }
 .chip:disabled { opacity: .55; cursor: default; }
 
-.grid { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--tile-min), 1fr)); gap: var(--gap); align-content: start; padding: 40px 26px 40px; scrollbar-width: thin; scroll-padding: 34px; perspective: 1100px; animation: rise .9s .45s var(--blade) both; }
+.grid { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--tile-min), 1fr)); gap: var(--gap); align-content: start; padding: 58px 30px 44px; scrollbar-width: thin; scroll-padding: 34px; perspective: 1100px; animation: rise .9s .45s var(--blade) both; }
 .tile { position: relative; aspect-ratio: 2 / 3; padding: 0; border: 0; border-radius: 16px; background: #081208; overflow: hidden; text-align: left; transform-style: preserve-3d;
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 10%), 0 12px 26px rgb(0 0 0 / 60%);
   transition: transform .38s var(--blade), box-shadow .3s var(--ease), filter .3s var(--ease); }
 .tile:hover { filter: brightness(1.1); }
 /* The focused tile lifts toward the camera with a glass and green-glow rim and a light sweep;
    the rest of the wall recedes a little, its neighbours least. */
-.grid.has-focus .tile:not(.focused) { transform: translate3d(0, 0, -60px) scale(.95); filter: brightness(.56) saturate(.75); }
-.grid.has-focus .tile.near:not(.focused) { transform: translate3d(0, 0, -30px) scale(.97); filter: brightness(.72) saturate(.85); }
-.tile.focused { z-index: 3; transform: translate3d(0, -12px, 120px) scale(1.05) rotateX(5deg); filter: brightness(1.08);
+.grid.has-focus .tile:not(.focused) { transform: scale(.93); filter: brightness(.56) saturate(.75); }
+.grid.has-focus .tile.near:not(.focused) { transform: scale(.96); filter: brightness(.72) saturate(.85); }
+.tile.focused { z-index: 3; transform: translate3d(0, 0, 110px) scale(1.04) rotateX(4deg); filter: brightness(1.08);
   box-shadow: 0 0 0 2px #f4ffee, 0 0 0 5px var(--green), 0 0 50px 12px var(--glow), 0 44px 70px rgb(0 0 0 / 85%); }
 .tile.focused::before { content: ""; position: absolute; inset: 0; z-index: 2; border-radius: inherit; padding: 3px; background: var(--chrome); pointer-events: none; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 55%), inset 0 0 22px rgb(141 255 74 / 35%);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); }
@@ -197,11 +197,13 @@ body.collapsed .side-item span, body.collapsed .side-item .count { display: none
 /* Visible at once when opening, so focus can move in; hidden only after the slide-out. */
 .detail.open { transform: none; opacity: 1; visibility: visible; transition: transform .8s var(--blade), opacity .45s, visibility 0s; }
 /* Hero: the box art standing on a glass floor with its reflection, beside the title and Play. */
-.detail-hero { flex: none; display: grid; grid-template-columns: minmax(130px, 34%) 1fr; gap: 22px; padding: 24px 24px 38px; background: radial-gradient(120% 90% at 20% 0%, rgb(141 255 74 / 14%), transparent 60%); border-bottom: 1px solid rgb(255 255 255 / 10%); box-shadow: inset 0 -1px 0 rgb(0 0 0 / 50%); }
-.detail-box { position: relative; align-self: start; }
+.detail-hero { flex: none; display: grid; grid-template-columns: minmax(130px, 34%) 1fr; gap: 22px; padding: 24px 24px 18px; background: radial-gradient(120% 90% at 20% 0%, rgb(141 255 74 / 14%), transparent 60%); border-bottom: 1px solid rgb(255 255 255 / 10%); box-shadow: inset 0 -1px 0 rgb(0 0 0 / 50%); }
+.detail-box { position: relative; align-self: start; margin-bottom: 56px; }
 .detail-box .tile { width: 100%; transform: perspective(700px) rotateY(10deg); filter: none; box-shadow: 0 0 0 1px rgb(255 255 255 / 30%), 0 0 30px rgb(120 255 70 / 25%), 0 18px 30px rgb(0 0 0 / 70%); pointer-events: none;
-  -webkit-box-reflect: below 6px linear-gradient(transparent 62%, rgb(255 255 255 / 26%)); }
+ }
 .detail-box .tile-label { display: none; }
+/* A mirrored copy under the box art, fading out, as a reflection on the glass floor. */
+.detail-box .reflection { position: absolute; left: 0; right: 0; top: calc(100% + 6px); aspect-ratio: 2 / 3; transform: perspective(700px) rotateY(10deg) scaleY(-1); opacity: .32; pointer-events: none; -webkit-mask: linear-gradient(0deg, #000 0%, transparent 34%); mask: linear-gradient(0deg, #000 0%, transparent 34%); box-shadow: none; }
 .detail-head { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .detail-head h2 { margin: 0; font-family: var(--display); font-size: clamp(18px, 2vw, 24px); font-weight: 900; letter-spacing: .03em; line-height: 1.2; overflow-wrap: anywhere; text-shadow: 0 0 18px rgb(141 255 74 / 35%), 0 2px 0 rgb(0 0 0 / 70%); }
 .detail-head .note { margin: 0; }
