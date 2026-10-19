@@ -70,6 +70,12 @@ jobs:
       - name: Real player isolation test
         if: runner.os != 'Linux'
         run: cargo test --locked --features launcher --test player_isolation -- --ignored --nocapture
+      - name: macOS crash reports from GameStrike
+        if: runner.os == 'macOS' && failure()
+        run: |
+          for report in $(ls -t "$HOME"/Library/Logs/DiagnosticReports/gamestrike* 2>/dev/null | head -2); do
+            echo "== $report"; head -c 12000 "$report"; echo
+          done
       - name: WebKit data stores left after the macOS test
         if: runner.os == 'macOS' && always()
         run: find "$HOME/Library/WebKit" -maxdepth 4 -type d 2>/dev/null | head -50 || true
