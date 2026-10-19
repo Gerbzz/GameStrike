@@ -1,5 +1,7 @@
 <!doctype html>
 <html lang="en">
+<!-- The Collection style (the default), in PWDS Orange or Green. The earlier Blades, Original, and
+     PWDS Orange styles are classic.html; style-gate.js opens that page when one of them is saved. -->
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,22 +10,18 @@
   <script src="/style-gate.js"></script>
   <link rel="stylesheet" href="/styles.css">
   <script src="/core.js" defer></script>
+  <script src="/frame.js" defer></script>
+  <script src="/covers.js" defer></script>
   <script src="/app.js" defer></script>
   <script type="module" src="/scene.js"></script>
 </head>
-<body data-view="boot">
-  <!-- The 3D scene (scene.js, WebGL with bloom) renders here. It is decoration only and never shows game content. -->
+<body data-view="boot" data-zone="grid" data-variant="orange" data-input="pad">
+  <!-- The dome: a WebGL net on the inside of a sphere, the glass tubes around the frame, and the
+       detail cradle (scene.js). Decoration only; it never shows game content except a cover. -->
   <canvas id="scene" class="scene" aria-hidden="true"></canvas>
-  <!-- CSS stand-in shown until the scene starts, or if it cannot start. -->
-  <div class="ambient" aria-hidden="true">
-    <div class="energy"></div>
-    <div class="swirl"></div>
-    <div class="orb"></div>
-    <div class="bloom"></div>
-  </div>
   <div class="vignette" aria-hidden="true"></div>
 
-  <!-- Startup: the GameStrike mark forms inside a glowing core. Any key, click, or button skips it. -->
+  <!-- Startup: the GameStrike mark forms inside the emblem orb. Any key, click, or button skips it. -->
   <div id="boot" class="boot" aria-hidden="true">
     <span class="boot-ring r1"></span><span class="boot-ring r2"></span><span class="boot-ring r3"></span>
     <span class="boot-core"></span>
@@ -32,190 +30,202 @@
     <div class="boot-by">by <img src="/pwds.svg" alt="PWDS"></div>
   </div>
 
-  <div id="app" class="app">
-    <aside id="sidebar" class="sidebar glass" aria-label="Library">
-      <div class="side-top">
-        <button id="collapse" class="collapse" type="button" aria-label="Collapse the sidebar" aria-expanded="true" aria-controls="sidebar">
-          <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
-        </button>
-        <label class="search" for="search">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg>
-          <input id="search" type="search" placeholder="SEARCH" autocomplete="off" spellcheck="false" aria-label="Search games by title" maxlength="80">
-        </label>
-      </div>
-      <nav id="filters" class="filters" aria-label="Filters"></nav>
-      <div class="side-bottom">
-        <button id="add-game" class="side-item" type="button" aria-label="Add a game">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Add game</span>
-        </button>
-        <button id="settings" class="side-item" type="button" aria-label="Settings">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg><span>Settings</span>
-        </button>
-        <button id="power" class="side-item" type="button" aria-label="Power: close GameStrike">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg><span>Power</span>
-        </button>
-      </div>
-    </aside>
+  <!-- The stage moves in CSS 3D in step with the WebGL camera, so the frame floats in the dome. -->
+  <div id="stage" class="stage">
+    <div id="frame" class="frame">
+      <svg id="frame-art" class="frame-art" aria-hidden="true"></svg>
 
-    <main class="library" aria-labelledby="view-title">
-      <header class="lib-head">
-        <div class="head-text">
-          <h1 id="view-title" class="view-title">All games</h1>
-          <p id="view-count" class="view-count" aria-live="polite"></p>
-        </div>
+      <div class="emblem" aria-hidden="true">
+        <span class="emblem-glass"></span>
+        <img class="emblem-logo pwds" src="/pwds.svg" alt="">
+        <img class="emblem-logo mark" src="/mark.svg" alt="">
+        <span class="emblem-shine"></span>
+      </div>
+      <header class="head">
+        <h1 id="view-title" class="head-title">Game Collection</h1>
+        <p id="view-count" class="head-count" aria-live="polite"></p>
         <!-- Shown only for a library marked as synthetic test data, such as the CI capture library. -->
         <div id="synthetic" class="synthetic" hidden>Synthetic test library</div>
-        <button id="sort" class="chip glass" type="button"></button>
       </header>
-      <div id="grid" class="grid" role="listbox" aria-labelledby="view-title"></div>
-      <div id="empty" class="empty glass" hidden>
-        <div class="empty-mark" aria-hidden="true"><img src="/mark.svg" alt=""></div>
-        <h2 id="empty-title"></h2>
-        <p id="empty-copy"></p>
-        <button id="empty-action" class="button primary" type="button"></button>
-      </div>
-      <div id="status" class="status" role="status" aria-live="polite"></div>
-    </main>
+
+      <aside id="sidebar" class="sidebar" aria-label="Library">
+        <label class="row search-row" for="search">
+          <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 5.5 5.5"/></svg>
+          <input id="search" type="search" placeholder="Search games" autocomplete="off" spellcheck="false" aria-label="Search games by title" maxlength="80">
+        </label>
+        <nav id="filters" class="filters" aria-label="Filters"></nav>
+        <div class="side-scroll" aria-hidden="true"><span class="up">▲</span><span class="down">▼</span></div>
+        <div class="side-bottom">
+          <button id="add-game" class="row" type="button" aria-label="Add a game">
+            <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="row-label">Add game</span>
+          </button>
+          <button id="settings" class="row" type="button" aria-label="Settings">
+            <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3h3.4l.5 2.6 1.9.8 2.2-1.5 2.4 2.4-1.5 2.2.8 1.9 2.6.5v3.4l-2.6.5-.8 1.9 1.5 2.2-2.4 2.4-2.2-1.5-1.9.8-.5 2.6h-3.4l-.5-2.6-1.9-.8-2.2 1.5-2.4-2.4 1.5-2.2-.8-1.9L3 13.7v-3.4l2.6-.5.8-1.9-1.5-2.2 2.4-2.4 2.2 1.5 1.9-.8z"/><circle cx="12" cy="12" r="3.2"/></svg><span class="row-label">Settings</span>
+          </button>
+          <button id="power" class="row" type="button" aria-label="Power: close GameStrike">
+            <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg><span class="row-label">Power</span>
+          </button>
+        </div>
+      </aside>
+
+      <main id="library" class="library" aria-labelledby="view-title">
+        <div id="grid" class="grid" role="listbox" aria-labelledby="view-title"></div>
+        <div id="empty" class="empty" hidden>
+          <img class="empty-mark" src="/mark.svg" alt="">
+          <h2 id="empty-title"></h2>
+          <p id="empty-copy"></p>
+          <button id="empty-action" class="slab primary" type="button"></button>
+        </div>
+      </main>
+
+      <!-- Game detail: the cover in its cradle (WebGL, or this CSS stand-in), actions on the left, and
+           the info panel. Saves replaces the info panel. -->
+      <section id="detail" class="detail" aria-labelledby="detail-title" aria-hidden="true" inert>
+        <div class="detail-list" id="detail-actions">
+          <button id="d-play" class="slab primary" type="button">Play offline</button>
+          <button id="d-network" class="slab" type="button">Play with network…</button>
+          <button id="d-favorite" class="slab" type="button" aria-pressed="false"></button>
+          <button id="d-cover" class="slab" type="button">Set cover image…</button>
+          <button id="d-undo-cover" class="slab" type="button">Undo cover change</button>
+          <button id="d-reset-cover" class="slab" type="button">Use automatic cover</button>
+          <button id="d-source" class="slab" type="button">Set source…</button>
+          <button id="d-rename" class="slab" type="button">Rename</button>
+          <button id="d-saves" class="slab" type="button">Manage saves</button>
+          <button id="d-close" class="slab ghost" type="button">Back</button>
+        </div>
+        <div id="cradle-fallback" class="cradle-fallback" aria-hidden="true"><div class="cradle-card"></div></div>
+        <div id="info" class="info">
+          <div class="kicker" id="detail-kicker"></div>
+          <h2 id="detail-title"></h2>
+          <dl id="detail-facts" class="facts"></dl>
+          <p id="detail-note" class="note"></p>
+        </div>
+        <div id="saves" class="info saves" hidden>
+          <div class="kicker">Saves</div>
+          <h2 id="saves-title"></h2>
+          <dl id="saves-facts" class="facts"></dl>
+          <div class="saves-actions">
+            <button id="s-clear" class="slab danger" type="button">Clear saves</button>
+            <button id="s-remove" class="slab danger" type="button">Remove from library</button>
+            <button id="s-back" class="slab ghost" type="button">Back to game</button>
+          </div>
+        </div>
+      </section>
+
+      <footer class="bottom">
+        <div class="now" aria-live="polite">
+          <div id="now-title" class="now-title"></div>
+          <div class="now-status"><svg id="now-icon" class="now-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="8"/><rect x="3" y="13" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/></svg><span id="now-status"></span></div>
+        </div>
+        <!-- Prompts for the input in use: ringed controller buttons after pad input, keys after keyboard input. -->
+        <div class="prompts" aria-hidden="true">
+          <span class="prompt" data-button="a"><span class="ring a">A</span><kbd class="key" id="key-a">Enter</kbd><span class="prompt-label" id="label-a">Select</span></span>
+          <span class="prompt" data-button="b"><span class="ring b">B</span><kbd class="key" id="key-b">Esc</kbd><span class="prompt-label" id="label-b">Back</span></span>
+          <span class="prompt" data-button="x"><span class="ring x">X</span><kbd class="key" id="key-x">Tab</kbd><span class="prompt-label" id="label-x">Filter</span></span>
+          <span class="prompt" data-button="y"><span class="ring y">Y</span><kbd class="key" id="key-y">S</kbd><span class="prompt-label" id="label-y">Sort</span></span>
+        </div>
+      </footer>
+    </div>
   </div>
 
-  <!-- Outside the 3D stage, so it can fly in while the library recedes behind it. -->
-  <aside id="detail" class="detail glass" aria-labelledby="detail-title" aria-hidden="true" inert>
-    <div class="detail-hero">
-      <div class="detail-box" id="detail-cover"></div>
-      <div class="detail-head">
-        <div class="kicker" id="detail-kicker"></div>
-        <h2 id="detail-title"></h2>
-        <p id="detail-note" class="note"></p>
-        <button id="d-play" class="button primary hero" type="button"><span class="glyph a pad" aria-hidden="true">A</span><kbd class="key" aria-hidden="true">Enter</kbd>Play offline</button>
-        <button id="d-network" class="button" type="button"><span class="glyph x pad" aria-hidden="true">X</span><kbd class="key" aria-hidden="true">N</kbd>Play with network…</button>
-      </div>
-    </div>
-    <div class="detail-body">
-      <dl id="detail-facts" class="facts"></dl>
-      <div class="detail-actions" id="detail-actions">
-        <button id="d-favorite" class="button" type="button" aria-pressed="false"></button>
-        <button id="d-cover" class="button" type="button">Set cover image…</button>
-        <button id="d-undo-cover" class="button" type="button">Undo cover change</button>
-        <button id="d-reset-cover" class="button" type="button">Use automatic cover</button>
-        <button id="d-source" class="button" type="button">Set source…</button>
-        <button id="d-rename" class="button" type="button">Rename</button>
-        <button id="d-reset" class="button" type="button">Clear saves</button>
-        <button id="d-remove" class="button danger" type="button">Remove from library</button>
-        <button id="d-close" class="button ghost" type="button"><span class="glyph b pad" aria-hidden="true">B</span><kbd class="key" aria-hidden="true">Esc</kbd>Back</button>
-      </div>
-    </div>
-  </aside>
-
-  <!-- Its own strip at the bottom: prompts for the input in use (keyboard keys or controller buttons). -->
-  <footer class="hints" aria-hidden="true">
-    <span class="prompt"><span class="glyph a pad">A</span><kbd class="key">Enter</kbd><span id="hint-a">Play</span></span>
-    <span class="prompt"><span class="glyph x pad">X</span><kbd class="key">N</kbd>Network</span>
-    <span class="prompt"><span class="glyph y pad">Y</span><kbd class="key">I</kbd>Details</span>
-    <span class="prompt"><span class="glyph b pad">B</span><kbd class="key">Esc</kbd>Back</span>
-    <span class="prompt key-only"><kbd class="key">F</kbd>Favorite</span>
-    <span class="prompt key-only"><kbd class="key">/</kbd>Search</span>
-    <span class="prompt key-only wide"><kbd class="key">[</kbd>Sidebar</span>
-    <span class="prompt key-only wide"><kbd class="key">M</kbd>Sound</span>
-  </footer>
-
-  <div id="toast" class="toast glass" role="status" aria-live="polite" hidden></div>
+  <div id="toast" class="toast panel" role="status" aria-live="polite" hidden></div>
 
   <div id="network-dialog" class="dialog-backdrop" hidden>
-    <section class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="network-title" aria-describedby="network-copy">
+    <section class="dialog panel" role="dialog" aria-modal="true" aria-labelledby="network-title" aria-describedby="network-copy">
       <div class="kicker">Network access</div>
       <h2 id="network-title">Play with network?</h2>
       <p id="network-copy">The game will be able to contact websites and services on your network while it runs. Only allow this for games you trust. Choose offline play if you are unsure.</p>
       <div class="dialog-actions">
-        <button id="network-cancel" class="button" type="button"><span class="glyph b pad" aria-hidden="true">B</span><kbd class="key" aria-hidden="true">Esc</kbd>Go back</button>
-        <button id="network-confirm" class="button primary" type="button">Allow network &amp; play</button>
+        <button id="network-cancel" class="slab" type="button">Go back</button>
+        <button id="network-confirm" class="slab primary" type="button">Allow network &amp; play</button>
       </div>
     </section>
   </div>
 
   <div id="rename-dialog" class="dialog-backdrop" hidden>
-    <form id="rename-form" class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="rename-title">
+    <form id="rename-form" class="dialog panel" role="dialog" aria-modal="true" aria-labelledby="rename-title">
       <div class="kicker">Rename</div>
       <h2 id="rename-title">Rename game</h2>
       <label class="field" for="rename-input"><span>Title</span><input id="rename-input" maxlength="80" autocomplete="off" spellcheck="false" required></label>
       <p id="rename-error" class="field-error" role="alert" hidden>Enter a title with 1 to 80 characters.</p>
       <div class="dialog-actions">
-        <button id="rename-cancel" class="button" type="button">Cancel</button>
-        <button id="rename-save" class="button primary" type="submit">Save</button>
+        <button id="rename-cancel" class="slab" type="button">Cancel</button>
+        <button id="rename-save" class="slab primary" type="submit">Save</button>
       </div>
     </form>
   </div>
 
   <div id="source-dialog" class="dialog-backdrop" hidden>
-    <form id="source-form" class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="source-title" aria-describedby="source-copy">
+    <form id="source-form" class="dialog panel" role="dialog" aria-modal="true" aria-labelledby="source-title" aria-describedby="source-copy">
       <div class="kicker">Source</div>
       <h2 id="source-title">Where is this game from?</h2>
-      <p id="source-copy" class="small">Optional. For example itch.io, Newgrounds, or a friend's name. Games with the same source get their own filter in the sidebar. Leave it empty to remove it.</p>
+      <p id="source-copy" class="small">Optional. For example itch.io, Newgrounds, or a friend's name. Games with the same source get their own row in the sidebar. Leave it empty to remove it.</p>
       <label class="field" for="source-input"><span>Source</span><input id="source-input" maxlength="32" autocomplete="off" spellcheck="false"></label>
       <p id="source-error" class="field-error" role="alert" hidden>Use up to 32 characters.</p>
       <div class="dialog-actions">
-        <button id="source-cancel" class="button" type="button">Cancel</button>
-        <button id="source-save" class="button primary" type="submit">Save</button>
+        <button id="source-cancel" class="slab" type="button">Cancel</button>
+        <button id="source-save" class="slab primary" type="submit">Save</button>
       </div>
     </form>
   </div>
 
   <div id="reset-dialog" class="dialog-backdrop" hidden>
-    <section class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="reset-title" aria-describedby="reset-copy">
+    <section class="dialog panel" role="dialog" aria-modal="true" aria-labelledby="reset-title" aria-describedby="reset-copy">
       <div class="kicker">Clear saves</div>
       <h2 id="reset-title">Clear saves?</h2>
       <p id="reset-copy">This deletes the game's local storage, IndexedDB, and cookies on this computer. The game itself stays in your library.</p>
       <div class="dialog-actions">
-        <button id="reset-cancel" class="button" type="button">Keep saves</button>
-        <button id="reset-confirm" class="button danger-solid" type="button">Clear saves</button>
+        <button id="reset-cancel" class="slab" type="button">Keep saves</button>
+        <button id="reset-confirm" class="slab danger-solid" type="button">Clear saves</button>
       </div>
     </section>
   </div>
 
   <div id="remove-dialog" class="dialog-backdrop" hidden>
-    <section class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="remove-title" aria-describedby="remove-copy">
+    <section class="dialog panel" role="dialog" aria-modal="true" aria-labelledby="remove-title" aria-describedby="remove-copy">
       <div class="kicker">Remove</div>
       <h2 id="remove-title">Remove game?</h2>
       <p id="remove-copy">GameStrike deletes its copy of the game files. Your original download is not touched.</p>
       <label class="check" for="remove-keep"><input id="remove-keep" type="checkbox" checked><span>Keep saves, so adding the same file again restores them</span></label>
       <div class="dialog-actions">
-        <button id="remove-cancel" class="button" type="button">Cancel</button>
-        <button id="remove-confirm" class="button danger-solid" type="button">Remove</button>
+        <button id="remove-cancel" class="slab" type="button">Cancel</button>
+        <button id="remove-confirm" class="slab danger-solid" type="button">Remove</button>
       </div>
     </section>
   </div>
 
   <div id="settings-dialog" class="dialog-backdrop" hidden>
-    <section class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <div class="kicker">Settings</div>
+    <section class="dialog panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="kicker">System</div>
       <h2 id="settings-title">Settings</h2>
       <div class="dialog-actions stacked">
-        <button id="settings-style" class="button" type="button"></button>
-        <button id="settings-sound" class="button" type="button" aria-pressed="true"></button>
-        <button id="settings-problems" class="button" type="button" hidden></button>
-        <button id="settings-about" class="button" type="button">About GameStrike</button>
-        <button id="settings-close" class="button ghost" type="button"><span class="glyph b pad" aria-hidden="true">B</span><kbd class="key" aria-hidden="true">Esc</kbd>Back</button>
+        <button id="settings-style" class="slab" type="button"></button>
+        <button id="settings-sound" class="slab" type="button" aria-pressed="true"></button>
+        <button id="settings-problems" class="slab" type="button" hidden></button>
+        <button id="settings-about" class="slab" type="button">About GameStrike</button>
+        <button id="settings-close" class="slab ghost" type="button">Back</button>
       </div>
     </section>
   </div>
 
   <div id="problems-dialog" class="dialog-backdrop" hidden>
-    <section class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="problems-title">
+    <section class="dialog panel" role="dialog" aria-modal="true" aria-labelledby="problems-title">
       <div class="kicker">Library check</div>
       <h2 id="problems-title">Some folders could not be read</h2>
       <p>These folders in the library are not valid games. GameStrike leaves them untouched.</p>
       <ul id="problems-list" class="problems"></ul>
-      <div class="dialog-actions"><button id="problems-close" class="button" type="button">Close</button></div>
+      <div class="dialog-actions"><button id="problems-close" class="slab" type="button">Close</button></div>
     </section>
   </div>
 
   <div id="about-dialog" class="dialog-backdrop" hidden>
-    <section class="dialog glass about" role="dialog" aria-modal="true" aria-labelledby="about-title">
+    <section class="dialog panel about" role="dialog" aria-modal="true" aria-labelledby="about-title">
       <img class="about-mark" src="/mark.svg" alt="">
       <h2 id="about-title">GameStrike</h2>
       <p>A local library for the HTML games you keep. Games run in their own player window with their own saves, offline unless you allow network access.</p>
       <div class="publisher"><span>Published by</span><img src="/pwds.svg" alt="PWDS"></div>
-      <p class="small">No account, no uploads. Imported games are not checked for safety; offline mode blocks their network requests but is not an operating-system sandbox. The look is an original homage to early-2000s console dashboards and uses no console maker's logos, fonts, or sounds.</p>
-      <div class="dialog-actions"><button id="close-about" class="button" type="button"><span class="glyph b pad" aria-hidden="true">B</span><kbd class="key" aria-hidden="true">Esc</kbd>Back</button></div>
+      <p class="small">No account, no uploads. Imported games are not checked for safety; offline mode blocks their network requests but is not an operating-system sandbox. The look is an original homage to early-2000s console dashboards and uses no console maker's logos, fonts, or sounds. Fonts: Nova Square, Rajdhani, and Share Tech Mono (SIL Open Font License 1.1). 3D: three.js (MIT).</p>
+      <div class="dialog-actions"><button id="close-about" class="slab" type="button">Back</button></div>
     </section>
   </div>
 </body>

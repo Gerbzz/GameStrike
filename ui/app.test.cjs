@@ -216,3 +216,69 @@ test("generated box art uses curated, high-contrast palettes and the full title"
   const palettes = new Set(Array.from({ length: 40 }, (_, i) => core.coverDesign(`game-${i}`, "x").palette.name));
   assert.ok(palettes.size >= 6, "different games get different palettes");
 });
+
+test("styles: Collection in PWDS Orange is the default, and the cycle reaches every style", () => {
+  assert.equal(core.styleFor(null).key, "collection-orange");
+  assert.equal(core.styleFor("something-else").key, "collection-orange");
+  assert.equal(core.styleFor("collection-green").variant, "green");
+  assert.equal(core.styleFor("blades").page, "classic");
+  const seen = [];
+  let style = core.styleFor(null);
+  for (let i = 0; i < core.STYLES.length; i += 1) { seen.push(style.key); style = core.nextStyle(style.key); }
+  assert.deepEqual(seen, ["collection-orange", "collection-green", "blades", "original", "pwds"]);
+  assert.equal(style.key, "collection-orange", "the cycle wraps around");
+  assert.deepEqual(core.STYLES.filter((s) => s.page === "classic").map((s) => s.key), ["blades", "original", "pwds"], "the earlier styles keep their saved names");
+});
+
+test("Collection metrics: seven columns at the reference size, fewer when narrow, readable type", () => {
+  assert.deepEqual(core.collectionMetrics(1672, 941), { u: 1, t: 1, columns: 7 });
+  assert.equal(core.collectionMetrics(1250, 800).columns, 7);
+  const small = core.collectionMetrics(880, 620);
+  assert.ok(small.columns >= 4 && small.columns <= 7, `${small.columns} columns at the minimum size`);
+  assert.ok(small.t >= 0.72, "type never shrinks below its floor");
+  assert.ok(core.collectionMetrics(3840, 2160).u <= 1.6);
+  assert.equal(core.collectionMetrics(0, 0).columns, 2, "a zero-size window still lays out");
+});
+
+test("generated box art: a scene that fits the title, stable per game, drawn only from GameStrike's rules", () => {
+  assert.equal(core.coverArt("a", "Quiet Lighthouse").scene, "harbor");
+  assert.equal(core.coverArt("a", "Ember Forge").scene, "forge");
+  assert.equal(core.coverArt("a", "Deep Reef").scene, "reef");
+  assert.equal(core.coverArt("a", "Frost Relay").scene, "frost");
+  assert.ok(core.SCENES.includes(core.coverArt("b", "Zzyzx").scene), "unknown words fall back to a scene from the ID");
+  const one = core.coverArt("6c1f6f7e-0000-4000-8000-000000000001", "Orbit Garden", "itch.io");
+  assert.deepEqual(one, core.coverArt("6c1f6f7e-0000-4000-8000-000000000001", "Orbit Garden", "itch.io"));
+  assert.equal(one.title, "Orbit Garden");
+  assert.equal(one.kicker, "itch.io");
+  assert.ok(["top", "bottom"].includes(one.titleAt));
+  assert.ok(one.palette && /^#[0-9a-f]{6}$/.test(one.palette.ink));
+  assert.ok(core.coverArt("c", "Incomprehensibilities").titleScale < 1, "long words get a smaller title");
+  assert.equal(core.coverArt("c", " \u0007 ").title, "Untitled");
+  const scenes = new Set(Array.from({ length: 60 }, (_, i) => core.coverArt(`game-${i}`, "x").scene));
+  assert.ok(scenes.size >= 8, "different games get different scenes");
+});
+
+test("seeded random numbers repeat for a seed and stay in [0, 1)", () => {
+  const a = core.seededRandom(42);
+  const b = core.seededRandom(42);
+  for (let i = 0; i < 100; i += 1) {
+    const value = a();
+    assert.equal(value, b());
+    assert.ok(value >= 0 && value < 1);
+  }
+  assert.notEqual(core.seededRandom(1)(), core.seededRandom(2)());
+});
+
+test("the dome net is rings and meridians of unit vectors, bent but never torn", () => {
+  const lines = core.domeNet({ rings: 6, meridians: 8, steps: 24 });
+  assert.equal(lines.length, 5 + 8, "rings minus one latitude lines, plus the meridians");
+  for (const line of lines) {
+    for (const [x, y, z] of line) assert.ok(Math.abs(Math.hypot(x, y, z) - 1) < 1e-9, "points lie on the unit sphere");
+    for (let i = 1; i < line.length; i += 1) {
+      const step = Math.hypot(...line[i].map((v, k) => v - line[i - 1][k]));
+      assert.ok(step < 0.6, "neighbouring points stay close, so the line is continuous");
+    }
+  }
+  const flat = core.domeNet({ rings: 6, meridians: 8, steps: 24, warp: 0 });
+  assert.notDeepEqual(flat, lines, "the warp bends the net");
+});

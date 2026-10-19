@@ -1,12 +1,20 @@
-// GameStrike's 3D backdrop: a near-black void lit by green light. A glowing core is the focal
-// point; thick translucent glass conduits carry pulses of energy toward it through fog; a few
-// wisps drift. Rendered with the bundled three.js and bloom on lit elements only. It is
-// decoration: it never sees game content, and it talks to the launcher page only through two
-// DOM events:
-//   "gamestrike:view"  { view, instant }  where the camera should fly (library, detail, saves, settings, about, boot)
-//   "gamestrike:pause" { paused }         stop rendering while a game runs
-// If WebGL 2 is unavailable it paints a static 2D version of the same scene instead, and the
-// launcher stays fully usable either way. Reduced motion renders single still frames.
+// The Collection style's 3D world: the inside of a large dome whose wall carries an irregular,
+// glowing net (latitude and longitude around a pole that leans toward the light, bent by a smooth
+// warp), lit by a soft light near the emblem and fading into fog with distance. Glossy glass tubes
+// wrap around the frame, and the detail view seats the selected game's cover in a cradle. Bloom
+// lights the bright parts only. Rendered with the bundled three.js; decoration only.
+//
+// The camera and the page's CSS 3D stage share one model: the CSS perspective is set from the
+// camera's field of view, so the frame (DOM), the tubes, and the cradle stay in step while the
+// camera drifts and flies between views and the net, much further away, shows real parallax.
+//
+// Events from app.js:
+//   "gamestrike:view"    { view, instant }    library, detail, saves, settings, about, boot
+//   "gamestrike:cradle"  { id, url, canvas }  the cover the cradle holds
+//   "gamestrike:variant" { variant }          orange or green
+//   "gamestrike:pause"   { paused }           stop rendering while a game runs
+//   "gamestrike:freeze"  { from, to, progress }  a still frame partway through a flight (captures)
+// Without WebGL 2 it paints a still dome on a 2D canvas; with reduced motion it draws one frame.
 import * as THREE from "./vendor/three/three.module.min.js";
 import { EffectComposer } from "./vendor/three/postprocessing/EffectComposer.js";
 import { RenderPass } from "./vendor/three/postprocessing/RenderPass.js";
@@ -15,57 +23,60 @@ import { OutputPass } from "./vendor/three/postprocessing/OutputPass.js";
 
 const canvas = document.getElementById("scene");
 const body = document.body;
+const core = window.GameStrikeCore;
 const motionQuery = window.matchMedia?.("(prefers-reduced-motion: reduce)");
-const reducedMotion = () => Boolean(motionQuery?.matches) || body.classList.contains("reduce-motion");
+const prefersReduced = () => Boolean(motionQuery?.matches);
+const leaving = document.documentElement.hasAttribute("data-leaving");
 
-const ORB = new THREE.Vector3(2.7, 0.25, -1.6);
-// Camera stations. Moving between views is a fly-through between these. In the library the core
-// sits low on the right, where the cover grid usually leaves space.
+const FOV = 40; // vertical field of view, degrees; the CSS perspective is derived from it
+const FRAME_DEPTH = 10; // world units from the camera to the frame's plane
+const DOME = { radius: 16, center: new THREE.Vector3(0.5, 1.5, -8) };
+// Camera stations. Flights between them are what move the net; the frame stays with the camera.
 const VIEWS = {
-  boot: { position: [3.0, 0.5, 4.6], target: [2.7, 0.25, -1.6] },
-  library: { position: [-1.6, 1.5, 10.8], target: [-1.6, 1.25, -1.6] },
-  detail: { position: [5.8, 1.0, 6.8], target: [5.3, 0.45, -1.6] },
-  saves: { position: [1.2, -0.4, 7.4], target: [1.4, 0.4, -1.6] },
-  settings: { position: [-6.6, 2.0, 5.2], target: [-0.4, 0.5, -2.4] },
-  about: { position: [4.4, 0.7, 4.0], target: [2.7, 0.25, -1.6] },
+  boot: { position: [0, 0.4, 5.5], yaw: 0, pitch: -2, net: 0.7 },
+  library: { position: [0, 0, 0], yaw: 0, pitch: 0, net: 1 },
+  detail: { position: [1.1, -0.15, -1.6], yaw: -7, pitch: 0.5, net: 0.62 },
+  saves: { position: [1.6, -0.25, -2.0], yaw: -10, pitch: 0.8, net: 0.55 },
+  settings: { position: [-0.7, 0.25, -0.9], yaw: 5, pitch: -1, net: 0.7 },
+  about: { position: [-0.4, 0.2, -1.2], yaw: 3, pitch: -0.5, net: 0.7 },
 };
-// Quality steps; the renderer drops a step whenever frames take too long.
+const VARIANTS = {
+  orange: { net: [1.0, 0.42, 0.13], glow: [1.0, 0.55, 0.18], void: [0.022, 0.006, 0.002], tube: [1.0, 0.5, 0.12], light: [1.0, 0.75, 0.42] },
+  green: { net: [0.36, 0.9, 0.18], glow: [0.55, 1.0, 0.25], void: [0.004, 0.018, 0.004], tube: [0.42, 1.0, 0.2], light: [0.8, 1.0, 0.6] },
+};
 const QUALITY = [
-  { name: "high", pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5), particles: 700, bloom: true, bloomScale: 1 },
-  { name: "medium", pixelRatio: 1, particles: 450, bloom: true, bloomScale: 0.75 },
-  { name: "low", pixelRatio: 0.75, particles: 250, bloom: true, bloomScale: 0.5 },
-  { name: "minimal", pixelRatio: 0.6, particles: 120, bloom: false, bloomScale: 0.5 },
+  { name: "high", pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5), bloom: true, bloomScale: 1 },
+  { name: "medium", pixelRatio: 1, bloom: true, bloomScale: 0.75 },
+  { name: "low", pixelRatio: 0.75, bloom: true, bloomScale: 0.5 },
+  { name: "minimal", pixelRatio: 0.6, bloom: false, bloomScale: 0.5 },
 ];
 
 function supportsWebGL2() {
   try {
-    const probe = document.createElement("canvas");
-    return Boolean(probe.getContext("webgl2"));
+    return Boolean(document.createElement("canvas").getContext("webgl2"));
   } catch (_) {
     return false;
   }
 }
-
 function setMode(mode, quality) {
   body.dataset.scene = mode;
   if (quality) body.dataset.quality = quality;
   window.GameStrikeScene = Object.freeze({ mode, quality: quality || "static" });
 }
+const variantName = () => (body.dataset.variant === "green" ? "green" : "orange");
+// The CSS perspective that matches the camera, in pixels.
+const cssPerspective = () => innerHeight / 2 / Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+
+// Unit vectors of the dome net's pole basis, shared with core.domeNet.
+function poleBasis(pole) {
+  const p = new THREE.Vector3(...pole).normalize();
+  const helper = Math.abs(p.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+  const e1 = new THREE.Vector3().crossVectors(helper, p).normalize();
+  const e2 = new THREE.Vector3().crossVectors(p, e1);
+  return { p, e1, e2 };
+}
 
 // ---------- shaders ----------
-const NOISE = /* glsl */ `
-  float hash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
-  float noise(vec3 x) {
-    vec3 i = floor(x); vec3 f = fract(x); f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(mix(hash(i), hash(i + vec3(1,0,0)), f.x), mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
-               mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x), mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
-  }
-  float fbm(vec3 p) { float v = 0.0; float a = 0.5; for (int i = 0; i < 4; i++) { v += a * noise(p); p *= 2.03; a *= 0.5; } return v; }
-`;
-// Depth fog: things fade into the black as they recede.
-const FOG = /* glsl */ `
-  float fogFade(float depth) { return exp(-pow(max(depth - 6.0, 0.0) * 0.085, 1.4)); }
-`;
 const SHADED_VERTEX = /* glsl */ `
   varying vec2 vUv; varying vec3 vNormal; varying vec3 vView; varying float vDepth;
   void main() {
@@ -78,151 +89,120 @@ const SHADED_VERTEX = /* glsl */ `
     gl_Position = projectionMatrix * view;
   }`;
 
-function backgroundMaterial() {
+// The dome wall: the net is computed per pixel, so lines stay thin and anti-aliased at any size.
+function domeMaterial() {
+  const net = core?.NET || { rings: 26, meridians: 52, warp: 0.09, pole: [-0.62, 0.42, -0.66] };
+  const basis = poleBasis(net.pole);
   return new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
-    uniforms: { time: { value: 0 } },
+    uniforms: {
+      center: { value: DOME.center.clone() },
+      pole: { value: basis.p }, e1: { value: basis.e1 }, e2: { value: basis.e2 },
+      rings: { value: net.rings }, meridians: { value: net.meridians }, warp: { value: net.warp },
+      spin: { value: 0 },
+      netColor: { value: new THREE.Color(...VARIANTS.orange.net) },
+      glowColor: { value: new THREE.Color(...VARIANTS.orange.glow) },
+      voidColor: { value: new THREE.Color(...VARIANTS.orange.void) },
+      lightDir: { value: new THREE.Vector3(-0.55, 0.45, -0.7).normalize() },
+      intensity: { value: 1 },
+    },
     vertexShader: /* glsl */ `
-      varying vec3 vDir;
-      void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      varying vec3 vWorld;
+      void main() { vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
     fragmentShader: /* glsl */ `
-      uniform float time; varying vec3 vDir; ${NOISE}
+      uniform vec3 center; uniform vec3 pole; uniform vec3 e1; uniform vec3 e2;
+      uniform float rings; uniform float meridians; uniform float warp; uniform float spin;
+      uniform vec3 netColor; uniform vec3 glowColor; uniform vec3 voidColor; uniform vec3 lightDir; uniform float intensity;
+      varying vec3 vWorld;
+      const float PI = 3.14159265;
+      float lineMask(float coord, float px) {
+        float w = fwidth(coord);
+        float d = abs(fract(coord + 0.5) - 0.5) / max(w, 1e-5);
+        float core = 1.0 - smoothstep(px * 0.5, px * 0.5 + 1.0, d);
+        float halo = exp(-d / (px * 3.5)) * 0.32;
+        // Lines that crowd together (near the poles) fade instead of turning into noise.
+        return (core + halo) * (1.0 - smoothstep(0.18, 0.45, w));
+      }
       void main() {
-        // Almost black, with a faint green floor of light and the barest nebula.
-        float low = smoothstep(0.2, -0.7, vDir.y);
-        vec3 color = vec3(0.0004, 0.0012, 0.0006) + vec3(0.0016, 0.0075, 0.0018) * low;
-        float cloud = fbm(vDir * 3.1 + vec3(0.0, time * 0.008, time * 0.005));
-        color += vec3(0.002, 0.012, 0.002) * smoothstep(0.58, 0.9, cloud);
+        vec3 d = normalize(vWorld - center);
+        float theta = acos(clamp(dot(d, pole), -1.0, 1.0));
+        float phi = atan(dot(d, e2), dot(d, e1)) + spin;
+        // The same warp as core.domeNet: irregular, quad-ish, slightly wavy cells.
+        float t = theta + warp * (sin(phi * 3.0 + theta * 5.0) * 0.6 + sin(phi * 7.0 - theta * 2.0) * 0.4);
+        float f = phi + warp * 1.4 * (sin(theta * 6.0 + phi * 2.0) * 0.6 + sin(theta * 3.0 - phi * 5.0) * 0.4);
+        float u = f * meridians / (2.0 * PI);
+        float v = t * rings / PI;
+        float dist = length(vWorld - cameraPosition);
+        // Thicker and brighter near the camera, thin and faint far away.
+        float px = mix(1.6, 0.8, smoothstep(10.0, 30.0, dist));
+        float lines = max(lineMask(u, px), lineMask(v, px));
+        float light = pow(max(dot(d, lightDir), 0.0), 3.0);
+        float fog = exp(-max(dist - 9.0, 0.0) * 0.075);
+        vec3 color = voidColor * (0.7 + 0.6 * light);
+        color += netColor * lines * (0.2 + 0.9 * light) * fog * intensity;
+        color += glowColor * light * 0.06 * intensity;
         gl_FragColor = vec4(color, 1.0);
       }`,
   });
 }
 
-function coreMaterial() {
-  return new THREE.ShaderMaterial({
-    uniforms: { time: { value: 0 } },
-    vertexShader: /* glsl */ `
-      varying vec3 vNormal; varying vec3 vView; varying vec3 vPos;
-      void main() {
-        vec4 world = modelMatrix * vec4(position, 1.0);
-        vPos = position; vNormal = normalize(normalMatrix * normal);
-        vView = normalize(-(viewMatrix * world).xyz);
-        gl_Position = projectionMatrix * viewMatrix * world;
-      }`,
-    fragmentShader: /* glsl */ `
-      uniform float time; varying vec3 vNormal; varying vec3 vView; varying vec3 vPos; ${NOISE}
-      void main() {
-        float facing = clamp(dot(normalize(vNormal), normalize(vView)), 0.0, 1.0);
-        float swirl = fbm(vPos * 2.4 + vec3(time * 0.22, -time * 0.16, time * 0.1));
-        float veins = smoothstep(0.5, 0.78, swirl);
-        float pulse = 0.8 + 0.2 * sin(time * 1.6);
-        // A white-hot centre, green plasma veins, and a green limb.
-        vec3 plasma = mix(vec3(0.04, 0.42, 0.03), vec3(0.9, 2.2, 0.55), veins);
-        vec3 hot = vec3(1.2, 1.9, 1.0) * pow(facing, 9.0);
-        vec3 rim = vec3(0.3, 1.9, 0.2) * pow(1.0 - facing, 2.0);
-        gl_FragColor = vec4((plasma * (0.35 + 0.65 * facing) + hot + rim) * pulse, 1.0);
-      }`,
-  });
-}
-
-function glassShellMaterial() {
-  return new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    uniforms: { time: { value: 0 } },
-    vertexShader: SHADED_VERTEX,
-    fragmentShader: /* glsl */ `
-      uniform float time; varying vec2 vUv; varying vec3 vNormal; varying vec3 vView; varying float vDepth;
-      void main() {
-        float facing = clamp(dot(normalize(vNormal), normalize(vView)), 0.0, 1.0);
-        float fresnel = pow(1.0 - facing, 3.5);
-        float spec = pow(max(dot(reflect(-normalize(vView), normalize(vNormal)), normalize(vec3(-0.4, 0.8, 0.5))), 0.0), 60.0);
-        vec3 color = vec3(0.12, 0.8, 0.1) * fresnel + vec3(1.6) * spec;
-        gl_FragColor = vec4(color, fresnel * 0.8 + spec);
-      }`,
-  });
-}
-
-// Thick glass tubes: dark, translucent bodies with bright fresnel edges and a specular streak,
-// drawn with normal blending so they read against the black.
-function tubeGlassMaterial(tint) {
+// Glossy glass tubes: dark translucent bodies, bright fresnel rims, a specular streak, and banding.
+function tubeMaterial() {
   return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
-    uniforms: { time: { value: 0 }, tint: { value: tint } },
+    uniforms: { tint: { value: new THREE.Color(...VARIANTS.orange.tube) }, time: { value: 0 } },
     vertexShader: SHADED_VERTEX,
     fragmentShader: /* glsl */ `
-      uniform float time; uniform float tint; varying vec2 vUv; varying vec3 vNormal; varying vec3 vView; varying float vDepth; ${FOG}
+      uniform vec3 tint; uniform float time; varying vec2 vUv; varying vec3 vNormal; varying vec3 vView;
       void main() {
         vec3 n = normalize(vNormal); vec3 v = normalize(vView);
         float facing = abs(dot(n, v));
-        float rim = pow(1.0 - facing, 2.4);
-        float spec = pow(max(dot(reflect(-v, n), normalize(vec3(-0.35, 0.85, 0.4))), 0.0), 36.0);
-        float streak = pow(max(dot(reflect(-v, n), normalize(vec3(0.5, -0.2, 0.84))), 0.0), 90.0);
-        float ends = smoothstep(0.0, 0.06, vUv.x) * (1.0 - smoothstep(0.92, 1.0, vUv.x));
-        float fade = fogFade(vDepth) * ends;
-        vec3 body = vec3(0.004, 0.03, 0.006) * (0.6 + tint);
-        vec3 edge = vec3(0.16, 0.95, 0.12) * rim;
-        vec3 color = body + edge + vec3(1.2, 1.3, 1.15) * (spec * 0.7 + streak * 0.5);
-        float alpha = (0.38 + rim * 0.55 + spec * 0.4) * fade;
-        gl_FragColor = vec4(color * fade, alpha);
+        float rim = pow(1.0 - facing, 2.2);
+        float spec = pow(max(dot(reflect(-v, n), normalize(vec3(-0.45, 0.8, 0.4))), 0.0), 42.0);
+        float streak = pow(max(dot(reflect(-v, n), normalize(vec3(0.5, -0.1, 0.86))), 0.0), 110.0);
+        float bands = 0.85 + 0.15 * step(0.92, fract(vUv.x * 9.0));
+        vec3 color = tint * (0.2 + rim * 1.15) * bands + vec3(1.4, 1.3, 1.1) * (spec * 0.9 + streak * 0.6);
+        float alpha = clamp(0.42 + rim * 0.55 + spec * 0.5, 0.0, 1.0);
+        gl_FragColor = vec4(color, alpha);
       }`,
   });
 }
-
-// The energy inside each tube: a bright filament with pulses travelling toward the core.
-function energyMaterial(phase, speed) {
+function energyMaterial(phase) {
   return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
-    uniforms: { time: { value: 0 }, phase: { value: phase }, speed: { value: speed } },
+    uniforms: { tint: { value: new THREE.Color(...VARIANTS.orange.glow) }, time: { value: 0 }, phase: { value: phase } },
     vertexShader: SHADED_VERTEX,
     fragmentShader: /* glsl */ `
-      uniform float time; uniform float phase; uniform float speed;
-      varying vec2 vUv; varying vec3 vNormal; varying vec3 vView; varying float vDepth; ${FOG}
+      uniform vec3 tint; uniform float time; uniform float phase; varying vec2 vUv;
       void main() {
-        float flow = fract(vUv.x * 2.4 - time * speed + phase);
-        float pulse = smoothstep(0.0, 0.015, flow) * (1.0 - smoothstep(0.015, 0.09, flow));
-        float ends = smoothstep(0.0, 0.08, vUv.x) * (1.0 - smoothstep(0.9, 1.0, vUv.x));
-        float fade = fogFade(vDepth) * ends;
-        vec3 line = vec3(0.06, 0.42, 0.05);
-        vec3 burst = vec3(1.3, 3.6, 0.9) * pulse;
-        gl_FragColor = vec4((line + burst) * fade, (0.35 + pulse) * fade);
+        float flow = fract(vUv.x * 2.0 - time * 0.12 + phase);
+        float pulse = smoothstep(0.0, 0.02, flow) * (1.0 - smoothstep(0.02, 0.12, flow));
+        gl_FragColor = vec4(tint * (0.35 + pulse * 2.6), 0.5 + pulse);
       }`,
   });
 }
-
-function particleMaterial() {
+// Translucent tinted glass with a bright edge, for the cradle's plates.
+function glassMaterial(strength = 1) {
   return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    uniforms: { time: { value: 0 }, scale: { value: 1 } },
-    vertexShader: /* glsl */ `
-      uniform float time; uniform float scale; attribute float seed; varying float vGlow; varying float vDepth;
-      void main() {
-        vec3 p = position;
-        float a = time * (0.02 + seed * 0.04) + seed * 6.2831;
-        p.xz = mat2(cos(a), -sin(a), sin(a), cos(a)) * (p.xz - vec2(${ORB.x.toFixed(2)}, ${ORB.z.toFixed(2)})) + vec2(${ORB.x.toFixed(2)}, ${ORB.z.toFixed(2)});
-        p.y += sin(time * 0.35 + seed * 40.0) * 0.2;
-        vec4 view = modelViewMatrix * vec4(p, 1.0);
-        vDepth = -view.z;
-        // Most wisps stay dim; one in ten is bright enough to bloom.
-        vGlow = seed > 0.92 ? 1.0 : 0.18 + 0.3 * fract(seed * 13.7 + time * 0.05);
-        gl_PointSize = scale * (3.0 + seed * 7.0) / -view.z;
-        gl_Position = projectionMatrix * view;
-      }`,
+    side: THREE.DoubleSide,
+    uniforms: { tint: { value: new THREE.Color(...VARIANTS.orange.tube) }, strength: { value: strength } },
+    vertexShader: SHADED_VERTEX,
     fragmentShader: /* glsl */ `
-      varying float vGlow; varying float vDepth; ${FOG}
+      uniform vec3 tint; uniform float strength; varying vec3 vNormal; varying vec3 vView;
       void main() {
-        float d = length(gl_PointCoord - 0.5);
-        float soft = smoothstep(0.5, 0.05, d);
-        float fade = fogFade(vDepth);
-        gl_FragColor = vec4(vec3(0.3, 1.2, 0.25) * vGlow * soft * fade, soft * fade);
+        vec3 n = normalize(vNormal); vec3 v = normalize(vView);
+        float facing = abs(dot(n, v));
+        float rim = pow(1.0 - facing, 1.6);
+        float spec = pow(max(dot(reflect(-v, n), normalize(vec3(-0.4, 0.85, 0.45))), 0.0), 30.0);
+        vec3 color = tint * (0.14 + rim * 0.9) * strength + vec3(1.3, 1.25, 1.1) * spec * 0.8;
+        gl_FragColor = vec4(color, clamp(0.28 + rim * 0.55 + spec * 0.5, 0.0, 1.0));
       }`,
   });
 }
@@ -233,10 +213,10 @@ function haloTexture() {
   paint.width = paint.height = size;
   const g = paint.getContext("2d");
   const gradient = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  gradient.addColorStop(0, "rgba(190,255,160,0.55)");
-  gradient.addColorStop(0.12, "rgba(110,255,70,0.22)");
-  gradient.addColorStop(0.35, "rgba(40,170,25,0.05)");
-  gradient.addColorStop(1, "rgba(0,0,0,0)");
+  gradient.addColorStop(0, "rgba(255,255,255,0.9)");
+  gradient.addColorStop(0.15, "rgba(255,255,255,0.35)");
+  gradient.addColorStop(0.45, "rgba(255,255,255,0.06)");
+  gradient.addColorStop(1, "rgba(255,255,255,0)");
   g.fillStyle = gradient;
   g.fillRect(0, 0, size, size);
   const texture = new THREE.CanvasTexture(paint);
@@ -244,109 +224,173 @@ function haloTexture() {
   return texture;
 }
 
-// Glass conduits: [points, radius]. The first three are bold hero tubes that sweep past the camera
-// toward the core; the rest are thinner and further back, so the fog gives the scene depth.
-const CONDUITS = [
-  [[[-11, -4.2, 3.5], [-5.5, -2.6, 2.0], [-1.0, -1.2, 0.4], [ORB.x - 1.4, -0.4, -0.8], [ORB.x - 0.3, 0.1, -1.4]], 0.42],
-  [[[-12, 4.8, -2], [-6, 3.6, -1.4], [-1.2, 2.4, -1.2], [ORB.x - 1.0, 1.1, -1.4], [ORB.x - 0.1, 0.45, -1.6]], 0.34],
-  [[[10, -4.5, 2.5], [7.2, -2.6, 0.8], [ORB.x + 2.2, -1.0, -0.6], [ORB.x + 0.5, -0.2, -1.4]], 0.3],
-  [[[-14, 1.0, -9], [-7, 0.6, -6], [-1.5, 0.4, -3.6], [ORB.x - 0.8, 0.3, -2.0]], 0.16],
-  [[[12, 3.8, -10], [7, 2.2, -6.5], [ORB.x + 1.6, 0.9, -3.0], [ORB.x + 0.4, 0.35, -1.8]], 0.14],
-  [[[-8, -6.0, -12], [-3, -3.0, -7], [ORB.x - 1.2, -0.9, -3.4], [ORB.x - 0.2, -0.1, -1.9]], 0.12],
+// Tubes as [points in viewport fractions (x right, y down) with a depth in world units, radius].
+// They wrap the frame: over the top right, down the left edge, around the bottom left, and a
+// hooked pipe into the right edge, as in the reference.
+const TUBES = [
+  [[[0.6, -0.12, 10.5], [0.7, 0.0, 10.3], [0.86, 0.015, 10.2], [0.98, 0.09, 10.2], [1.1, 0.2, 10.5]], 0.26],
+  [[[0.74, -0.14, 11], [0.82, 0.04, 10.8], [0.94, 0.1, 10.6], [1.0, 0.22, 10.5], [1.12, 0.32, 10.8]], 0.17],
+  [[[-0.1, 0.3, 10.6], [0.004, 0.42, 10.2], [0.008, 0.6, 10.2], [-0.002, 0.76, 10.2], [-0.12, 0.9, 10.6]], 0.22],
+  [[[-0.12, 1.08, 10.4], [0.02, 0.92, 10.2], [0.1, 0.9, 10.1], [0.16, 0.98, 10.2], [0.14, 1.15, 10.4]], 0.24],
+  [[[1.12, 0.36, 10.8], [1.0, 0.42, 10.4], [0.99, 0.52, 10.3], [1.0, 0.64, 10.4], [1.12, 0.72, 10.8]], 0.2],
 ];
 
-function buildScene(quality) {
-  const scene = new THREE.Scene();
-  const background = new THREE.Mesh(new THREE.SphereGeometry(80, 48, 24), backgroundMaterial());
-  scene.add(background);
-
-  const core = new THREE.Group();
-  core.position.copy(ORB);
-  const inner = new THREE.Mesh(new THREE.SphereGeometry(0.85, 64, 32), coreMaterial());
-  const shell = new THREE.Mesh(new THREE.SphereGeometry(1.25, 64, 32), glassShellMaterial());
-  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTexture(), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-  halo.scale.setScalar(4.6);
-  core.add(halo, inner, shell);
-  const rings = [1.75, 2.25, 2.85].map((radius, index) => {
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(radius, 0.014 + index * 0.004, 8, 200),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 2.0, 0.4), transparent: true, opacity: 0.6 - index * 0.14, blending: THREE.AdditiveBlending, depthWrite: false }),
-    );
-    ring.rotation.set(1.1 + index * 0.35, index * 0.8, index * 0.4);
-    core.add(ring);
-    return ring;
-  });
-  scene.add(core);
-
-  const timed = [background.material, inner.material, shell.material];
-  CONDUITS.forEach(([points, radius], index) => {
+// The cradle: a card carrying the cover, held by a translucent mechanical arm with glassy plates,
+// bevels, and cables trailing off. Original design.
+function buildCradle() {
+  const group = new THREE.Group();
+  const holder = new THREE.Group();
+  group.add(holder);
+  const cardW = 1.76;
+  const cardH = 2.36;
+  const chamfer = (w, h, c) => {
+    const s = new THREE.Shape();
+    s.moveTo(-w / 2 + c, -h / 2); s.lineTo(w / 2 - c, -h / 2); s.lineTo(w / 2, -h / 2 + c); s.lineTo(w / 2, h / 2 - c);
+    s.lineTo(w / 2 - c, h / 2); s.lineTo(-w / 2 + c, h / 2); s.lineTo(-w / 2, h / 2 - c); s.lineTo(-w / 2, -h / 2 + c); s.closePath();
+    return s;
+  };
+  const frameGeo = new THREE.ExtrudeGeometry(chamfer(cardW + 0.22, cardH + 0.22, 0.2), { depth: 0.08, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 2 });
+  frameGeo.translate(0, 0, -0.06);
+  const edge = new THREE.MeshBasicMaterial({ color: new THREE.Color(...VARIANTS.orange.glow) });
+  holder.add(new THREE.Mesh(frameGeo, edge));
+  const coverMaterial = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.82, 0.82, 0.82) });
+  const cover = new THREE.Mesh(new THREE.PlaneGeometry(cardW, cardH), coverMaterial);
+  cover.position.z = 0.06;
+  holder.add(cover);
+  const sheen = new THREE.Mesh(new THREE.PlaneGeometry(cardW, cardH), glassMaterial(0.25));
+  sheen.position.z = 0.075;
+  holder.add(sheen);
+  // The arm: a back plate, two claws, a lower clamp, a hub, and a boom reaching off to the lower right.
+  const plates = [];
+  const plate = (shape, depth, position, rotation, strength = 1) => {
+    const mesh = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 2 }), glassMaterial(strength));
+    mesh.position.set(...position);
+    mesh.rotation.set(...rotation);
+    group.add(mesh);
+    plates.push(mesh);
+    return mesh;
+  };
+  plate(chamfer(cardW + 0.9, cardH + 0.7, 0.45), 0.12, [0.12, -0.05, -0.42], [0, 0, 0], 0.7);
+  plate(chamfer(0.5, cardH * 0.7, 0.16), 0.32, [-(cardW / 2) - 0.32, 0, -0.2], [0, 0.25, 0]);
+  plate(chamfer(0.5, cardH * 0.7, 0.16), 0.32, [cardW / 2 + 0.32, 0, -0.2], [0, -0.25, 0]);
+  plate(chamfer(cardW * 0.8, 0.42, 0.14), 0.3, [0, -(cardH / 2) - 0.32, -0.12], [0.3, 0, 0]);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 0.36, 32), glassMaterial(1.1));
+  hub.rotation.x = Math.PI / 2;
+  hub.position.set(0.9, -1.75, -0.6);
+  group.add(hub);
+  plates.push(hub);
+  const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.36, 4.2, 24), glassMaterial(0.9));
+  boom.rotation.set(0, 0, -0.95);
+  boom.position.set(2.5, -2.9, -0.9);
+  group.add(boom);
+  plates.push(boom);
+  const cables = [];
+  [
+    [[[0.9, -1.75, -0.4], [1.8, -1.5, -0.2], [2.6, -2.4, 0.1], [4.6, -2.8, 0.2]], 0.045],
+    [[[-1.1, 1.0, -0.3], [-1.9, 1.8, -0.4], [-1.6, 2.9, -0.2], [-0.6, 4.2, 0]], 0.035],
+    [[[1.1, 1.2, -0.3], [1.8, 2.1, -0.5], [2.9, 2.3, -0.3], [4.4, 3.4, -0.2]], 0.03],
+  ].forEach(([points, radius], index) => {
     const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(...p)));
-    const glass = new THREE.Mesh(new THREE.TubeGeometry(curve, 260, radius, 28, false), tubeGlassMaterial(index < 3 ? 0.4 : 0));
-    const energy = new THREE.Mesh(new THREE.TubeGeometry(curve, 260, Math.max(0.025, radius * 0.16), 8, false), energyMaterial(index * 0.21, 0.1 + index * 0.02));
-    glass.renderOrder = 2;
-    energy.renderOrder = 1;
-    scene.add(energy, glass);
-    timed.push(glass.material, energy.material);
+    const cable = new THREE.Mesh(new THREE.TubeGeometry(curve, 80, radius, 8, false), energyMaterial(index * 0.31));
+    group.add(cable);
+    cables.push(cable);
   });
+  return { group, holder, cover, coverMaterial, edge, plates, cables, appear: 0 };
+}
 
-  const geometry = new THREE.BufferGeometry();
-  const count = QUALITY[0].particles;
-  const positions = new Float32Array(count * 3);
-  const seeds = new Float32Array(count);
-  let state = 1234567;
-  const random = () => ((state = (state * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
-  for (let i = 0; i < count; i += 1) {
-    const radius = 1.8 + Math.pow(random(), 0.8) * 12;
-    const angle = random() * Math.PI * 2;
-    positions[i * 3] = ORB.x + Math.cos(angle) * radius;
-    positions[i * 3 + 1] = (random() - 0.5) * 7 * (0.3 + radius / 12);
-    positions[i * 3 + 2] = ORB.z + Math.sin(angle) * radius * 0.8;
-    seeds[i] = random();
-  }
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute("seed", new THREE.BufferAttribute(seeds, 1));
-  geometry.setDrawRange(0, quality.particles);
-  const particles = new THREE.Points(geometry, particleMaterial());
-  scene.add(particles);
-  timed.push(particles.material);
-
-  return { scene, core, inner, rings, particles, timed };
+function buildWorld() {
+  const scene = new THREE.Scene();
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(DOME.radius, 96, 64), domeMaterial());
+  dome.position.copy(DOME.center);
+  scene.add(dome);
+  // The rig follows the camera: the frame's tubes, the light behind the emblem, and the cradle.
+  const rig = new THREE.Group();
+  scene.add(rig);
+  const light = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTexture(), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, color: new THREE.Color(...VARIANTS.orange.light), opacity: 0.55 }));
+  rig.add(light);
+  const tubes = new THREE.Group();
+  rig.add(tubes);
+  const cradle = buildCradle();
+  rig.add(cradle.group);
+  return { scene, dome, rig, light, tubes, cradle };
 }
 
 function startWebGL() {
   let qualityLevel = 0;
-  const renderer = new THREE.WebGLRenderer({
-    canvas,
-    antialias: true,
-    alpha: false,
-    powerPreference: "high-performance",
-    // Kept so that the launcher's --capture-preview screenshots include the rendered scene.
-    preserveDrawingBuffer: true,
-  });
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.9;
-  const world = buildScene(QUALITY[0]);
-  const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 200);
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: true });
+  renderer.toneMapping = THREE.NoToneMapping;
+  const world = buildWorld();
+  const camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 200);
+  world.scene.add(camera);
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(world.scene, camera));
-  // Only bright, lit elements (the core, pulses, a few wisps) pass the threshold and bloom.
-  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 1.05, 0.32, 0.82);
+  // Only bright, lit parts pass the threshold: net lines near the light, tube highlights, the cradle's edge.
+  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.8, 0.45, 0.78);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
 
   const station = (name) => VIEWS[name] || VIEWS.library;
-  const position = new THREE.Vector3(...station("boot").position);
-  const target = new THREE.Vector3(...station("boot").target);
-  const goalPosition = position.clone();
-  const goalTarget = target.clone();
-  const pointer = new THREE.Vector2();
+  const pos = new THREE.Vector3(...station("boot").position);
+  const goalPos = pos.clone();
+  let yaw = station("boot").yaw;
+  let pitch = station("boot").pitch;
+  let goalYaw = yaw;
+  let goalPitch = pitch;
+  let net = station("boot").net;
+  let goalNet = net;
   let view = "boot";
   let paused = false;
   let running = false;
+  let frozen = false;
   let last = performance.now();
   let clock = 0;
   let frames = 0;
   let frameTime = 0;
+  const stage = document.getElementById("frame");
+  const capturing = () => body.classList.contains("reduce-motion");
+  const still = () => prefersReduced() || capturing() || frozen;
+
+  function applyVariant() {
+    const v = VARIANTS[variantName()];
+    const u = world.dome.material.uniforms;
+    u.netColor.value.setRGB(...v.net);
+    u.glowColor.value.setRGB(...v.glow);
+    u.voidColor.value.setRGB(...v.void);
+    world.light.material.color.setRGB(...v.light);
+    for (const mesh of world.tubes.children) mesh.material.uniforms.tint.value.setRGB(...(mesh.userData.energy ? v.glow : v.tube));
+    for (const mesh of world.cradle.plates) mesh.material.uniforms.tint.value.setRGB(...v.tube);
+    for (const mesh of world.cradle.cables) mesh.material.uniforms.tint.value.setRGB(...v.glow);
+    world.cradle.edge.color.setRGB(...v.glow).multiplyScalar(0.9);
+    renderer.setClearColor(new THREE.Color(...v.void));
+  }
+
+  // A point given in viewport fractions at a depth in front of the camera (camera space).
+  function viewportPoint(x, y, depth) {
+    const half = Math.tan(THREE.MathUtils.degToRad(FOV / 2)) * depth;
+    return new THREE.Vector3((x * 2 - 1) * half * camera.aspect, (1 - y * 2) * half, -depth);
+  }
+
+  function buildTubes() {
+    for (const mesh of world.tubes.children) mesh.geometry.dispose();
+    world.tubes.clear();
+    const v = VARIANTS[variantName()];
+    TUBES.forEach(([points, radius], index) => {
+      const curve = new THREE.CatmullRomCurve3(points.map(([x, y, d]) => viewportPoint(x, y, d)));
+      const glass = new THREE.Mesh(new THREE.TubeGeometry(curve, 120, radius, 24, false), tubeMaterial());
+      glass.material.uniforms.tint.value.setRGB(...v.tube);
+      glass.renderOrder = 2;
+      const energy = new THREE.Mesh(new THREE.TubeGeometry(curve, 120, radius * 0.18, 8, false), energyMaterial(index * 0.23));
+      energy.material.uniforms.tint.value.setRGB(...v.glow);
+      energy.userData.energy = true;
+      energy.renderOrder = 1;
+      world.tubes.add(energy, glass);
+    });
+    // The light sits behind the emblem, top left.
+    world.light.position.copy(viewportPoint(0.09, 0.09, FRAME_DEPTH + 2));
+    world.light.scale.setScalar(9);
+    // The cradle sits in the right part of the detail view.
+    world.cradle.group.position.copy(viewportPoint(0.55, 0.4, 8.5));
+  }
 
   function applyQuality() {
     const quality = QUALITY[qualityLevel];
@@ -354,34 +398,72 @@ function startWebGL() {
     composer.setPixelRatio(quality.pixelRatio);
     bloom.enabled = quality.bloom;
     bloom.resolution.set(innerWidth * quality.bloomScale, innerHeight * quality.bloomScale);
-    world.particles.geometry.setDrawRange(0, quality.particles);
-    world.particles.material.uniforms.scale.value = innerHeight * quality.pixelRatio * 0.006;
     setMode("webgl", quality.name);
   }
 
   function resize() {
-    const width = innerWidth;
-    const height = innerHeight;
-    renderer.setSize(width, height, false);
-    composer.setSize(width, height);
-    camera.aspect = width / Math.max(1, height);
+    renderer.setSize(innerWidth, innerHeight, false);
+    composer.setSize(innerWidth, innerHeight);
+    camera.aspect = innerWidth / Math.max(1, innerHeight);
     camera.updateProjectionMatrix();
+    document.documentElement.style.setProperty("--persp", `${cssPerspective().toFixed(1)}px`);
+    buildTubes();
     applyQuality();
     if (!running) renderFrame(0);
   }
 
+  // The frame drifts a little with the camera, and the tubes with it.
+  function drift(t) {
+    if (still()) return { yaw: 0, pitch: 0, x: 0, y: 0 };
+    return { yaw: Math.sin(t * 0.21) * 0.55, pitch: Math.sin(t * 0.17 + 1.3) * 0.35, x: Math.sin(t * 0.13) * 0.06, y: Math.sin(t * 0.11 + 0.7) * 0.04 };
+  }
+
+  function placeCamera(p, cameraYaw, cameraPitch, wobble) {
+    camera.position.copy(p).add(new THREE.Vector3(wobble.x, wobble.y, 0));
+    camera.rotation.set(THREE.MathUtils.degToRad(cameraPitch), THREE.MathUtils.degToRad(cameraYaw), 0, "YXZ");
+    camera.updateMatrixWorld();
+    // The rig rides with the camera, tilted about the frame's centre by the same wobble as the CSS frame.
+    world.rig.position.copy(camera.position);
+    world.rig.quaternion.copy(camera.quaternion);
+    world.rig.translateZ(-FRAME_DEPTH);
+    world.rig.rotateY(THREE.MathUtils.degToRad(wobble.yaw));
+    world.rig.rotateX(THREE.MathUtils.degToRad(wobble.pitch));
+    world.rig.translateZ(FRAME_DEPTH);
+    if (stage && !body.classList.contains("flat")) {
+      stage.style.transform = wobble.yaw || wobble.pitch ? `rotateY(${(-wobble.yaw).toFixed(3)}deg) rotateX(${wobble.pitch.toFixed(3)}deg)` : "";
+    }
+  }
+
+  function poseCradle(a, sway) {
+    const c = world.cradle;
+    c.group.visible = a > 0.01;
+    // Flies in from deep in the dome, turning to face the camera.
+    c.group.scale.setScalar(0.55 + 0.45 * a);
+    c.group.position.z = -8.5 - (1 - a) * 9;
+    c.group.rotation.set(-0.06 + (1 - a) * 0.2, -0.32 + (1 - a) * 0.9 + sway, 0.02);
+  }
+
+  function updateCradle(dt, target) {
+    const c = world.cradle;
+    c.appear = dt > 0 && !still() ? c.appear + (target - c.appear) * (1 - Math.exp(-dt * 4)) : target;
+    poseCradle(c.appear, still() ? 0 : Math.sin(clock * 0.6) * 0.12);
+    c.holder.rotation.y = still() ? 0.04 : Math.sin(clock * 0.9) * 0.05;
+  }
+
   function renderFrame(dt) {
     clock += dt;
-    for (const material of world.timed) material.uniforms.time.value = clock;
-    world.core.rotation.y = clock * 0.08;
-    world.rings.forEach((ring, index) => { ring.rotation.z = clock * (0.1 + index * 0.05) * (index % 2 ? -1 : 1); });
-    world.inner.scale.setScalar(1 + Math.sin(clock * 1.6) * 0.025);
-    const ease = dt > 0 ? 1 - Math.exp(-dt * 2.6) : 1;
-    position.lerp(goalPosition, ease);
-    target.lerp(goalTarget, ease);
-    camera.position.copy(position);
-    if (!reducedMotion()) camera.position.add(new THREE.Vector3(pointer.x * 0.35, pointer.y * 0.2, 0));
-    camera.lookAt(target);
+    const ease = dt > 0 && !still() ? 1 - Math.exp(-dt * 2.4) : 1;
+    pos.lerp(goalPos, ease);
+    yaw += (goalYaw - yaw) * ease;
+    pitch += (goalPitch - pitch) * ease;
+    net += (goalNet - net) * ease;
+    placeCamera(pos, yaw, pitch, drift(clock));
+    const u = world.dome.material.uniforms;
+    u.intensity.value = net;
+    u.spin.value = still() ? 0 : clock * 0.006;
+    for (const mesh of world.tubes.children) mesh.material.uniforms.time.value = clock;
+    for (const mesh of world.cradle.cables) mesh.material.uniforms.time.value = clock;
+    updateCradle(dt, view === "detail" || view === "saves" ? 1 : 0);
     composer.render(dt);
   }
 
@@ -392,10 +474,9 @@ function startWebGL() {
     renderFrame(dt);
     frameTime += dt * 1000;
     frames += 1;
-    // Adaptive quality: average the frame interval; drop a step when it falls below ~50 fps.
     if (frames >= 90) {
       const average = frameTime / frames;
-      if (average > 20 && qualityLevel < QUALITY.length - 1) { qualityLevel += 1; applyQuality(); }
+      if (average > 22 && qualityLevel < QUALITY.length - 1) { qualityLevel += 1; applyQuality(); }
       frames = 0;
       frameTime = 0;
     }
@@ -403,7 +484,8 @@ function startWebGL() {
   }
 
   function setRunning() {
-    const shouldRun = !paused && !document.hidden && !reducedMotion();
+    body.classList.toggle("flat", prefersReduced());
+    const shouldRun = !paused && !document.hidden && !still();
     if (shouldRun && !running) {
       running = true;
       last = performance.now();
@@ -411,44 +493,92 @@ function startWebGL() {
     } else if (!shouldRun && running) {
       running = false;
     }
-    if (!running) renderFrame(0);
+    if (!running && !frozen) renderFrame(0);
   }
 
   function fly(name, instant) {
+    if (frozen) return;
     view = name in VIEWS ? name : "library";
-    goalPosition.set(...station(view).position);
-    goalTarget.set(...station(view).target);
-    if (instant || reducedMotion()) {
-      position.copy(goalPosition);
-      target.copy(goalTarget);
+    const s = station(view);
+    goalPos.set(...s.position);
+    goalYaw = s.yaw;
+    goalPitch = s.pitch;
+    goalNet = s.net;
+    if (instant || still()) {
+      pos.copy(goalPos);
+      yaw = goalYaw;
+      pitch = goalPitch;
+      net = goalNet;
     }
-    if (!running) renderFrame(0);
+    setRunning();
+  }
+
+  const loader = new THREE.TextureLoader();
+  function setCover(detail) {
+    const material = world.cradle.coverMaterial;
+    const apply = (texture) => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = 4;
+      material.map?.dispose();
+      material.map = texture;
+      material.needsUpdate = true;
+      if (!running) renderFrame(0);
+    };
+    if (detail?.canvas) apply(new THREE.CanvasTexture(detail.canvas));
+    else if (detail?.url) loader.load(detail.url, apply);
   }
 
   window.addEventListener("resize", resize);
-  window.addEventListener("pointermove", (event) => {
-    pointer.set(event.clientX / innerWidth - 0.5, 0.5 - event.clientY / innerHeight);
-  });
   window.addEventListener("gamestrike:view", (event) => fly(event.detail?.view, Boolean(event.detail?.instant)));
   window.addEventListener("gamestrike:pause", (event) => { paused = Boolean(event.detail?.paused); setRunning(); });
+  window.addEventListener("gamestrike:variant", () => { applyVariant(); if (!running) renderFrame(0); });
+  window.addEventListener("gamestrike:cradle", (event) => setCover(event.detail));
+  window.addEventListener("gamestrike:layout", () => { if (!running && !frozen) renderFrame(0); });
+  window.addEventListener("gamestrike:freeze", (event) => {
+    // A still frame partway through a flight, for the capture of a camera move.
+    const { from = "library", to = "detail", progress = 0.5 } = event.detail || {};
+    frozen = true;
+    running = false;
+    const a = station(from);
+    const b = station(to);
+    const k = progress * progress * (3 - 2 * progress);
+    view = to;
+    pos.set(...a.position).lerp(new THREE.Vector3(...b.position), k);
+    goalPos.copy(pos);
+    yaw = goalYaw = a.yaw + (b.yaw - a.yaw) * k;
+    pitch = goalPitch = a.pitch + (b.pitch - a.pitch) * k;
+    net = goalNet = a.net + (b.net - a.net) * k;
+    world.cradle.appear = k;
+    placeCamera(pos, yaw, pitch, { yaw: 0, pitch: 0, x: 0, y: 0 });
+    world.dome.material.uniforms.intensity.value = net;
+    poseCradle(k, 0);
+    composer.render(0);
+  });
   document.addEventListener("visibilitychange", setRunning);
   motionQuery?.addEventListener?.("change", () => { fly(view, true); setRunning(); });
   canvas.addEventListener("webglcontextlost", (event) => { event.preventDefault(); running = false; startStatic("context lost"); }, { once: true });
 
+  applyVariant();
   resize();
   fly(body.dataset.view || "boot", true);
   setRunning();
 }
 
-// A still, hand-painted version of the scene for machines without WebGL 2.
+// ---------- the still dome, for machines without WebGL 2 ----------
+// Projects core.domeNet's lines with the same camera and paints them with a soft glow, the tubes as
+// glossy strokes, and the light near the emblem. The UI lies flat over it.
 function startStatic(reason) {
   const fallback = document.createElement("canvas");
   fallback.id = "scene";
-  fallback.className = canvas.className;
+  fallback.className = "scene";
   fallback.setAttribute("aria-hidden", "true");
-  canvas.replaceWith(fallback);
+  document.getElementById("scene")?.replaceWith(fallback);
   const g = fallback.getContext("2d");
-  if (!g) { setMode("none"); return; }
+  body.classList.add("flat");
+  const frame = document.getElementById("frame");
+  if (frame) frame.style.transform = "";
+  if (!g || !core) { setMode("none"); return; }
+  const lines = core.domeNet({ steps: 96 });
   function paint() {
     const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
     const width = innerWidth;
@@ -456,63 +586,66 @@ function startStatic(reason) {
     fallback.width = Math.round(width * ratio);
     fallback.height = Math.round(height * ratio);
     g.setTransform(ratio, 0, 0, ratio, 0, 0);
-    g.fillStyle = "#010302";
+    const v = VARIANTS[variantName()];
+    const rgb = (c, k = 1, a = 1) => `rgba(${Math.min(255, Math.round(c[0] * 255 * k))},${Math.min(255, Math.round(c[1] * 255 * k))},${Math.min(255, Math.round(c[2] * 255 * k))},${a})`;
+    g.fillStyle = rgb(v.void, 1.6);
     g.fillRect(0, 0, width, height);
-    const cx = width * 0.78;
-    const cy = height * 0.66;
-    const r = Math.min(width, height) * 0.1;
-    g.globalCompositeOperation = "lighter";
-    const halo = g.createRadialGradient(cx, cy, 0, cx, cy, r * 3);
-    halo.addColorStop(0, "rgba(140,255,90,0.45)");
-    halo.addColorStop(0.3, "rgba(60,200,35,0.12)");
-    halo.addColorStop(1, "rgba(0,0,0,0)");
+    const focal = height / 2 / Math.tan((FOV * Math.PI) / 360);
+    const project = ([x, y, z]) => {
+      const wx = DOME.center.x + x * DOME.radius;
+      const wy = DOME.center.y + y * DOME.radius;
+      const wz = DOME.center.z + z * DOME.radius;
+      if (wz > -0.5) return null;
+      return [width / 2 + (wx / -wz) * focal, height / 2 - (wy / -wz) * focal, Math.hypot(wx, wy, wz), [x, y, z]];
+    };
+    const light = new THREE.Vector3(-0.55, 0.45, -0.7).normalize();
+    g.lineCap = "round";
+    for (const [lineWidth, strength] of [[3.2, 0.12], [1.1, 0.75]]) {
+      for (const line of lines) {
+        let prev = null;
+        for (const point of line) {
+          const p = project(point);
+          if (p && prev) {
+            const fog = Math.exp(-Math.max(p[2] - 9, 0) * 0.075);
+            const lit = Math.pow(Math.max(p[3][0] * light.x + p[3][1] * light.y + p[3][2] * light.z, 0), 3);
+            g.strokeStyle = rgb(v.net, 1, Math.min(1, (0.26 + 1.25 * lit) * fog * strength));
+            g.lineWidth = lineWidth * (p[2] < 14 ? 1.4 : 1);
+            g.beginPath();
+            g.moveTo(prev[0], prev[1]);
+            g.lineTo(p[0], p[1]);
+            g.stroke();
+          }
+          prev = p;
+        }
+      }
+    }
+    const halo = g.createRadialGradient(width * 0.09, height * 0.09, 0, width * 0.09, height * 0.09, height * 0.55);
+    halo.addColorStop(0, rgb(v.light, 1, 0.35));
+    halo.addColorStop(1, rgb(v.light, 1, 0));
     g.fillStyle = halo;
     g.fillRect(0, 0, width, height);
-    const curves = [
-      [[-0.05, 1.05], [0.25, 0.92], [0.55, 0.78], [cx / width - 0.03, cy / height]],
-      [[-0.05, 0.1], [0.3, 0.22], [0.6, 0.45], [cx / width - 0.02, cy / height - 0.02]],
-      [[1.05, 1.0], [0.95, 0.9], [0.86, 0.76], [cx / width + 0.02, cy / height]],
-    ];
-    for (const [index, points] of curves.entries()) {
-      const [a, b, c, d] = points.map(([x, y]) => [x * width, y * height]);
-      for (const [lineWidth, color] of [[30 - index * 6, "rgba(30,120,25,0.16)"], [6, "rgba(120,255,80,0.22)"], [1.6, "rgba(170,255,130,0.8)"]]) {
+    for (const [points, radius] of TUBES) {
+      const pts = points.map(([x, y]) => [x * width, y * height]);
+      const px = (radius / FRAME_DEPTH) * focal;
+      for (const [w, color] of [[px * 2, rgb(v.tube, 0.35, 0.55)], [px * 1.3, rgb(v.tube, 0.8, 0.45)], [px * 0.35, rgb(v.glow, 1.2, 0.9)]]) {
         g.beginPath();
-        g.moveTo(...a);
-        g.bezierCurveTo(...b, ...c, ...d);
+        g.moveTo(...pts[0]);
+        for (let i = 1; i < pts.length - 1; i += 1) g.quadraticCurveTo(pts[i][0], pts[i][1], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2);
+        g.lineTo(...pts[pts.length - 1]);
         g.strokeStyle = color;
-        g.lineWidth = lineWidth;
-        g.lineCap = "round";
+        g.lineWidth = w;
         g.stroke();
       }
     }
-    const core = g.createRadialGradient(cx - r * 0.25, cy - r * 0.25, r * 0.05, cx, cy, r);
-    core.addColorStop(0, "rgba(245,255,235,1)");
-    core.addColorStop(0.4, "rgba(140,255,80,0.95)");
-    core.addColorStop(0.9, "rgba(25,120,15,0.6)");
-    core.addColorStop(1, "rgba(0,0,0,0)");
-    g.fillStyle = core;
-    g.beginPath();
-    g.arc(cx, cy, r, 0, Math.PI * 2);
-    g.fill();
-    let seed = 99;
-    const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-    for (let i = 0; i < 160; i += 1) {
-      const angle = random() * Math.PI * 2;
-      const distance = r * (1.5 + random() * 6);
-      g.fillStyle = `rgba(150,255,110,${0.08 + random() * 0.3})`;
-      g.beginPath();
-      g.arc(cx + Math.cos(angle) * distance, cy + Math.sin(angle) * distance * 0.6, 0.5 + random() * 1.6, 0, Math.PI * 2);
-      g.fill();
-    }
-    g.globalCompositeOperation = "source-over";
   }
   paint();
   window.addEventListener("resize", paint);
+  window.addEventListener("gamestrike:variant", paint);
   setMode("static", "static");
   body.dataset.sceneReason = reason;
 }
 
-if (!canvas) {
+if (leaving || !canvas) {
   setMode("none");
 } else if (!supportsWebGL2()) {
   startStatic("webgl2 unavailable");

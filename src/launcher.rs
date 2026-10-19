@@ -731,6 +731,8 @@ mod launcher_app {
             "text/css; charset=utf-8",
         ),
         ("/scene.js", include_bytes!("../ui/scene.js"), JS),
+        ("/frame.js", include_bytes!("../ui/frame.js"), JS),
+        ("/covers.js", include_bytes!("../ui/covers.js"), JS),
         (
             "/styles.css",
             include_bytes!("../ui/styles.css"),
@@ -802,30 +804,30 @@ mod launcher_app {
             include_bytes!("../ui/vendor/three/shaders/OutputShader.js"),
             JS,
         ),
-        // Orbitron and Exo 2 (SIL Open Font License 1.1), Latin subsets.
+        // Nova Square, Rajdhani, and Share Tech Mono (SIL Open Font License 1.1), Latin subsets.
         (
-            "/fonts/orbitron-latin-700-normal.woff2",
-            include_bytes!("../ui/fonts/orbitron-latin-700-normal.woff2"),
+            "/fonts/nova-square-latin-400-normal.woff2",
+            include_bytes!("../ui/fonts/nova-square-latin-400-normal.woff2"),
             WOFF2,
         ),
         (
-            "/fonts/orbitron-latin-900-normal.woff2",
-            include_bytes!("../ui/fonts/orbitron-latin-900-normal.woff2"),
+            "/fonts/rajdhani-latin-500-normal.woff2",
+            include_bytes!("../ui/fonts/rajdhani-latin-500-normal.woff2"),
             WOFF2,
         ),
         (
-            "/fonts/exo-2-latin-400-normal.woff2",
-            include_bytes!("../ui/fonts/exo-2-latin-400-normal.woff2"),
+            "/fonts/rajdhani-latin-600-normal.woff2",
+            include_bytes!("../ui/fonts/rajdhani-latin-600-normal.woff2"),
             WOFF2,
         ),
         (
-            "/fonts/exo-2-latin-600-normal.woff2",
-            include_bytes!("../ui/fonts/exo-2-latin-600-normal.woff2"),
+            "/fonts/rajdhani-latin-700-normal.woff2",
+            include_bytes!("../ui/fonts/rajdhani-latin-700-normal.woff2"),
             WOFF2,
         ),
         (
-            "/fonts/exo-2-latin-700-normal.woff2",
-            include_bytes!("../ui/fonts/exo-2-latin-700-normal.woff2"),
+            "/fonts/share-tech-mono-latin-400-normal.woff2",
+            include_bytes!("../ui/fonts/share-tech-mono-latin-400-normal.woff2"),
             WOFF2,
         ),
     ];
@@ -1540,16 +1542,16 @@ mod launcher_app {
 
         #[test]
         fn capture_views_come_only_from_the_fixed_list() {
-            assert_eq!(
-                parse_capture_view(&OsString::from("collapsed")).unwrap().0,
-                "collapsed"
-            );
+            for good in ["detail", "moving", "boot-pwds", "original-games"] {
+                assert_eq!(parse_capture_view(&OsString::from(good)).unwrap().0, good);
+            }
             for bad in [
                 "",
                 "LIBRARY",
                 "about'); alert(1); ('",
-                "boot-pwds",
+                "collapsed",
                 "boot-xbox",
+                "classic.html",
             ] {
                 assert!(parse_capture_view(&OsString::from(bad)).is_err(), "{bad}");
             }

@@ -59,6 +59,8 @@ jobs:
           node --check ui/app.js
           node --check ui/classic.js
           node --check ui/style-gate.js
+          node --check ui/frame.js
+          node --check ui/covers.js
       - name: Launcher logic tests
         run: node --test ui/app.test.cjs
 

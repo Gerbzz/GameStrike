@@ -269,9 +269,173 @@
     };
   }
 
+
+  // ---------- Collection style ----------
+
+  // Dashboard styles. The Collection styles are drawn by index.html; the earlier ones by classic.html.
+  const STYLES = Object.freeze([
+    { key: "collection-orange", label: "Collection: PWDS Orange", page: "index", variant: "orange" },
+    { key: "collection-green", label: "Collection: Green", page: "index", variant: "green" },
+    { key: "blades", label: "Blades", page: "classic" },
+    { key: "original", label: "Original", page: "classic" },
+    { key: "pwds", label: "PWDS Orange", page: "classic" },
+  ]);
+  // The saved style, or the default when nothing (or something unknown) is saved.
+  function styleFor(saved) {
+    return STYLES.find((style) => style.key === saved) || STYLES[0];
+  }
+  function nextStyle(saved) {
+    const at = STYLES.indexOf(styleFor(saved));
+    return STYLES[(at + 1) % STYLES.length];
+  }
+
+  // Scale for the frame, measured from the reference concept at 1672 x 941: layout scale u, a
+  // type scale t that stays readable in small windows, and the number of cover columns (seven at
+  // the reference size, fewer when the window is narrow).
+  function collectionMetrics(width, height) {
+    const w = Math.max(1, Number(width) || 0);
+    const h = Math.max(1, Number(height) || 0);
+    const raw = Math.min(w / 1672, h / 941);
+    const u = Math.max(0.5, Math.min(1.6, raw));
+    const t = Math.max(0.72, u);
+    // The grid well spans from 288u to 54u from the edges of the frame (20u and 22u margins).
+    const gridWidth = w - u * (20 + 22 + 288 + 54) - u * 20;
+    const tile = Math.max(96, 168 * Math.max(u, 0.62));
+    const columns = Math.max(2, Math.min(12, Math.floor((gridWidth + 9 * u) / (tile + 9 * u))));
+    return { u: Number(u.toFixed(4)), t: Number(t.toFixed(4)), columns };
+  }
+
+  // ---------- generated box art ----------
+  // Scenes the cover painter can draw. A word in the title picks a fitting one; otherwise the game
+  // ID does. Every cover is drawn by GameStrike from these rules: no third-party art.
+  const SCENES = Object.freeze(["peaks", "space", "neon", "forest", "reef", "emblem", "dunes", "city", "castle", "harbor", "frost", "forge"]);
+  const SCENE_WORDS = Object.freeze([
+    [/\b(moon|star|stars|starfall|comet|orbit|planet|galaxy|space|rocket|cosmic|astro|nova)\b/i, "space"],
+    [/\b(neon|volt|circuit|drift|turbo|cyber|pixel|synth|laser|grid|racer|runner)\b/i, "neon"],
+    [/\b(forest|wood|woods|moss|garden|grove|leaf|lantern|firefly|tree)\b/i, "forest"],
+    [/\b(reef|deep|ocean|sea|tide|coral|abyss|fish|dive)\b/i, "reef"],
+    [/\b(desert|dune|dunes|canyon|sand|mesa|sun|oasis)\b/i, "dunes"],
+    [/\b(city|town|street|bakery|inn|tower|signal|metro)\b/i, "city"],
+    [/\b(kingdom|castle|knight|king|queen|keep|keepers|tactics|crown|quest)\b/i, "castle"],
+    [/\b(harbor|harbour|lighthouse|port|boat|ship|voyage|sail|pilot|pilots|courier)\b/i, "harbor"],
+    [/\b(frost|ice|snow|winter|glacier|relay|cold|polar)\b/i, "frost"],
+    [/\b(ember|forge|fire|flame|lava|volcano|inferno|burn)\b/i, "forge"],
+    [/\b(mountain|peak|peaks|summit|valley|cliff|hollow)\b/i, "peaks"],
+    [/\b(monk|temple|maze|rune|relic|crystal|glass|gem)\b/i, "emblem"],
+  ]);
+  // Each palette: sky top and bottom, far and near layers, a light, the title ink, and its edge.
+  const ART_PALETTES = Object.freeze([
+    { name: "ember dusk", sky: ["#1b0a2e", "#ff6a3d"], far: "#7a2c4e", near: "#160814", light: "#ffd36b", ink: "#fff2d6", edge: "#2a0610" },
+    { name: "teal night", sky: ["#021a2b", "#1f7a8c"], far: "#14506a", near: "#04121c", light: "#9df6ff", ink: "#eaffff", edge: "#01121f" },
+    { name: "violet storm", sky: ["#12052b", "#6a2bd8"], far: "#3a1a7a", near: "#0b0420", light: "#e0b3ff", ink: "#f6ecff", edge: "#14052a" },
+    { name: "jungle", sky: ["#04220f", "#4fbf5a"], far: "#1e6b34", near: "#03140a", light: "#e9ff8a", ink: "#f2ffe2", edge: "#03170a" },
+    { name: "gold hour", sky: ["#2b1302", "#ffb43a"], far: "#a3551a", near: "#1c0b03", light: "#fff1a8", ink: "#fff8e6", edge: "#2a1304" },
+    { name: "arctic", sky: ["#0d2340", "#bfe6ff"], far: "#6c9cc7", near: "#0b1d33", light: "#ffffff", ink: "#f4fbff", edge: "#0a1a30" },
+    { name: "crimson", sky: ["#1a0206", "#e3223e"], far: "#7a0f22", near: "#120104", light: "#ffd0b0", ink: "#fff0f0", edge: "#220308" },
+    { name: "candy", sky: ["#2b0a3d", "#ff5fb8"], far: "#a3307a", near: "#1f0628", light: "#fff07a", ink: "#fff4fb", edge: "#24062e" },
+    { name: "ocean", sky: ["#020b2b", "#1f5fff"], far: "#173f9e", near: "#020820", light: "#7af0ff", ink: "#eef6ff", edge: "#030a24" },
+    { name: "lime acid", sky: ["#0d1a02", "#b8ff2a"], far: "#4f8a12", near: "#0a1402", light: "#ffffff", ink: "#f8ffe6", edge: "#0b1402" },
+  ]);
+  const TITLE_STYLES = Object.freeze(["block", "wide", "slant", "stencil"]);
+  // Palettes that suit each scene, by name.
+  const SCENE_PALETTES = Object.freeze({
+    space: ["violet storm", "teal night", "crimson", "ocean", "candy"],
+    neon: ["candy", "violet storm", "ocean", "lime acid", "crimson"],
+    forest: ["jungle", "teal night", "gold hour", "lime acid"],
+    reef: ["ocean", "teal night", "jungle"],
+    dunes: ["gold hour", "ember dusk", "crimson"],
+    city: ["ember dusk", "violet storm", "candy", "teal night"],
+    castle: ["gold hour", "crimson", "violet storm", "ember dusk"],
+    harbor: ["ocean", "teal night", "ember dusk", "arctic"],
+    frost: ["arctic", "teal night", "ocean"],
+    forge: ["ember dusk", "crimson", "gold hour"],
+    peaks: ["ember dusk", "violet storm", "arctic", "gold hour"],
+  });
+
+  function paletteFor(scene, hash) {
+    const names = SCENE_PALETTES[scene];
+    if (!names) return ART_PALETTES[(hash >>> 5) % ART_PALETTES.length];
+    const name = names[(hash >>> 5) % names.length];
+    return ART_PALETTES.find((palette) => palette.name === name);
+  }
+
+  // A cover's design, stable per game: scene, palette, title style and placement, and a seed for
+  // the painter's own random layout.
+  function coverArt(id, title, kicker) {
+    let hash = 2166136261;
+    for (const char of String(id)) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+    const text = String(title || "").replace(/[\u0000-\u001f\u007f]/g, "").trim() || "Untitled";
+    const match = SCENE_WORDS.find(([pattern]) => pattern.test(text));
+    const scene = match ? match[1] : SCENES[hash % SCENES.length];
+    const longest = Math.max(...text.split(/\s+/).map((word) => [...word].length));
+    return {
+      seed: hash || 1,
+      scene,
+      palette: paletteFor(scene, hash),
+      titleStyle: TITLE_STYLES[(hash >>> 11) % TITLE_STYLES.length],
+      titleAt: (hash >>> 15) % 3 === 0 ? "bottom" : "top",
+      title: text,
+      // Long words need a smaller title so they fit across the cover.
+      titleScale: longest > 12 ? 0.62 : longest > 9 ? 0.76 : longest > 6 ? 0.9 : 1,
+      kicker: String(kicker || "").trim().slice(0, 24),
+    };
+  }
+
+  // A small seeded random generator (mulberry32) for the cover painter and the static dome.
+  function seededRandom(seed) {
+    let a = seed >>> 0 || 1;
+    return function next() {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // ---------- the dome net ----------
+  // The net on the inside of the dome: latitude and longitude rings around a pole that points at
+  // the light, bent by a smooth warp so the cells are irregular, quad-ish, and slightly wavy, as in
+  // the reference. Returns polylines of unit vectors; scene.js draws the same pattern in a shader,
+  // and the static fallback projects these lines on a 2D canvas.
+  const NET = Object.freeze({ rings: 26, meridians: 52, warp: 0.09, pole: Object.freeze([-0.62, 0.42, -0.66]) });
+  function domeNet({ rings = NET.rings, meridians = NET.meridians, steps = 72, warp = NET.warp, pole = NET.pole } = {}) {
+    const n = Math.hypot(...pole) || 1;
+    const p = pole.map((v) => v / n);
+    const helper = Math.abs(p[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const norm = (v) => { const l = Math.hypot(...v) || 1; return v.map((x) => x / l); };
+    const e1 = norm(cross(helper, p));
+    const e2 = cross(p, e1);
+    const bend = (theta, phi) => [
+      theta + warp * (Math.sin(phi * 3 + theta * 5) * 0.6 + Math.sin(phi * 7 - theta * 2) * 0.4),
+      phi + warp * 1.4 * (Math.sin(theta * 6 + phi * 2) * 0.6 + Math.sin(theta * 3 - phi * 5) * 0.4),
+    ];
+    const point = (theta, phi) => {
+      const [t, f] = bend(theta, phi);
+      const s = Math.sin(t);
+      return [0, 1, 2].map((k) => p[k] * Math.cos(t) + s * (e1[k] * Math.cos(f) + e2[k] * Math.sin(f)));
+    };
+    const lines = [];
+    for (let i = 1; i < rings; i += 1) {
+      const theta = (Math.PI * i) / rings;
+      const line = [];
+      for (let k = 0; k <= steps; k += 1) line.push(point(theta, (2 * Math.PI * k) / steps));
+      lines.push(line);
+    }
+    for (let j = 0; j < meridians; j += 1) {
+      const phi = (2 * Math.PI * j) / meridians;
+      const line = [];
+      for (let k = 1; k < steps; k += 1) line.push(point((Math.PI * k) / steps, phi));
+      lines.push(line);
+    }
+    return lines;
+  }
+
   const api = Object.freeze({
     filterAndSort, gridMove, shelfMove, tileLayout, createPadReader, cover, formatBytes, formatWhen, cleanTitle,
     cleanSource, buildFilters, matchesFilter, applyFilter, gridColumns, listMove, coverUrl, coverDesign, PALETTES,
+    STYLES, styleFor, nextStyle, collectionMetrics, SCENES, coverArt, seededRandom, NET, domeNet,
   });
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.GameStrikeCore = api;
