@@ -64,7 +64,7 @@ libc = { version = "=0.2.190", optional = true }
 # Same major versions wry 0.57 uses, so WKWebView types are shared with it.
 objc2 = { version = "=0.6.5", optional = true }
 block2 = { version = "=0.6.2", optional = true }
-objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSString", "NSUUID", "NSProcessInfo", "NSValue", "NSURL", "NSArray", "NSData", "NSDictionary", "NSError", "NSObject", "NSKeyValueCoding", "NSRunLoop", "NSDate"], optional = true }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSString", "NSUUID", "NSProcessInfo", "NSValue", "NSURL", "NSArray", "NSData", "NSDictionary", "NSError", "NSObject", "NSKeyValueCoding", "NSRunLoop", "NSDate", "NSSet"], optional = true }
 objc2-web-kit = { version = "=0.3.2", default-features = false, features = ["std", "objc2-app-kit", "block2", "WKWebView", "WKWebViewConfiguration", "WKWebsiteDataStore", "WKPreferences", "WKSnapshotConfiguration", "WKUserContentController", "WKUserScript"], optional = true }
 objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "NSApplication", "NSOpenPanel", "NSSavePanel", "NSPanel", "NSWindow", "NSResponder", "NSView", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSGraphics", "NSRunningApplication"], optional = true }
 

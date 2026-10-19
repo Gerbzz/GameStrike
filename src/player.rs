@@ -831,12 +831,14 @@ mod game_player {
         }
 
         /// Deletes the game's WKWebsiteDataStore. Waits for WebKit, with a time limit.
+        /// Deletes every kind of website data (local storage, IndexedDB, cookies, caches, and
+        /// the rest) from this game's own WKWebsiteDataStore, through WebKit's public API.
         pub(super) fn remove_data_store(id: Uuid) -> Result<(), Box<dyn Error>> {
             use block2::RcBlock;
             use objc2_app_kit::NSApplication;
-            use objc2_foundation::{NSDate, NSError, NSRunLoop};
+            use objc2_foundation::{NSDate, NSRunLoop};
             use std::{
-                cell::RefCell,
+                cell::Cell,
                 rc::Rc,
                 time::{Duration, Instant},
             };
@@ -846,71 +848,32 @@ mod game_player {
                 .ok_or("clearing WebKit data must run on the main thread")?;
             // WebKit expects an initialized application object, even without windows.
             let _app = NSApplication::sharedApplication(mtm);
-            eprintln!("GameStrike is asking WebKit to remove the game's data store.");
-            let outcome: Rc<RefCell<Option<Result<(), String>>>> = Rc::new(RefCell::new(None));
-            let sink = Rc::clone(&outcome);
-            let handler = RcBlock::new(move |error: *mut NSError| {
-                let result = match unsafe { error.as_ref() } {
-                    None => Ok(()),
-                    Some(error) => Err(error.localizedDescription().to_string()),
-                };
-                *sink.borrow_mut() = Some(result);
-            });
+            eprintln!("GameStrike is asking WebKit to delete the game's website data.");
+            let done = Rc::new(Cell::new(false));
+            let sink = Rc::clone(&done);
+            let handler = RcBlock::new(move || sink.set(true));
             unsafe {
-                WKWebsiteDataStore::removeDataStoreForIdentifier_completionHandler(
-                    &identifier(id),
+                let store = WKWebsiteDataStore::dataStoreForIdentifier(&identifier(id), mtm);
+                if !store.isPersistent() {
+                    return Err("the game's WebKit data store is not persistent".into());
+                }
+                store.removeDataOfTypes_modifiedSince_completionHandler(
+                    &WKWebsiteDataStore::allWebsiteDataTypes(mtm),
+                    &NSDate::distantPast(),
                     &handler,
-                    mtm,
                 );
             }
             // WebKit answers on the main queue, so the main run loop is spun until it does.
             let deadline = Instant::now() + Duration::from_secs(30);
-            while outcome.borrow().is_none() {
+            while !done.get() {
                 if Instant::now() >= deadline {
-                    return Err("WebKit did not finish removing the data store in time".into());
+                    return Err("WebKit did not finish deleting the game's data in time".into());
                 }
                 NSRunLoop::currentRunLoop()
                     .runUntilDate(&NSDate::dateWithTimeIntervalSinceNow(0.05));
             }
-            let result = outcome.borrow_mut().take();
-            match result {
-                Some(Ok(())) => {
-                    println!("GameStrike removed the game's WebKit data store.");
-                    Ok(())
-                }
-                // WebKit reports an error when no store exists for the identifier, for
-                // example for a game that was never played. Only then is that a success.
-                Some(Err(error)) if !store_folder_exists(id) => {
-                    println!("GameStrike found no WebKit data store for this game ({error}).");
-                    Ok(())
-                }
-                Some(Err(error)) => {
-                    Err(format!("could not remove the game's WebKit data store: {error}").into())
-                }
-                None => Err("WebKit gave no answer about the data store".into()),
-            }
-        }
-
-        /// Whether WebKit's folder for this game's store exists. Used only to interpret a removal
-        /// error, never to skip asking WebKit.
-        fn store_folder_exists(id: Uuid) -> bool {
-            let Some(home) = std::env::var_os("HOME") else {
-                return true;
-            };
-            let Some(name) = std::env::current_exe()
-                .ok()
-                .and_then(|exe| exe.file_name().map(|name| name.to_owned()))
-            else {
-                return true;
-            };
-            let stores = std::path::Path::new(&home)
-                .join("Library/WebKit")
-                .join(name)
-                .join("WebsiteDataStore");
-            let lower = id.hyphenated().to_string();
-            [lower.clone(), lower.to_uppercase()]
-                .iter()
-                .any(|folder| stores.join(folder).exists())
+            println!("GameStrike deleted the game's WebKit website data.");
+            Ok(())
         }
     }
 
