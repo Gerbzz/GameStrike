@@ -47,6 +47,12 @@ mod launcher_app {
         RenameGame { id: String, title: String },
         ResetSaves { id: String },
         RemoveGame { id: String, keep_saves: bool },
+        PickCover { id: String },
+        UndoCover { id: String },
+        ResetCover { id: String },
+        SetFavorite { id: String, favorite: bool },
+        SetSource { id: String, source: String },
+        Quit {},
     }
 
     enum UiEvent {
@@ -54,6 +60,8 @@ mod launcher_app {
         CapturePreview,
         CaptureComplete(std::result::Result<(), String>),
         ImportResult(std::result::Result<ImportOutcome, String>),
+        /// The one-time search for covers inside older games finished.
+        AutoCoversReady,
         PlayerExited {
             id: Uuid,
             network: bool,
@@ -73,20 +81,27 @@ mod launcher_app {
     /// A named UI state for `--capture-view`. Only names in this list reach the page script.
     const CAPTURE_VIEWS: [&str; 11] = [
         "library",
+        "focus",
+        "controller",
         "long",
         "launch",
         "manage",
         "about",
-        "system",
-        "original",
-        "pwds",
-        "boot-blades",
-        "boot-original",
-        "boot-pwds",
+        "favorites",
+        "collapsed",
+        "search",
+        "boot",
     ];
 
     #[derive(Clone, Copy)]
     struct CaptureView(&'static str);
+
+    /// What the native file picker is asked for.
+    #[derive(Clone, Copy)]
+    enum Pick {
+        Game,
+        Image,
+    }
 
     pub fn run() -> Result<(), Box<dyn Error>> {
         let (root, mut capture_path, window_size, capture_view) = launch_options()?;
@@ -102,12 +117,26 @@ mod launcher_app {
             .build(&event_loop)?;
         let proxy = event_loop.create_proxy();
         let background_proxy = event_loop.create_proxy();
+        let ui_library = Arc::clone(&library);
+        // Games added before covers existed get one look for artwork in their own files.
+        {
+            let library = Arc::clone(&library);
+            let proxy = event_loop.create_proxy();
+            thread::spawn(move || {
+                for game in library.list().unwrap_or_default() {
+                    let _ = library.ensure_auto_cover(game.id);
+                }
+                let _ = proxy.send_event(UiEvent::AutoCoversReady);
+            });
+        }
         // UI preferences (style, color, sounds) live with the library, not beside the executable.
         let mut ui_context = WebContext::new(Some(root.join("launcher-ui")));
         #[allow(unused_mut)]
         let mut builder = WebViewBuilder::new_with_web_context(&mut ui_context)
             .with_focused(capture_path.is_none())
-            .with_custom_protocol("gamestrikeui".into(), |_, request| serve_ui(request))
+            .with_custom_protocol("gamestrikeui".into(), move |_, request| {
+                serve_ui(&ui_library, request)
+            })
             .with_url("gamestrikeui://localhost/index.html")
             .with_navigation_handler(|url| url == "about:blank" || is_ui_origin(&url))
             .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny)
@@ -140,7 +169,8 @@ mod launcher_app {
                     if capture_path.is_some() {
                         let proxy = background_proxy.clone();
                         thread::spawn(move || {
-                            thread::sleep(Duration::from_millis(1600));
+                            // Leaves time for the 3D scene to compile its shaders, even on software GL.
+                            thread::sleep(Duration::from_millis(2600));
                             let _ = proxy.send_event(UiEvent::CapturePreview);
                         });
                     }
@@ -158,9 +188,14 @@ mod launcher_app {
                             eprintln!("Could not prepare launcher preview: {error}");
                             std::process::exit(2);
                         }
+                        // Records which renderer drew the backdrop (WebGL, the static fallback, or none).
+                        let _ = webview.evaluate_script_with_callback(
+                            "[document.body.dataset.scene, document.body.dataset.quality, document.body.dataset.sceneReason].filter(Boolean).join(' ') || 'not started'",
+                            |result| println!("GameStrike scene renderer: {result}"),
+                        );
                         let proxy = background_proxy.clone();
                         thread::spawn(move || {
-                            thread::sleep(Duration::from_millis(450));
+                            thread::sleep(Duration::from_millis(900));
                             let _ = proxy.send_event(UiEvent::CapturePreview);
                         });
                     } else if let Some(path) = capture_path.take()
@@ -186,7 +221,7 @@ mod launcher_app {
                         return;
                     }
                     picking = true;
-                    let picked = platform::pick_game_file(&window);
+                    let picked = platform::pick_file(&window, Pick::Game);
                     match picked {
                         Ok(Some(path)) => {
                             let name = path
@@ -298,6 +333,70 @@ mod launcher_app {
                     }
                     send_library(&webview, &library, running);
                 }
+                Event::UserEvent(UiEvent::Command(CommandMessage::PickCover { id })) => {
+                    if picking {
+                        return;
+                    }
+                    let Ok(uuid) = parse_id(&id) else { return };
+                    picking = true;
+                    // The page never supplies a path; the image is decoded with limits in Rust.
+                    let result = match platform::pick_file(&window, Pick::Image) {
+                        Ok(Some(path)) => Some(library.set_cover(uuid, path).map_err(|error| error.to_string())),
+                        Ok(None) => None,
+                        Err(error) => Some(Err(error)),
+                    };
+                    picking = false;
+                    match result {
+                        Some(Ok(())) => send(&webview, json!({"type":"managed", "id":id, "message":"Cover updated. Undo brings back the previous one."})),
+                        Some(Err(error)) => send(&webview, json!({"type":"error", "operation":"cover", "id":id, "message":format!("Could not use that image: {error}")})),
+                        None => send(&webview, json!({"type":"pick_cancelled"})),
+                    }
+                    send_library(&webview, &library, running);
+                }
+                Event::UserEvent(UiEvent::Command(CommandMessage::UndoCover { id })) => {
+                    let result = parse_id(&id).and_then(|uuid| library.undo_cover(uuid).map_err(|error| error.to_string()));
+                    match result {
+                        Ok(()) => send(&webview, json!({"type":"managed", "id":id, "message":"Previous cover restored."})),
+                        Err(error) => send(&webview, json!({"type":"error", "operation":"cover", "id":id, "message":format!("Could not undo: {error}")})),
+                    }
+                    send_library(&webview, &library, running);
+                }
+                Event::UserEvent(UiEvent::Command(CommandMessage::ResetCover { id })) => {
+                    let result = parse_id(&id).and_then(|uuid| library.reset_cover(uuid).map_err(|error| error.to_string()));
+                    match result {
+                        Ok(()) => send(&webview, json!({"type":"managed", "id":id, "message":"Cover reset. Undo brings it back."})),
+                        Err(error) => send(&webview, json!({"type":"error", "operation":"cover", "id":id, "message":format!("Could not reset the cover: {error}")})),
+                    }
+                    send_library(&webview, &library, running);
+                }
+                Event::UserEvent(UiEvent::Command(CommandMessage::SetFavorite { id, favorite })) => {
+                    let result = parse_id(&id).and_then(|uuid| library.set_favorite(uuid, favorite).map_err(|error| error.to_string()));
+                    if let Err(error) = result {
+                        send(&webview, json!({"type":"error", "operation":"manage", "id":id, "message":format!("Could not update favorites: {error}")}));
+                    }
+                    send_library(&webview, &library, running);
+                }
+                Event::UserEvent(UiEvent::Command(CommandMessage::SetSource { id, source })) => {
+                    let result = parse_id(&id).and_then(|uuid| {
+                        library.set_source(uuid, Some(&source)).map_err(|error| error.to_string())
+                    });
+                    match result {
+                        Ok(game) => send(&webview, json!({"type":"managed", "id":id, "message": match game.source {
+                            Some(source) => format!("Source set to {source}."),
+                            None => "Source cleared.".to_owned(),
+                        }})),
+                        Err(error) => send(&webview, json!({"type":"error", "operation":"manage", "id":id, "message":format!("Could not set the source: {error}")})),
+                    }
+                    send_library(&webview, &library, running);
+                }
+                Event::UserEvent(UiEvent::Command(CommandMessage::Quit {})) => {
+                    if running.is_none() {
+                        *flow = ControlFlow::Exit;
+                    } else {
+                        send(&webview, json!({"type":"error", "operation":"quit", "message":"Close the game first."}));
+                    }
+                }
+                Event::UserEvent(UiEvent::AutoCoversReady) => send_library(&webview, &library, running),
                 Event::WindowEvent {
                     event: WindowEvent::CloseRequested,
                     ..
@@ -527,7 +626,7 @@ mod launcher_app {
         match library.scan() {
             Ok(scan) => send(
                 webview,
-                json!({"type":"library", "games":scan.games, "problems":scan.problems, "running":running}),
+                json!({"type":"library", "games":scan.games, "problems":scan.problems, "running":running, "synthetic":library.is_synthetic_test_library()}),
             ),
             Err(error) => send(
                 webview,
@@ -561,64 +660,196 @@ mod launcher_app {
         }
     }
 
-    fn serve_ui(request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
-        let (status, body, mime) = if request.method() != wry::http::Method::GET
-            || !is_ui_origin(&request.uri().to_string())
-        {
-            (StatusCode::FORBIDDEN, &b"denied"[..], "text/plain")
+    const JS: &str = "text/javascript; charset=utf-8";
+    const WOFF2: &str = "font/woff2";
+
+    /// Every file the launcher page may load. Anything else is a 404.
+    static UI_FILES: &[(&str, &[u8], &str)] = &[
+        (
+            "/index.html",
+            include_bytes!("../ui/index.html"),
+            "text/html; charset=utf-8",
+        ),
+        ("/app.js", include_bytes!("../ui/app.js"), JS),
+        ("/core.js", include_bytes!("../ui/core.js"), JS),
+        ("/scene.js", include_bytes!("../ui/scene.js"), JS),
+        (
+            "/styles.css",
+            include_bytes!("../ui/styles.css"),
+            "text/css; charset=utf-8",
+        ),
+        (
+            "/mark.svg",
+            include_bytes!("../assets/branding/gamestrike-mark.svg"),
+            "image/svg+xml",
+        ),
+        (
+            "/pwds.svg",
+            include_bytes!("../assets/branding/PWDS-logo-orange.svg"),
+            "image/svg+xml",
+        ),
+        // three.js r170 (MIT), vendored; the add-ons import it by relative path.
+        (
+            "/vendor/three/three.module.min.js",
+            include_bytes!("../ui/vendor/three/three.module.min.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/postprocessing/EffectComposer.js",
+            include_bytes!("../ui/vendor/three/postprocessing/EffectComposer.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/postprocessing/MaskPass.js",
+            include_bytes!("../ui/vendor/three/postprocessing/MaskPass.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/postprocessing/OutputPass.js",
+            include_bytes!("../ui/vendor/three/postprocessing/OutputPass.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/postprocessing/Pass.js",
+            include_bytes!("../ui/vendor/three/postprocessing/Pass.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/postprocessing/RenderPass.js",
+            include_bytes!("../ui/vendor/three/postprocessing/RenderPass.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/postprocessing/ShaderPass.js",
+            include_bytes!("../ui/vendor/three/postprocessing/ShaderPass.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/postprocessing/UnrealBloomPass.js",
+            include_bytes!("../ui/vendor/three/postprocessing/UnrealBloomPass.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/shaders/CopyShader.js",
+            include_bytes!("../ui/vendor/three/shaders/CopyShader.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/shaders/LuminosityHighPassShader.js",
+            include_bytes!("../ui/vendor/three/shaders/LuminosityHighPassShader.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/shaders/OutputShader.js",
+            include_bytes!("../ui/vendor/three/shaders/OutputShader.js"),
+            JS,
+        ),
+        // Orbitron and Exo 2 (SIL Open Font License 1.1), Latin subsets.
+        (
+            "/fonts/orbitron-latin-700-normal.woff2",
+            include_bytes!("../ui/fonts/orbitron-latin-700-normal.woff2"),
+            WOFF2,
+        ),
+        (
+            "/fonts/orbitron-latin-900-normal.woff2",
+            include_bytes!("../ui/fonts/orbitron-latin-900-normal.woff2"),
+            WOFF2,
+        ),
+        (
+            "/fonts/exo-2-latin-400-normal.woff2",
+            include_bytes!("../ui/fonts/exo-2-latin-400-normal.woff2"),
+            WOFF2,
+        ),
+        (
+            "/fonts/exo-2-latin-600-normal.woff2",
+            include_bytes!("../ui/fonts/exo-2-latin-600-normal.woff2"),
+            WOFF2,
+        ),
+        (
+            "/fonts/exo-2-latin-700-normal.woff2",
+            include_bytes!("../ui/fonts/exo-2-latin-700-normal.woff2"),
+            WOFF2,
+        ),
+    ];
+
+    fn bundled(path: &str) -> Option<(&'static [u8], &'static str)> {
+        let path = if path == "/" { "/index.html" } else { path };
+        UI_FILES
+            .iter()
+            .find(|(name, _, _)| *name == path)
+            .map(|(_, body, mime)| (*body, *mime))
+    }
+
+    /// Serves the bundled UI files, and `/cover/<game uuid>.png`: a cover PNG that GameStrike
+    /// itself encoded into the library. The page names only a game ID, never a path.
+    fn serve_ui(library: &Library, request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
+        let allowed =
+            request.method() == wry::http::Method::GET && is_ui_origin(&request.uri().to_string());
+        let cover = allowed
+            .then(|| request.uri().path().strip_prefix("/cover/"))
+            .flatten()
+            .map(|name| read_cover(library, name));
+        let (status, body, mime): (StatusCode, Cow<'static, [u8]>, &'static str) = if !allowed {
+            (
+                StatusCode::FORBIDDEN,
+                Cow::Borrowed(&b"denied"[..]),
+                "text/plain",
+            )
+        } else if let Some(cover) = cover {
+            match cover {
+                Some(png) => (StatusCode::OK, Cow::Owned(png), "image/png"),
+                None => (
+                    StatusCode::NOT_FOUND,
+                    Cow::Borrowed(&b"no cover"[..]),
+                    "text/plain",
+                ),
+            }
         } else {
-            match request.uri().path() {
-                "/" | "/index.html" => (
-                    StatusCode::OK,
-                    &include_bytes!("../ui/index.html")[..],
-                    "text/html; charset=utf-8",
+            match bundled(request.uri().path()) {
+                Some((body, mime)) => (StatusCode::OK, Cow::Borrowed(body), mime),
+                None => (
+                    StatusCode::NOT_FOUND,
+                    Cow::Borrowed(&b"not found"[..]),
+                    "text/plain",
                 ),
-                "/app.js" => (
-                    StatusCode::OK,
-                    &include_bytes!("../ui/app.js")[..],
-                    "text/javascript; charset=utf-8",
-                ),
-                "/core.js" => (
-                    StatusCode::OK,
-                    &include_bytes!("../ui/core.js")[..],
-                    "text/javascript; charset=utf-8",
-                ),
-                "/styles.css" => (
-                    StatusCode::OK,
-                    &include_bytes!("../ui/styles.css")[..],
-                    "text/css; charset=utf-8",
-                ),
-                "/mark.svg" => (
-                    StatusCode::OK,
-                    &include_bytes!("../assets/branding/gamestrike-mark.svg")[..],
-                    "image/svg+xml",
-                ),
-                "/pwds.svg" => (
-                    StatusCode::OK,
-                    &include_bytes!("../assets/branding/PWDS-logo-orange.svg")[..],
-                    "image/svg+xml",
-                ),
-                _ => (StatusCode::NOT_FOUND, &b"not found"[..], "text/plain"),
             }
         };
-        let mut response = Response::new(Cow::Borrowed(body));
+        let mut response = Response::new(body);
         *response.status_mut() = status;
         response
             .headers_mut()
             .insert(header::CONTENT_TYPE, header::HeaderValue::from_static(mime));
-        response.headers_mut().insert(header::HeaderName::from_static("content-security-policy"), header::HeaderValue::from_static("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-src 'none'; form-action 'none'; connect-src 'none'"));
+        response.headers_mut().insert(header::HeaderName::from_static("content-security-policy"), header::HeaderValue::from_static("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-src 'none'; form-action 'none'; connect-src 'none'; font-src 'self'"));
         response.headers_mut().insert(
             header::HeaderName::from_static("x-content-type-options"),
             header::HeaderValue::from_static("nosniff"),
         );
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-store"),
+        );
         response
+    }
+
+    /// Reads `<uuid>.png` from the library: only a valid game ID, only a regular PNG file of
+    /// bounded size that GameStrike wrote.
+    fn read_cover(library: &Library, name: &str) -> Option<Vec<u8>> {
+        let id = Uuid::parse_str(name.strip_suffix(".png")?).ok()?;
+        let path = library.cover_file(id)?;
+        let metadata = fs::symlink_metadata(&path).ok()?;
+        if !metadata.is_file() || metadata.len() > gamestrike::MAX_STORED_COVER_BYTES {
+            return None;
+        }
+        let png = fs::read(path).ok()?;
+        png.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A])
+            .then_some(png)
     }
 
     /// The native file picker, `--capture-preview` screenshots, and WebView placement.
     /// Pickers return only a path; `Library::import` validates the file and ZIP on every platform.
     #[cfg(windows)]
     mod platform {
-        use super::{UiEvent, save_png};
+        use super::{Pick, UiEvent, save_png};
         use std::{
             error::Error, ffi::OsString, mem::size_of, os::windows::ffi::OsStringExt, path::PathBuf,
         };
@@ -694,12 +925,23 @@ mod launcher_app {
             Ok(())
         }
 
-        pub(super) fn pick_game_file(
+        pub(super) fn pick_file(
             window: &Window,
+            pick: Pick,
         ) -> std::result::Result<Option<PathBuf>, String> {
             let mut selected = vec![0u16; 32_768];
-            let filter: Vec<u16> = "HTML games (*.html;*.htm;*.zip)\0*.html;*.htm;*.zip\0HTML files (*.html;*.htm)\0*.html;*.htm\0ZIP archives (*.zip)\0*.zip\0\0".encode_utf16().collect();
-            let title: Vec<u16> = "Add a local HTML game\0".encode_utf16().collect();
+            let (filter, title) = match pick {
+                Pick::Game => (
+                    "HTML games (*.html;*.htm;*.zip)\0*.html;*.htm;*.zip\0HTML files (*.html;*.htm)\0*.html;*.htm\0ZIP archives (*.zip)\0*.zip\0\0",
+                    "Add a local HTML game\0",
+                ),
+                Pick::Image => (
+                    "Images (*.png;*.jpg;*.jpeg;*.gif;*.webp)\0*.png;*.jpg;*.jpeg;*.gif;*.webp\0\0",
+                    "Choose a cover image\0",
+                ),
+            };
+            let filter: Vec<u16> = filter.encode_utf16().collect();
+            let title: Vec<u16> = title.encode_utf16().collect();
             let mut dialog = OPENFILENAMEW {
                 lStructSize: size_of::<OPENFILENAMEW>() as u32,
                 hwndOwner: window.hwnd() as *mut _,
@@ -728,7 +970,7 @@ mod launcher_app {
 
     #[cfg(target_os = "linux")]
     mod platform {
-        use super::{UiEvent, save_png};
+        use super::{Pick, UiEvent, save_png};
         use gtk::prelude::{FileChooserExt, NativeDialogExt};
         use std::{error::Error, path::PathBuf};
         use tao::{event_loop::EventLoopProxy, platform::unix::WindowExtUnix, window::Window};
@@ -770,19 +1012,37 @@ mod launcher_app {
             Ok(())
         }
 
-        pub(super) fn pick_game_file(
+        pub(super) fn pick_file(
             window: &Window,
+            pick: Pick,
         ) -> std::result::Result<Option<PathBuf>, String> {
+            let (title, accept, name, patterns): (&str, &str, &str, &[&str]) = match pick {
+                Pick::Game => (
+                    "Add a local HTML game",
+                    "Add",
+                    "HTML games (*.html, *.htm, *.zip)",
+                    &["*.html", "*.htm", "*.zip", "*.HTML", "*.HTM", "*.ZIP"],
+                ),
+                Pick::Image => (
+                    "Choose a cover image",
+                    "Use image",
+                    "Images (*.png, *.jpg, *.gif, *.webp)",
+                    &[
+                        "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.PNG", "*.JPG", "*.JPEG",
+                        "*.GIF", "*.WEBP",
+                    ],
+                ),
+            };
             let dialog = gtk::FileChooserNative::new(
-                Some("Add a local HTML game"),
+                Some(title),
                 Some(window.gtk_window()),
                 gtk::FileChooserAction::Open,
-                Some("Add"),
+                Some(accept),
                 Some("Cancel"),
             );
             let filter = gtk::FileFilter::new();
-            filter.set_name(Some("HTML games (*.html, *.htm, *.zip)"));
-            for pattern in ["*.html", "*.htm", "*.zip", "*.HTML", "*.HTM", "*.ZIP"] {
+            filter.set_name(Some(name));
+            for pattern in patterns {
                 filter.add_pattern(pattern);
             }
             dialog.add_filter(filter);
@@ -797,7 +1057,7 @@ mod launcher_app {
 
     #[cfg(target_os = "macos")]
     mod platform {
-        use super::{UiEvent, save_png};
+        use super::{Pick, UiEvent, save_png};
         use block2::RcBlock;
         use objc2::MainThreadMarker;
         use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage, NSOpenPanel};
@@ -857,17 +1117,19 @@ mod launcher_app {
             Ok(())
         }
 
-        pub(super) fn pick_game_file(
+        pub(super) fn pick_file(
             _window: &Window,
+            pick: Pick,
         ) -> std::result::Result<Option<PathBuf>, String> {
             let mtm = MainThreadMarker::new().ok_or("the file picker needs the main thread")?;
             let panel = NSOpenPanel::openPanel(mtm);
             panel.setCanChooseFiles(true);
             panel.setCanChooseDirectories(false);
             panel.setAllowsMultipleSelection(false);
-            panel.setMessage(Some(ns_string!(
-                "Add a local HTML game (.html, .htm, or .zip)"
-            )));
+            panel.setMessage(Some(match pick {
+                Pick::Game => ns_string!("Add a local HTML game (.html, .htm, or .zip)"),
+                Pick::Image => ns_string!("Choose a cover image (PNG, JPEG, GIF, or WebP)"),
+            }));
             if panel.runModal() != MODAL_RESPONSE_OK {
                 return Ok(None);
             }
@@ -892,11 +1154,13 @@ mod launcher_app {
 
         #[test]
         fn ui_protocol_serves_only_bundled_paths_on_its_exact_origin() {
+            let dir = tempfile::tempdir().unwrap();
+            let library = Library::open(dir.path()).unwrap();
             let allowed = Request::builder()
                 .uri(ui("/index.html"))
                 .body(Vec::new())
                 .unwrap();
-            let response = serve_ui(allowed);
+            let response = serve_ui(&library, allowed);
             assert_eq!(response.status(), StatusCode::OK);
             assert!(response.body().as_ref().starts_with(b"<!doctype html>"));
 
@@ -904,7 +1168,7 @@ mod launcher_app {
                 .uri(ui("/mark.svg"))
                 .body(Vec::new())
                 .unwrap();
-            let mark_response = serve_ui(mark);
+            let mark_response = serve_ui(&library, mark);
             assert_eq!(mark_response.status(), StatusCode::OK);
             assert_eq!(
                 mark_response
@@ -934,7 +1198,11 @@ mod launcher_app {
                 ui("/private.txt"),
             ] {
                 let request = Request::builder().uri(&url).body(Vec::new()).unwrap();
-                assert_ne!(serve_ui(request).status(), StatusCode::OK, "{url}");
+                assert_ne!(
+                    serve_ui(&library, request).status(),
+                    StatusCode::OK,
+                    "{url}"
+                );
             }
         }
 
@@ -1023,12 +1291,188 @@ mod launcher_app {
         }
 
         #[test]
+        fn every_bundled_ui_file_is_served_and_every_module_import_resolves() {
+            let dir = tempfile::tempdir().unwrap();
+            let library = Library::open(dir.path()).unwrap();
+            for (path, body, mime) in UI_FILES {
+                let response = serve_ui(
+                    &library,
+                    Request::builder().uri(ui(path)).body(Vec::new()).unwrap(),
+                );
+                assert_eq!(response.status(), StatusCode::OK, "{path}");
+                assert_eq!(response.body().as_ref(), *body, "{path}");
+                assert_eq!(response.headers().get(header::CONTENT_TYPE).unwrap(), mime);
+                let csp = response
+                    .headers()
+                    .get("content-security-policy")
+                    .unwrap()
+                    .to_str()
+                    .unwrap();
+                assert!(csp.contains("font-src 'self'") && csp.contains("connect-src 'none'"));
+            }
+            // The ES modules (scene.js and the vendored three.js add-ons) import only files in
+            // this table, by relative path; a missing one would leave the 3D scene unloaded.
+            for (path, body, _) in UI_FILES.iter().filter(|(path, _, _)| path.ends_with(".js")) {
+                let source = String::from_utf8_lossy(body);
+                for quote in ["from '", "from \""] {
+                    for piece in source.split(quote).skip(1) {
+                        let target = piece.split(['\'', '"']).next().unwrap();
+                        assert!(
+                            target.starts_with("./") || target.starts_with("../"),
+                            "{path} imports {target}"
+                        );
+                        let mut parts: Vec<&str> = path.split('/').collect();
+                        parts.pop();
+                        for segment in target.split('/') {
+                            match segment {
+                                "." => {}
+                                ".." => {
+                                    parts.pop();
+                                }
+                                other => parts.push(other),
+                            }
+                        }
+                        let resolved = parts.join("/");
+                        assert!(
+                            bundled(&resolved).is_some(),
+                            "{path} imports missing {resolved}"
+                        );
+                    }
+                }
+            }
+            assert!(bundled("/vendor/three/three.module.js").is_none());
+            assert!(bundled("/fonts/OFL-Orbitron.txt").is_none());
+        }
+
+        #[test]
+        fn covers_are_served_only_by_game_id_and_only_as_stored_pngs() {
+            let dir = tempfile::tempdir().unwrap();
+            let library = Library::open(dir.path().join("library")).unwrap();
+            let source = dir.path().join("Cover Serve (Synthetic Test).html");
+            fs::write(&source, b"<!doctype html><title>synthetic</title>").unwrap();
+            let game = library.import(&source).unwrap();
+            let get = |path: String| {
+                serve_ui(
+                    &library,
+                    Request::builder().uri(ui(&path)).body(Vec::new()).unwrap(),
+                )
+            };
+            assert_eq!(
+                get(format!("/cover/{}.png", game.id)).status(),
+                StatusCode::NOT_FOUND,
+                "no cover yet"
+            );
+
+            let image = dir.path().join("cover.png");
+            let mut png = Vec::new();
+            image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+                12,
+                18,
+                image::Rgb([20, 220, 60]),
+            ))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+            fs::write(&image, &png).unwrap();
+            library.set_cover(game.id, &image).unwrap();
+            let response = get(format!("/cover/{}.png?v=2", game.id));
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers().get(header::CONTENT_TYPE).unwrap(),
+                "image/png"
+            );
+            assert_eq!(
+                response.headers().get("x-content-type-options").unwrap(),
+                "nosniff"
+            );
+            assert!(response.body().as_ref().starts_with(b"\x89PNG"));
+
+            for path in [
+                "/cover/../../Cargo.toml".to_owned(),
+                format!("/cover/{}", game.id),
+                format!("/cover/{}.svg", game.id),
+                format!("/cover/{}.png", Uuid::new_v4()),
+                "/cover/not-a-uuid.png".to_owned(),
+                "/cover/".to_owned(),
+            ] {
+                assert_ne!(get(path.clone()).status(), StatusCode::OK, "{path}");
+            }
+            // Other origins never get covers.
+            let foreign = Request::builder()
+                .uri(format!(
+                    "https://gamestrike{}.localhost/cover/{}.png",
+                    game.id.simple(),
+                    game.id
+                ))
+                .body(Vec::new())
+                .unwrap();
+            assert_eq!(serve_ui(&library, foreign).status(), StatusCode::FORBIDDEN);
+        }
+
+        #[test]
+        fn library_commands_for_covers_favorites_and_sources_are_strict() {
+            let ui = ui("/index.html");
+            let id = Uuid::new_v4().to_string();
+            assert_eq!(
+                parse_command(&ui, &format!(r#"{{"type":"pick_cover","id":"{id}"}}"#)),
+                Some(CommandMessage::PickCover { id: id.clone() })
+            );
+            assert_eq!(
+                parse_command(
+                    &ui,
+                    &format!(r#"{{"type":"set_favorite","id":"{id}","favorite":true}}"#)
+                ),
+                Some(CommandMessage::SetFavorite {
+                    id: id.clone(),
+                    favorite: true
+                })
+            );
+            assert_eq!(
+                parse_command(
+                    &ui,
+                    &format!(r#"{{"type":"set_source","id":"{id}","source":"itch.io"}}"#)
+                ),
+                Some(CommandMessage::SetSource {
+                    id: id.clone(),
+                    source: "itch.io".to_owned()
+                })
+            );
+            assert_eq!(
+                parse_command(&ui, r#"{"type":"quit"}"#),
+                Some(CommandMessage::Quit {})
+            );
+            for body in [
+                // The page can never name an image file; only Rust's picker supplies paths.
+                format!(r#"{{"type":"pick_cover","id":"{id}","path":"C:\\cover.png"}}"#),
+                format!(r#"{{"type":"set_cover","id":"{id}","path":"/etc/passwd"}}"#),
+                format!(r#"{{"type":"set_favorite","id":"{id}"}}"#),
+                format!(r#"{{"type":"set_favorite","id":"{id}","favorite":"yes"}}"#),
+                r#"{"type":"undo_cover"}"#.to_owned(),
+            ] {
+                assert_eq!(parse_command(&ui, &body), None, "{body}");
+            }
+            let foreign = format!(
+                "https://gamestrike{}.localhost/index.html",
+                Uuid::new_v4().simple()
+            );
+            assert_eq!(
+                parse_command(&foreign, &format!(r#"{{"type":"pick_cover","id":"{id}"}}"#)),
+                None
+            );
+        }
+
+        #[test]
         fn capture_views_come_only_from_the_fixed_list() {
             assert_eq!(
-                parse_capture_view(&OsString::from("boot-pwds")).unwrap().0,
-                "boot-pwds"
+                parse_capture_view(&OsString::from("collapsed")).unwrap().0,
+                "collapsed"
             );
-            for bad in ["", "LIBRARY", "about'); alert(1); ('", "boot-xbox"] {
+            for bad in [
+                "",
+                "LIBRARY",
+                "about'); alert(1); ('",
+                "boot-pwds",
+                "boot-xbox",
+            ] {
                 assert!(parse_capture_view(&OsString::from(bad)).is_err(), "{bad}");
             }
         }
