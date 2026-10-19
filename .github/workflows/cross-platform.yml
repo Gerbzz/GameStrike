@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - "gamestrike-cross-platform"
+      - "gamestrike-dome-console"
   workflow_dispatch:
 
 permissions:

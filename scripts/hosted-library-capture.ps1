@@ -92,6 +92,11 @@ Capture-Launcher $library 'long-title' @('--capture-view', 'long')
 Capture-Launcher $library 'network-dialog' @('--capture-view', 'launch')
 Capture-Launcher $library 'manage' @('--capture-view', 'manage')
 Capture-Launcher $library 'about' @('--capture-view', 'about')
+# Baseline set for the Blades, Original, and PWDS Orange styles. Later branches compare their own
+# captures against these exact file names to show the styles did not change.
+foreach ($pair in @(@('legacy-blades', 'library'), @('legacy-system', 'system'), @('legacy-manage', 'manage'), @('legacy-original', 'original'), @('legacy-original-games', 'original-games'), @('legacy-pwds', 'pwds'), @('legacy-boot-blades', 'boot-blades'), @('legacy-boot-original', 'boot-original'), @('legacy-boot-pwds', 'boot-pwds'))) {
+    Capture-Launcher $library $pair[0] @('--capture-view', $pair[1])
+}
 Capture-Launcher $library 'minimum' @('--window-size', '880', '620')
 $empty = Join-Path $probeRoot 'empty-library'
 New-Item -ItemType Directory -Force -Path $empty | Out-Null

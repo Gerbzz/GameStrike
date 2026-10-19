@@ -107,6 +107,11 @@ capture "$library" long-title --capture-view long
 capture "$library" network-dialog --capture-view launch
 capture "$library" manage --capture-view manage
 capture "$library" about --capture-view about
+# Baseline set for the Blades, Original, and PWDS Orange styles. Later branches compare their own
+# captures against these exact file names to show the styles did not change.
+for pair in legacy-blades:library legacy-system:system legacy-manage:manage legacy-original:original   legacy-original-games:original-games legacy-pwds:pwds legacy-boot-blades:boot-blades   legacy-boot-original:boot-original legacy-boot-pwds:boot-pwds; do
+  capture "$library" "${pair%%:*}" --capture-view "${pair#*:}"
+done
 capture "$library" minimum --window-size 880 620
 empty="$work/empty-library"
 mkdir -p "$empty"
