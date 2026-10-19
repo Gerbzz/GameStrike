@@ -53,6 +53,36 @@ foreach ($title in $titles) {
     if ($LASTEXITCODE -ne 0) { throw "Synthetic import failed: $title" }
 }
 
+# Real library data for the synthetic games: sources, favorites, a custom cover, and a ZIP whose own
+# icon becomes its automatic cover. Every image is generated here; none is third-party art.
+function Id-Of([string]$Title) {
+    $line = (& $cli --library $library list) | Where-Object { $_ -like "*$Title*" } | Select-Object -First 1
+    ($line -split "`t")[0]
+}
+function Invoke-Cli([string[]]$Arguments) {
+    & $cli --library $library @Arguments
+    if ($LASTEXITCODE -ne 0) { throw "gamestrike $($Arguments -join ' ') failed." }
+}
+Invoke-Cli @('set-source', (Id-Of 'Orbit Garden'), 'itch.io')
+Invoke-Cli @('set-source', (Id-Of 'Pixel Harbor'), 'itch.io')
+Invoke-Cli @('set-source', (Id-Of 'Lantern Maze'), 'Newgrounds')
+Invoke-Cli @('favorite', (Id-Of 'Orbit Garden'), 'on')
+Invoke-Cli @('favorite', (Id-Of 'Comet Courier'), 'on')
+$coverFile = Join-Path $probeRoot 'cover.png'
+node (Join-Path $PWD 'scripts/make-test-cover.cjs') $coverFile 125
+Invoke-Cli @('set-cover', (Id-Of 'Pixel Harbor'), $coverFile)
+$iconGame = Join-Path $probeRoot 'icon-game'
+New-Item -ItemType Directory -Force -Path $iconGame | Out-Null
+[IO.File]::WriteAllText((Join-Path $iconGame 'index.html'), '<!doctype html><title>Signal Tower (Synthetic Test)</title><h1>Signal Tower (Synthetic Test)</h1>')
+node (Join-Path $PWD 'scripts/make-test-cover.cjs') (Join-Path $iconGame 'icon.png') 280
+$iconZip = Join-Path $probeRoot 'Signal Tower (Synthetic Test).zip'
+node (Join-Path $PWD 'scripts/make-test-zip.cjs') $iconZip (Join-Path $iconGame 'index.html') (Join-Path $iconGame 'icon.png')
+Invoke-Cli @('import', $iconZip)
+$listing = & $cli --library $library list
+$listing | Set-Content -Encoding utf8 (Join-Path $probeRoot 'library-list.txt')
+if (-not ($listing | Where-Object { $_ -like '*Signal Tower*' -and $_ -like '*cover: auto*' })) { throw "The ZIP's icon did not become its automatic cover." }
+if (-not ($listing | Where-Object { $_ -like '*Pixel Harbor*' -and $_ -like '*cover: custom*' })) { throw 'The custom cover was not stored.' }
+
 function Capture-Launcher([string]$Library, [string]$Name, [string[]]$Extra) {
     $png = Join-Path $probeRoot "$Name.png"
     $out = Join-Path $probeRoot "$Name.out.txt"
@@ -92,6 +122,10 @@ Capture-Launcher $library 'long-title' @('--capture-view', 'long')
 Capture-Launcher $library 'network-dialog' @('--capture-view', 'launch')
 Capture-Launcher $library 'manage' @('--capture-view', 'manage')
 Capture-Launcher $library 'about' @('--capture-view', 'about')
+Capture-Launcher $library 'favorites' @('--capture-view', 'favorites')
+Capture-Launcher $library 'collapsed' @('--capture-view', 'collapsed')
+Capture-Launcher $library 'search' @('--capture-view', 'search')
+Capture-Launcher $library 'boot' @('--capture-view', 'boot')
 Capture-Launcher $library 'minimum' @('--window-size', '880', '620')
 $empty = Join-Path $probeRoot 'empty-library'
 New-Item -ItemType Directory -Force -Path $empty | Out-Null
