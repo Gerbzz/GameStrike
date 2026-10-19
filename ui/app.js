@@ -913,6 +913,8 @@
       state.gridIndex = covered > 0 ? covered : Math.min(1, state.visible.length - 1);
     }
     layoutFocus(false);
+    // Bring the focused cover into view, as keyboard focus would.
+    el.grid.children[state.gridIndex]?.scrollIntoView({ block: "nearest", inline: "nearest" });
     if (view === "launch") openDialog("network");
     else if (view === "manage") openDetail();
     else if (view === "about") openDialog("about");
