@@ -1,6 +1,8 @@
-// GameStrike's 3D backdrop: a deep green void with a pulsing core, translucent energy conduits,
-// drifting wisps, and bloom, rendered with the bundled three.js. It is decoration only. It never
-// sees game content, and it talks to the launcher page only through two DOM events:
+// GameStrike's 3D backdrop: a near-black void lit by green light. A glowing core is the focal
+// point; thick translucent glass conduits carry pulses of energy toward it through fog; a few
+// wisps drift. Rendered with the bundled three.js and bloom on lit elements only. It is
+// decoration: it never sees game content, and it talks to the launcher page only through two
+// DOM events:
 //   "gamestrike:view"  { view, instant }  where the camera should fly (library, detail, saves, settings, about, boot)
 //   "gamestrike:pause" { paused }         stop rendering while a game runs
 // If WebGL 2 is unavailable it paints a static 2D version of the same scene instead, and the
@@ -17,21 +19,22 @@ const motionQuery = window.matchMedia?.("(prefers-reduced-motion: reduce)");
 const reducedMotion = () => Boolean(motionQuery?.matches) || body.classList.contains("reduce-motion");
 
 const ORB = new THREE.Vector3(2.7, 0.25, -1.6);
-// Camera stations. Moving between views is a fly-through between these.
+// Camera stations. Moving between views is a fly-through between these. In the library the core
+// sits low on the right, where the cover grid usually leaves space.
 const VIEWS = {
-  boot: { position: [3.1, 0.45, 4.4], target: [2.7, 0.25, -1.6] },
-  library: { position: [-0.4, 0.6, 10.5], target: [-0.4, 0.1, -1.6] },
-  detail: { position: [6.4, 1.5, 5.2], target: [1.6, 0.2, -1.8] },
-  saves: { position: [1.0, -0.6, 6.4], target: [2.3, 0.1, -1.6] },
-  settings: { position: [-6.2, 1.8, 4.6], target: [-0.6, 0.3, -2.4] },
-  about: { position: [4.2, 0.6, 3.6], target: [2.7, 0.25, -1.6] },
+  boot: { position: [3.0, 0.5, 4.6], target: [2.7, 0.25, -1.6] },
+  library: { position: [-1.6, 1.5, 10.8], target: [-1.6, 1.25, -1.6] },
+  detail: { position: [5.8, 1.0, 6.8], target: [5.3, 0.45, -1.6] },
+  saves: { position: [1.2, -0.4, 7.4], target: [1.4, 0.4, -1.6] },
+  settings: { position: [-6.6, 2.0, 5.2], target: [-0.4, 0.5, -2.4] },
+  about: { position: [4.4, 0.7, 4.0], target: [2.7, 0.25, -1.6] },
 };
 // Quality steps; the renderer drops a step whenever frames take too long.
 const QUALITY = [
-  { name: "high", pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5), particles: 1600, bloom: true, bloomScale: 1 },
-  { name: "medium", pixelRatio: 1, particles: 900, bloom: true, bloomScale: 0.75 },
-  { name: "low", pixelRatio: 0.75, particles: 450, bloom: true, bloomScale: 0.5 },
-  { name: "minimal", pixelRatio: 0.6, particles: 200, bloom: false, bloomScale: 0.5 },
+  { name: "high", pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5), particles: 700, bloom: true, bloomScale: 1 },
+  { name: "medium", pixelRatio: 1, particles: 450, bloom: true, bloomScale: 0.75 },
+  { name: "low", pixelRatio: 0.75, particles: 250, bloom: true, bloomScale: 0.5 },
+  { name: "minimal", pixelRatio: 0.6, particles: 120, bloom: false, bloomScale: 0.5 },
 ];
 
 function supportsWebGL2() {
@@ -59,6 +62,21 @@ const NOISE = /* glsl */ `
   }
   float fbm(vec3 p) { float v = 0.0; float a = 0.5; for (int i = 0; i < 4; i++) { v += a * noise(p); p *= 2.03; a *= 0.5; } return v; }
 `;
+// Depth fog: things fade into the black as they recede.
+const FOG = /* glsl */ `
+  float fogFade(float depth) { return exp(-pow(max(depth - 6.0, 0.0) * 0.085, 1.4)); }
+`;
+const SHADED_VERTEX = /* glsl */ `
+  varying vec2 vUv; varying vec3 vNormal; varying vec3 vView; varying float vDepth;
+  void main() {
+    vUv = uv;
+    vec4 world = modelMatrix * vec4(position, 1.0);
+    vec4 view = viewMatrix * world;
+    vNormal = normalize(normalMatrix * normal);
+    vView = normalize(-view.xyz);
+    vDepth = -view.z;
+    gl_Position = projectionMatrix * view;
+  }`;
 
 function backgroundMaterial() {
   return new THREE.ShaderMaterial({
@@ -71,13 +89,12 @@ function backgroundMaterial() {
     fragmentShader: /* glsl */ `
       uniform float time; varying vec3 vDir; ${NOISE}
       void main() {
-        float horizon = smoothstep(-0.6, 0.9, vDir.y);
-        vec3 deep = mix(vec3(0.001, 0.003, 0.0015), vec3(0.003, 0.014, 0.004), 1.0 - horizon);
-        float cloud = fbm(vDir * 2.6 + vec3(0.0, time * 0.01, time * 0.006));
-        float wisps = smoothstep(0.52, 0.86, cloud);
-        vec3 nebula = vec3(0.012, 0.06, 0.01) * wisps * (0.6 + 0.4 * (1.0 - horizon));
-        float glow = pow(max(dot(vDir, normalize(vec3(0.3, 0.05, -1.0))), 0.0), 18.0);
-        gl_FragColor = vec4(deep + nebula + vec3(0.01, 0.05, 0.008) * glow, 1.0);
+        // Almost black, with a faint green floor of light and the barest nebula.
+        float low = smoothstep(0.2, -0.7, vDir.y);
+        vec3 color = vec3(0.0004, 0.0012, 0.0006) + vec3(0.0016, 0.0075, 0.0018) * low;
+        float cloud = fbm(vDir * 3.1 + vec3(0.0, time * 0.008, time * 0.005));
+        color += vec3(0.002, 0.012, 0.002) * smoothstep(0.58, 0.9, cloud);
+        gl_FragColor = vec4(color, 1.0);
       }`,
   });
 }
@@ -97,12 +114,14 @@ function coreMaterial() {
       uniform float time; varying vec3 vNormal; varying vec3 vView; varying vec3 vPos; ${NOISE}
       void main() {
         float facing = clamp(dot(normalize(vNormal), normalize(vView)), 0.0, 1.0);
-        float swirl = fbm(vPos * 2.2 + vec3(time * 0.25, -time * 0.18, time * 0.12));
-        float veins = smoothstep(0.55, 0.75, swirl);
-        float pulse = 0.85 + 0.15 * sin(time * 1.7);
-        vec3 inner = mix(vec3(0.12, 0.85, 0.06), vec3(1.1, 2.4, 0.7), veins) * pulse;
-        vec3 rim = vec3(0.4, 2.4, 0.3) * pow(1.0 - facing, 2.5);
-        gl_FragColor = vec4(inner * (0.55 + 0.45 * facing) + rim, 1.0);
+        float swirl = fbm(vPos * 2.4 + vec3(time * 0.22, -time * 0.16, time * 0.1));
+        float veins = smoothstep(0.5, 0.78, swirl);
+        float pulse = 0.8 + 0.2 * sin(time * 1.6);
+        // A white-hot centre, green plasma veins, and a green limb.
+        vec3 plasma = mix(vec3(0.04, 0.42, 0.03), vec3(0.9, 2.2, 0.55), veins);
+        vec3 hot = vec3(1.2, 1.9, 1.0) * pow(facing, 9.0);
+        vec3 rim = vec3(0.3, 1.9, 0.2) * pow(1.0 - facing, 2.0);
+        gl_FragColor = vec4((plasma * (0.35 + 0.65 * facing) + hot + rim) * pulse, 1.0);
       }`,
   });
 }
@@ -113,56 +132,66 @@ function glassShellMaterial() {
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     uniforms: { time: { value: 0 } },
-    vertexShader: /* glsl */ `
-      varying vec3 vNormal; varying vec3 vView;
-      void main() {
-        vec4 world = modelMatrix * vec4(position, 1.0);
-        vNormal = normalize(normalMatrix * normal);
-        vView = normalize(-(viewMatrix * world).xyz);
-        gl_Position = projectionMatrix * viewMatrix * world;
-      }`,
+    vertexShader: SHADED_VERTEX,
     fragmentShader: /* glsl */ `
-      uniform float time; varying vec3 vNormal; varying vec3 vView;
+      uniform float time; varying vec2 vUv; varying vec3 vNormal; varying vec3 vView; varying float vDepth;
       void main() {
         float facing = clamp(dot(normalize(vNormal), normalize(vView)), 0.0, 1.0);
-        float fresnel = pow(1.0 - facing, 3.0);
-        float spec = pow(max(dot(reflect(-normalize(vView), normalize(vNormal)), normalize(vec3(-0.4, 0.8, 0.5))), 0.0), 40.0);
-        vec3 color = vec3(0.25, 1.4, 0.2) * fresnel + vec3(1.4) * spec;
-        gl_FragColor = vec4(color, fresnel * 0.9 + spec);
+        float fresnel = pow(1.0 - facing, 3.5);
+        float spec = pow(max(dot(reflect(-normalize(vView), normalize(vNormal)), normalize(vec3(-0.4, 0.8, 0.5))), 0.0), 60.0);
+        vec3 color = vec3(0.12, 0.8, 0.1) * fresnel + vec3(1.6) * spec;
+        gl_FragColor = vec4(color, fresnel * 0.8 + spec);
       }`,
   });
 }
 
-function conduitMaterial(phase, speed, brightness) {
+// Thick glass tubes: dark, translucent bodies with bright fresnel edges and a specular streak,
+// drawn with normal blending so they read against the black.
+function tubeGlassMaterial(tint) {
   return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
-    blending: THREE.AdditiveBlending,
-    uniforms: { time: { value: 0 }, phase: { value: phase }, speed: { value: speed }, brightness: { value: brightness } },
-    vertexShader: /* glsl */ `
-      varying vec2 vUv; varying vec3 vNormal; varying vec3 vView;
-      void main() {
-        vUv = uv;
-        vec4 world = modelMatrix * vec4(position, 1.0);
-        vNormal = normalize(normalMatrix * normal);
-        vView = normalize(-(viewMatrix * world).xyz);
-        gl_Position = projectionMatrix * viewMatrix * world;
-      }`,
+    uniforms: { time: { value: 0 }, tint: { value: tint } },
+    vertexShader: SHADED_VERTEX,
     fragmentShader: /* glsl */ `
-      uniform float time; uniform float phase; uniform float speed; uniform float brightness;
-      varying vec2 vUv; varying vec3 vNormal; varying vec3 vView;
+      uniform float time; uniform float tint; varying vec2 vUv; varying vec3 vNormal; varying vec3 vView; varying float vDepth; ${FOG}
       void main() {
-        float facing = abs(dot(normalize(vNormal), normalize(vView)));
-        float rim = pow(1.0 - facing, 2.2);
-        float flow = fract(vUv.x * 3.0 - time * speed + phase);
-        float pulse = smoothstep(0.0, 0.02, flow) * (1.0 - smoothstep(0.02, 0.1, flow));
-        float fade = smoothstep(0.0, 0.08, vUv.x) * (1.0 - smoothstep(0.9, 1.0, vUv.x));
-        float spec = pow(max(dot(reflect(-normalize(vView), normalize(vNormal)), normalize(vec3(-0.3, 0.9, 0.4))), 0.0), 24.0);
-        vec3 glass = vec3(0.06, 0.38, 0.05) * (0.2 + rim) + vec3(0.8, 1.0, 0.8) * spec * 0.5;
-        vec3 energy = vec3(0.7, 2.4, 0.45) * pulse;
-        float alpha = (0.06 + rim * 0.4 + pulse * 0.9 + spec * 0.4) * fade;
-        gl_FragColor = vec4((glass + energy) * brightness * fade, alpha);
+        vec3 n = normalize(vNormal); vec3 v = normalize(vView);
+        float facing = abs(dot(n, v));
+        float rim = pow(1.0 - facing, 2.4);
+        float spec = pow(max(dot(reflect(-v, n), normalize(vec3(-0.35, 0.85, 0.4))), 0.0), 36.0);
+        float streak = pow(max(dot(reflect(-v, n), normalize(vec3(0.5, -0.2, 0.84))), 0.0), 90.0);
+        float ends = smoothstep(0.0, 0.06, vUv.x) * (1.0 - smoothstep(0.92, 1.0, vUv.x));
+        float fade = fogFade(vDepth) * ends;
+        vec3 body = vec3(0.004, 0.03, 0.006) * (0.6 + tint);
+        vec3 edge = vec3(0.16, 0.95, 0.12) * rim;
+        vec3 color = body + edge + vec3(1.2, 1.3, 1.15) * (spec * 0.7 + streak * 0.5);
+        float alpha = (0.38 + rim * 0.55 + spec * 0.4) * fade;
+        gl_FragColor = vec4(color * fade, alpha);
+      }`,
+  });
+}
+
+// The energy inside each tube: a bright filament with pulses travelling toward the core.
+function energyMaterial(phase, speed) {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: { time: { value: 0 }, phase: { value: phase }, speed: { value: speed } },
+    vertexShader: SHADED_VERTEX,
+    fragmentShader: /* glsl */ `
+      uniform float time; uniform float phase; uniform float speed;
+      varying vec2 vUv; varying vec3 vNormal; varying vec3 vView; varying float vDepth; ${FOG}
+      void main() {
+        float flow = fract(vUv.x * 2.4 - time * speed + phase);
+        float pulse = smoothstep(0.0, 0.015, flow) * (1.0 - smoothstep(0.015, 0.09, flow));
+        float ends = smoothstep(0.0, 0.08, vUv.x) * (1.0 - smoothstep(0.9, 1.0, vUv.x));
+        float fade = fogFade(vDepth) * ends;
+        vec3 line = vec3(0.06, 0.42, 0.05);
+        vec3 burst = vec3(1.3, 3.6, 0.9) * pulse;
+        gl_FragColor = vec4((line + burst) * fade, (0.35 + pulse) * fade);
       }`,
   });
 }
@@ -174,23 +203,26 @@ function particleMaterial() {
     blending: THREE.AdditiveBlending,
     uniforms: { time: { value: 0 }, scale: { value: 1 } },
     vertexShader: /* glsl */ `
-      uniform float time; uniform float scale; attribute float seed; varying float vGlow;
+      uniform float time; uniform float scale; attribute float seed; varying float vGlow; varying float vDepth;
       void main() {
         vec3 p = position;
-        float a = time * (0.03 + seed * 0.05) + seed * 6.2831;
+        float a = time * (0.02 + seed * 0.04) + seed * 6.2831;
         p.xz = mat2(cos(a), -sin(a), sin(a), cos(a)) * (p.xz - vec2(${ORB.x.toFixed(2)}, ${ORB.z.toFixed(2)})) + vec2(${ORB.x.toFixed(2)}, ${ORB.z.toFixed(2)});
-        p.y += sin(time * 0.4 + seed * 40.0) * 0.25;
+        p.y += sin(time * 0.35 + seed * 40.0) * 0.2;
         vec4 view = modelViewMatrix * vec4(p, 1.0);
-        vGlow = 0.35 + 0.65 * fract(seed * 13.7 + time * 0.05);
-        gl_PointSize = scale * (6.0 + seed * 14.0) / -view.z;
+        vDepth = -view.z;
+        // Most wisps stay dim; one in ten is bright enough to bloom.
+        vGlow = seed > 0.92 ? 1.0 : 0.18 + 0.3 * fract(seed * 13.7 + time * 0.05);
+        gl_PointSize = scale * (3.0 + seed * 7.0) / -view.z;
         gl_Position = projectionMatrix * view;
       }`,
     fragmentShader: /* glsl */ `
-      varying float vGlow;
+      varying float vGlow; varying float vDepth; ${FOG}
       void main() {
         float d = length(gl_PointCoord - 0.5);
-        float soft = smoothstep(0.5, 0.0, d);
-        gl_FragColor = vec4(vec3(0.35, 1.25, 0.28) * vGlow * soft, soft * vGlow);
+        float soft = smoothstep(0.5, 0.05, d);
+        float fade = fogFade(vDepth);
+        gl_FragColor = vec4(vec3(0.3, 1.2, 0.25) * vGlow * soft * fade, soft * fade);
       }`,
   });
 }
@@ -201,9 +233,9 @@ function haloTexture() {
   paint.width = paint.height = size;
   const g = paint.getContext("2d");
   const gradient = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  gradient.addColorStop(0, "rgba(200,255,170,0.5)");
-  gradient.addColorStop(0.2, "rgba(120,255,70,0.22)");
-  gradient.addColorStop(0.55, "rgba(50,190,30,0.05)");
+  gradient.addColorStop(0, "rgba(190,255,160,0.55)");
+  gradient.addColorStop(0.12, "rgba(110,255,70,0.22)");
+  gradient.addColorStop(0.35, "rgba(40,170,25,0.05)");
   gradient.addColorStop(1, "rgba(0,0,0,0)");
   g.fillStyle = gradient;
   g.fillRect(0, 0, size, size);
@@ -212,13 +244,15 @@ function haloTexture() {
   return texture;
 }
 
-// Energy conduits sweep around the core and off into the dark.
+// Glass conduits: [points, radius]. The first three are bold hero tubes that sweep past the camera
+// toward the core; the rest are thinner and further back, so the fog gives the scene depth.
 const CONDUITS = [
-  [[-9, -2.2, -6], [-3, -1.4, -2], [1.2, -0.6, 0.2], [ORB.x + 1.6, 0.1, -0.4], [7, 1.4, -4]],
-  [[-8, 3.0, -9], [-2, 1.8, -4], [ORB.x - 0.4, 1.3, -2.6], [ORB.x + 2.2, 0.6, -1.2], [9, -1.2, 1]],
-  [[-10, 0.4, -3], [-4, 0.2, -1.2], [0.6, 0.9, -0.6], [ORB.x, 1.6, -0.4], [5, 4.0, -7]],
-  [[-6, -3.6, 2], [-1.5, -2.2, -0.4], [ORB.x - 0.8, -1.2, -1.0], [ORB.x + 1.4, -0.9, -2.8], [8, -2.0, -8]],
-  [[-12, 2.0, -14], [-5, 0.8, -8], [ORB.x - 2.0, 0.2, -4.0], [ORB.x + 0.6, -0.3, -3.2], [6, -0.4, -12]],
+  [[[-11, -4.2, 3.5], [-5.5, -2.6, 2.0], [-1.0, -1.2, 0.4], [ORB.x - 1.4, -0.4, -0.8], [ORB.x - 0.3, 0.1, -1.4]], 0.42],
+  [[[-12, 4.8, -2], [-6, 3.6, -1.4], [-1.2, 2.4, -1.2], [ORB.x - 1.0, 1.1, -1.4], [ORB.x - 0.1, 0.45, -1.6]], 0.34],
+  [[[10, -4.5, 2.5], [7.2, -2.6, 0.8], [ORB.x + 2.2, -1.0, -0.6], [ORB.x + 0.5, -0.2, -1.4]], 0.3],
+  [[[-14, 1.0, -9], [-7, 0.6, -6], [-1.5, 0.4, -3.6], [ORB.x - 0.8, 0.3, -2.0]], 0.16],
+  [[[12, 3.8, -10], [7, 2.2, -6.5], [ORB.x + 1.6, 0.9, -3.0], [ORB.x + 0.4, 0.35, -1.8]], 0.14],
+  [[[-8, -6.0, -12], [-3, -3.0, -7], [ORB.x - 1.2, -0.9, -3.4], [ORB.x - 0.2, -0.1, -1.9]], 0.12],
 ];
 
 function buildScene(quality) {
@@ -228,15 +262,15 @@ function buildScene(quality) {
 
   const core = new THREE.Group();
   core.position.copy(ORB);
-  const inner = new THREE.Mesh(new THREE.SphereGeometry(0.95, 64, 32), coreMaterial());
-  const shell = new THREE.Mesh(new THREE.SphereGeometry(1.32, 64, 32), glassShellMaterial());
+  const inner = new THREE.Mesh(new THREE.SphereGeometry(0.85, 64, 32), coreMaterial());
+  const shell = new THREE.Mesh(new THREE.SphereGeometry(1.25, 64, 32), glassShellMaterial());
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTexture(), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-  halo.scale.setScalar(5.2);
+  halo.scale.setScalar(4.6);
   core.add(halo, inner, shell);
-  const rings = [1.85, 2.35, 3.0].map((radius, index) => {
+  const rings = [1.75, 2.25, 2.85].map((radius, index) => {
     const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(radius, 0.012 + index * 0.004, 8, 180),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(0.45, 1.8, 0.35), transparent: true, opacity: 0.55 - index * 0.12, blending: THREE.AdditiveBlending, depthWrite: false }),
+      new THREE.TorusGeometry(radius, 0.014 + index * 0.004, 8, 200),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 2.0, 0.4), transparent: true, opacity: 0.6 - index * 0.14, blending: THREE.AdditiveBlending, depthWrite: false }),
     );
     ring.rotation.set(1.1 + index * 0.35, index * 0.8, index * 0.4);
     core.add(ring);
@@ -244,13 +278,15 @@ function buildScene(quality) {
   });
   scene.add(core);
 
-  const conduits = [];
-  CONDUITS.forEach((points, index) => {
+  const timed = [background.material, inner.material, shell.material];
+  CONDUITS.forEach(([points, radius], index) => {
     const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(...p)));
-    const outer = new THREE.Mesh(new THREE.TubeGeometry(curve, 320, 0.16 - index * 0.015, 18, false), conduitMaterial(index * 0.23, 0.12 + index * 0.025, 1));
-    const filament = new THREE.Mesh(new THREE.TubeGeometry(curve, 220, 0.022, 6, false), conduitMaterial(index * 0.23 + 0.05, 0.12 + index * 0.025, 1.6));
-    scene.add(outer, filament);
-    conduits.push(outer, filament);
+    const glass = new THREE.Mesh(new THREE.TubeGeometry(curve, 260, radius, 28, false), tubeGlassMaterial(index < 3 ? 0.4 : 0));
+    const energy = new THREE.Mesh(new THREE.TubeGeometry(curve, 260, Math.max(0.025, radius * 0.16), 8, false), energyMaterial(index * 0.21, 0.1 + index * 0.02));
+    glass.renderOrder = 2;
+    energy.renderOrder = 1;
+    scene.add(energy, glass);
+    timed.push(glass.material, energy.material);
   });
 
   const geometry = new THREE.BufferGeometry();
@@ -260,7 +296,7 @@ function buildScene(quality) {
   let state = 1234567;
   const random = () => ((state = (state * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
   for (let i = 0; i < count; i += 1) {
-    const radius = 1.8 + Math.pow(random(), 0.7) * 11;
+    const radius = 1.8 + Math.pow(random(), 0.8) * 12;
     const angle = random() * Math.PI * 2;
     positions[i * 3] = ORB.x + Math.cos(angle) * radius;
     positions[i * 3 + 1] = (random() - 0.5) * 7 * (0.3 + radius / 12);
@@ -272,8 +308,8 @@ function buildScene(quality) {
   geometry.setDrawRange(0, quality.particles);
   const particles = new THREE.Points(geometry, particleMaterial());
   scene.add(particles);
+  timed.push(particles.material);
 
-  const timed = [background.material, inner.material, shell.material, particles.material, ...conduits.map((mesh) => mesh.material)];
   return { scene, core, inner, rings, particles, timed };
 }
 
@@ -281,19 +317,20 @@ function startWebGL() {
   let qualityLevel = 0;
   const renderer = new THREE.WebGLRenderer({
     canvas,
-    antialias: false,
+    antialias: true,
     alpha: false,
     powerPreference: "high-performance",
     // Kept so that the launcher's --capture-preview screenshots include the rendered scene.
     preserveDrawingBuffer: true,
   });
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.85;
+  renderer.toneMappingExposure = 0.9;
   const world = buildScene(QUALITY[0]);
   const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 200);
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(world.scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.75, 0.38, 0.62);
+  // Only bright, lit elements (the core, pulses, a few wisps) pass the threshold and bloom.
+  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 1.05, 0.32, 0.82);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
 
@@ -338,7 +375,7 @@ function startWebGL() {
     for (const material of world.timed) material.uniforms.time.value = clock;
     world.core.rotation.y = clock * 0.08;
     world.rings.forEach((ring, index) => { ring.rotation.z = clock * (0.1 + index * 0.05) * (index % 2 ? -1 : 1); });
-    world.inner.scale.setScalar(1 + Math.sin(clock * 1.7) * 0.025);
+    world.inner.scale.setScalar(1 + Math.sin(clock * 1.6) * 0.025);
     const ease = dt > 0 ? 1 - Math.exp(-dt * 2.6) : 1;
     position.lerp(goalPosition, ease);
     target.lerp(goalTarget, ease);
@@ -419,46 +456,39 @@ function startStatic(reason) {
     fallback.width = Math.round(width * ratio);
     fallback.height = Math.round(height * ratio);
     g.setTransform(ratio, 0, 0, ratio, 0, 0);
-    const sky = g.createLinearGradient(0, 0, 0, height);
-    sky.addColorStop(0, "#020604");
-    sky.addColorStop(0.55, "#04130a");
-    sky.addColorStop(1, "#010302");
-    g.fillStyle = sky;
+    g.fillStyle = "#010302";
     g.fillRect(0, 0, width, height);
-    const cx = width * 0.7;
-    const cy = height * 0.42;
-    const r = Math.min(width, height) * 0.14;
+    const cx = width * 0.78;
+    const cy = height * 0.66;
+    const r = Math.min(width, height) * 0.1;
     g.globalCompositeOperation = "lighter";
-    const halo = g.createRadialGradient(cx, cy, 0, cx, cy, r * 4.2);
-    halo.addColorStop(0, "rgba(140,255,90,0.55)");
-    halo.addColorStop(0.25, "rgba(70,210,40,0.22)");
+    const halo = g.createRadialGradient(cx, cy, 0, cx, cy, r * 3);
+    halo.addColorStop(0, "rgba(140,255,90,0.45)");
+    halo.addColorStop(0.3, "rgba(60,200,35,0.12)");
     halo.addColorStop(1, "rgba(0,0,0,0)");
     g.fillStyle = halo;
     g.fillRect(0, 0, width, height);
     const curves = [
-      [[-0.1, 0.8], [0.3, 0.62], [0.62, 0.5], [1.1, 0.3]],
-      [[-0.1, 0.25], [0.35, 0.35], [0.75, 0.3], [1.1, 0.62]],
-      [[0.0, 0.55], [0.4, 0.48], [0.7, 0.22], [0.95, -0.1]],
-      [[0.1, 1.1], [0.45, 0.72], [0.8, 0.62], [1.1, 0.85]],
+      [[-0.05, 1.05], [0.25, 0.92], [0.55, 0.78], [cx / width - 0.03, cy / height]],
+      [[-0.05, 0.1], [0.3, 0.22], [0.6, 0.45], [cx / width - 0.02, cy / height - 0.02]],
+      [[1.05, 1.0], [0.95, 0.9], [0.86, 0.76], [cx / width + 0.02, cy / height]],
     ];
     for (const [index, points] of curves.entries()) {
       const [a, b, c, d] = points.map(([x, y]) => [x * width, y * height]);
-      for (const [lineWidth, alpha] of [[16 - index * 2, 0.07], [5, 0.22], [1.5, 0.75]]) {
+      for (const [lineWidth, color] of [[30 - index * 6, "rgba(30,120,25,0.16)"], [6, "rgba(120,255,80,0.22)"], [1.6, "rgba(170,255,130,0.8)"]]) {
         g.beginPath();
         g.moveTo(...a);
         g.bezierCurveTo(...b, ...c, ...d);
-        g.strokeStyle = `rgba(120,255,80,${alpha})`;
+        g.strokeStyle = color;
         g.lineWidth = lineWidth;
-        g.shadowColor = "rgba(110,255,60,0.8)";
-        g.shadowBlur = 18;
+        g.lineCap = "round";
         g.stroke();
       }
     }
-    g.shadowBlur = 0;
-    const core = g.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.05, cx, cy, r);
-    core.addColorStop(0, "rgba(240,255,225,1)");
-    core.addColorStop(0.35, "rgba(140,255,80,0.95)");
-    core.addColorStop(0.85, "rgba(30,140,20,0.7)");
+    const core = g.createRadialGradient(cx - r * 0.25, cy - r * 0.25, r * 0.05, cx, cy, r);
+    core.addColorStop(0, "rgba(245,255,235,1)");
+    core.addColorStop(0.4, "rgba(140,255,80,0.95)");
+    core.addColorStop(0.9, "rgba(25,120,15,0.6)");
     core.addColorStop(1, "rgba(0,0,0,0)");
     g.fillStyle = core;
     g.beginPath();
@@ -466,13 +496,12 @@ function startStatic(reason) {
     g.fill();
     let seed = 99;
     const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-    for (let i = 0; i < 260; i += 1) {
+    for (let i = 0; i < 160; i += 1) {
       const angle = random() * Math.PI * 2;
-      const distance = r * (1.3 + random() * 5);
-      const size = 0.6 + random() * 2.2;
-      g.fillStyle = `rgba(150,255,110,${0.15 + random() * 0.5})`;
+      const distance = r * (1.5 + random() * 6);
+      g.fillStyle = `rgba(150,255,110,${0.08 + random() * 0.3})`;
       g.beginPath();
-      g.arc(cx + Math.cos(angle) * distance, cy + Math.sin(angle) * distance * 0.6, size, 0, Math.PI * 2);
+      g.arc(cx + Math.cos(angle) * distance, cy + Math.sin(angle) * distance * 0.6, 0.5 + random() * 1.6, 0, Math.PI * 2);
       g.fill();
     }
     g.globalCompositeOperation = "source-over";
