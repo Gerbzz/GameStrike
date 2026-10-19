@@ -58,7 +58,26 @@ The loopback target 127.0.0.1:47391 is a listener started by the test harness.</
   }
 
   // Same-origin assets must keep working.
-  const selfFetch = fetch("/index.html").then((r) => { if (!r.ok) throw new Error(); });
+  // WebView2 has occasionally failed the first same-origin fetch on a relaunch, so the probe
+  // retries twice and reports the attempts and the first failure next to the result.
+  const clean = (text) => String(text).replace(/[;=\s]+/g, "_").slice(0, 60);
+  const selfFetch = (async () => {
+    let firstError = "";
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const response = await fetch("/index.html", { cache: "no-store" });
+        if (!response.ok) throw new Error(`status ${response.status}`);
+        record("self-fetch-attempts", attempt);
+        if (firstError) record("self-fetch-first-error", clean(firstError));
+        return;
+      } catch (error) {
+        firstError = firstError || `${error.name} ${error.message}`;
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
+    record("self-fetch-first-error", clean(firstError));
+    throw new Error(firstError);
+  })();
   pending.push(settle("self-fetch", selfFetch));
   // Probes for other schemes start only after the same-origin check has finished, so a
   // cancelled navigation or unknown scheme cannot disturb that check.

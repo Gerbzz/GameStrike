@@ -130,6 +130,11 @@ fn expected_origin(id: Uuid) -> String {
 
 fn expect_offline_isolation(run: &Run, observer: &Observer) {
     expect(run, "self-fetch", "resolved");
+    eprintln!(
+        "self-fetch attempts={:?} first error={:?}",
+        run.results.get("self-fetch-attempts"),
+        run.results.get("self-fetch-first-error")
+    );
     expect(run, "fetch", "rejected");
     expect_any(run, "xhr", &["error", "threw"]);
     expect(run, "img", "error");
