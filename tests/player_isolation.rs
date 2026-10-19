@@ -251,7 +251,8 @@ fn imported_games_are_isolated_offline_and_keep_their_own_saves() {
     // then the profile folder. The next launch starts from 1 again.
     let cleared = player(&root, first.id, "--clear-engine-data");
     eprintln!(
-        "clear-engine-data: {}{}",
+        "clear-engine-data ({}): {}{}",
+        cleared.status,
         String::from_utf8_lossy(&cleared.stdout),
         String::from_utf8_lossy(&cleared.stderr)
     );

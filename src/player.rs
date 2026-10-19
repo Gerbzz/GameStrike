@@ -375,6 +375,8 @@ mod game_player {
         }
         let started = Instant::now();
         let mut observed_at = None;
+        // macOS may deliver a few more events after Exit; report the count only once.
+        let mut reported = false;
         event_loop.run(move |event, _, control_flow| {
             let _keep_browser_state = (&context, &webview, &_lock, &window);
             *control_flow = if fixture.is_some() {
@@ -404,7 +406,8 @@ mod game_player {
             {
                 exit = true;
             }
-            if exit {
+            if exit && !reported {
+                reported = true;
                 // The launcher reads this line to tell the player what offline mode stopped.
                 println!("{BLOCKED_PREFIX}{}", blocked.load(Ordering::SeqCst));
                 let _ = io::stdout().flush();
@@ -829,61 +832,59 @@ mod game_player {
 
         /// Deletes the game's WKWebsiteDataStore. Waits for WebKit, with a time limit.
         pub(super) fn remove_data_store(id: Uuid) -> Result<(), Box<dyn Error>> {
-            use tao::{
-                event::{Event, StartCause},
-                event_loop::{ControlFlow, EventLoopBuilder},
+            use objc2_foundation::{NSDate, NSRunLoop};
+            use std::{
+                sync::{Arc, Mutex},
+                time::{Duration, Instant},
             };
             use wry::WebViewExtDarwin;
 
-            enum Step {
-                Listed(bool),
-                Removed(Result<(), String>),
-            }
             require_supported_macos()?;
+            if MainThreadMarker::new().is_none() {
+                return Err("clearing WebKit data must run on the main thread".into());
+            }
             let bytes = *id.as_bytes();
-            let event_loop = EventLoopBuilder::<Step>::with_user_event().build();
-            let proxy = event_loop.create_proxy();
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-            event_loop.run(move |event, _, flow| {
-                *flow = ControlFlow::WaitUntil(deadline);
-                match event {
-                    Event::NewEvents(StartCause::Init) => {
-                        let proxy = proxy.clone();
-                        let listed = wry::WebView::fetch_data_store_identifiers(move |stores| {
-                            let _ = proxy.send_event(Step::Listed(stores.contains(&bytes)));
-                        });
-                        if let Err(error) = listed {
-                            eprintln!("Error: could not list WebKit data stores: {error}");
-                            std::process::exit(1);
-                        }
+            let deadline = Instant::now() + Duration::from_secs(30);
+            // WebKit answers on the main queue, so the main run loop is spun until it does.
+            let wait = |done: &dyn Fn() -> bool| -> Result<(), Box<dyn Error>> {
+                while !done() {
+                    if Instant::now() >= deadline {
+                        return Err("WebKit did not answer about the data store in time".into());
                     }
-                    Event::UserEvent(Step::Listed(false)) => {
-                        println!("GameStrike found no WebKit data store for this game.");
-                        std::process::exit(0);
-                    }
-                    Event::UserEvent(Step::Listed(true)) => {
-                        let proxy = proxy.clone();
-                        wry::WebView::remove_data_store(&bytes, move |result| {
-                            let _ = proxy.send_event(Step::Removed(
-                                result.map_err(|error| error.to_string()),
-                            ));
-                        });
-                    }
-                    Event::UserEvent(Step::Removed(Ok(()))) => {
-                        println!("GameStrike removed the game's WebKit data store.");
-                        std::process::exit(0);
-                    }
-                    Event::UserEvent(Step::Removed(Err(error))) => {
-                        eprintln!("Error: could not remove the game's WebKit data store: {error}");
-                        std::process::exit(1);
-                    }
-                    Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
-                        eprintln!("Error: WebKit did not finish removing the data store in time");
-                        std::process::exit(1);
-                    }
-                    _ => {}
+                    NSRunLoop::currentRunLoop()
+                        .runUntilDate(&NSDate::dateWithTimeIntervalSinceNow(0.05));
                 }
-            })
+                Ok(())
+            };
+
+            let listed: Arc<Mutex<Option<bool>>> = Arc::new(Mutex::new(None));
+            let sink = Arc::clone(&listed);
+            wry::WebView::fetch_data_store_identifiers(move |stores| {
+                *sink.lock().unwrap() = Some(stores.contains(&bytes));
+            })?;
+            wait(&|| listed.lock().unwrap().is_some())?;
+            if *listed.lock().unwrap() == Some(false) {
+                println!("GameStrike found no WebKit data store for this game.");
+                return Ok(());
+            }
+
+            let removed: Arc<Mutex<Option<Result<(), String>>>> = Arc::new(Mutex::new(None));
+            let sink = Arc::clone(&removed);
+            wry::WebView::remove_data_store(&bytes, move |result| {
+                *sink.lock().unwrap() = Some(result.map_err(|error| error.to_string()));
+            });
+            wait(&|| removed.lock().unwrap().is_some())?;
+            let result = removed.lock().unwrap().take();
+            match result {
+                Some(Ok(())) => {
+                    println!("GameStrike removed the game's WebKit data store.");
+                    Ok(())
+                }
+                Some(Err(error)) => {
+                    Err(format!("could not remove the game's WebKit data store: {error}").into())
+                }
+                None => Err("WebKit gave no answer about the data store".into()),
+            }
         }
     }
 
