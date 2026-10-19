@@ -5,7 +5,7 @@
 <h1 align="center">GameStrike</h1>
 
 <p align="center"><strong>A console-style home for the HTML games you download, on Windows, Linux, and macOS.</strong><br>
-Add a game from an <code>.html</code> file or a <code>.zip</code>, pick it from a glossy, console-style dashboard with a mouse, keyboard, or controller, and play it in its own window. Offline by default, with saves kept per game. No account, no uploads.</p>
+Add a game from an <code>.html</code> file or a <code>.zip</code>, pick it from a 3D, console-style library with a mouse, keyboard, or controller, and play it in its own window. Offline by default, with saves kept per game. No account, no uploads.</p>
 
 <p align="center">
   <a href="#what-works-today">What works</a> ·
@@ -18,7 +18,7 @@ Add a game from an <code>.html</code> file or a <code>.zip</code>, pick it from 
   <a href="#credits-and-license">Credits</a>
 </p>
 
-![GameStrike dashboard in the Lime theme: the My Games channel with the focused game tile large on the left and the other games receding in perspective, channel names stacked above, and A/X/Y/B button hints at the bottom](docs/screenshots/dashboard.png)
+![GameStrike library: a glass sidebar with search and filters (All games, Recently played, Favorites, HTML files, ZIP archives, Newgrounds, itch.io) beside a grid of portrait covers, over a dark 3D scene with a glowing green core, orbiting rings, and energy conduits](docs/screenshots/library.png)
 
 > [!IMPORTANT]
 > **Early, unreleased software.** There is no installer or signed binary yet; you build it from source. Imported games are untrusted code. Offline mode blocks their network traffic, but the player is **not** an operating-system sandbox. Read [Limitations](#limitations) before running games you don't trust.
@@ -30,45 +30,46 @@ Everything in this section is implemented in this repository and covered by the 
 **Library**
 - Add a game through the native file picker: a single `.html`/`.htm` file, or a `.zip` with `index.html` at its root or inside one wrapper folder. GameStrike copies the files into its own library; your original download is never modified.
 - Re-adding the exact same file is recognized, and the game keeps its saves.
-- Browse a console dashboard in one of three **styles**, chosen in the *System* channel and remembered:
-  - **Blades** (default). Inspired by the Xbox 360 dashboard: channel names stack at the top left, with earlier ones fading above, and Up/Down switches channel (*Jump Back In*, *Add & Find*, *My Games*, *System*). The focused tile sits large on the left while the rest recede edge to edge in perspective, with glossy reflections, a curved floor, and an *N of M* counter. Five colors: Lime, Ocean, Sunset, Grape, Graphite.
-  - **Original.** Inspired by the original Xbox dashboard: a black-green void with glowing tubes, a pulsing green orb, and glossy pill menus. Up/Down moves through a menu; Left/Right changes menu.
-  - **PWDS Orange.** The Blades layout in PWDS orange, with the PWDS mark.
-- Each style has its own **startup animation**, skippable with any key, click, or controller button: green ribbons swirling into a flash (Blades), green goo and tubes forming an orb (Original), and orange beams igniting the PWDS logo, then *presents GameStrike* (PWDS Orange). Reduced-motion users skip straight to the dashboard.
-- Search, and sort by recently played, title, or date added, from the *Add & Find* channel.
-- Each game shows its source type, when it was added, when it was last played and how often, and how much data it has stored.
-- **Manage** a game: rename it, clear its saves, or remove it. A removal can keep the saves, so adding the same file again brings them back.
+- Browse a **3D console-style library**, an original homage to the 2001 console dashboard crossed with a cover-grid game launcher:
+  - A real-time WebGL scene behind everything (bundled three.js): a dark green void, a pulsing core with orbiting rings, translucent energy conduits with travelling pulses, drifting wisps, and bloom. The camera flies between the library, a game's details, saves, settings, and About, and the interface moves with it in 3D.
+  - A green-glass sidebar with chrome rims: search, then filters built from your library (*All games*, *Recently played*, *Favorites*, *HTML files* and *ZIP archives*, and each source you note, such as *itch.io*), with *Add game*, *Settings*, and *Power* at the bottom. It collapses to icons.
+  - A dense grid of portrait covers that reflows from 880 × 620 to fullscreen. The focused cover lifts toward the camera with a chrome and green-glow rim and a light sweep; its neighbours recede.
+  - Wide techno headings (Orbitron) and a clean text face (Exo 2), both bundled under the SIL Open Font License.
+  - A startup sequence with the GameStrike mark in front of the core, skippable with any key, click, or button.
+- **Covers.** A game with no art gets one drawn from its title. An image in the game's own files (for example `icon.png` or `thumbnail.png`) becomes its cover automatically, and you can set your own from a local image, then undo or reset it. Every cover image is untrusted: it is decoded by memory-safe Rust code with size limits and re-encoded as a new PNG inside the library.
+- **Favorites and sources.** Mark favorites, and note where a game came from (1 to 32 characters); both become sidebar filters.
+- Search by title, and sort by recently played, title, or date added.
+- A **detail panel** for each game: when it was added, last played, how often, how much data it has stored, and its cover kind, with play, favorite, cover, source, rename, clear saves, and remove. A removal can keep the saves, so adding the same file again brings them back.
 - Problems are reported rather than hidden. One unreadable folder doesn't hide the rest of the library, and a game whose files have disappeared shows *Files missing* and won't launch.
 
 **Playing**
 - **Play offline** (the default) opens the game in a separate `gamestrike-player` window. The game's network requests are blocked. When the game closes, the launcher says how many requests the game itself attempted, so you can decide whether it needs network access.
 - **Play with network…** asks for consent first; focus starts on *Go back*.
 - Each game has its own browser origin and profile, so `localStorage`, IndexedDB, and cookies persist across launches and never mix between games.
-- Only one game runs at a time. While it runs, the launcher shows *Playing*, and the game can't be removed or cleared.
+- Only one game runs at a time. While it runs, the launcher shows *Playing*, pauses its 3D scene, and the game can't be removed or cleared.
 
 **Input**
-- Mouse, keyboard (arrows, Enter, `N`, `F2`, `Delete`, `Esc`, `Ctrl+F`), and a standard-mapping controller: D-pad or stick left/right to move along a channel and up/down to switch channels, **A** to play or select, **X** for network, **Y** to manage, **B** to go back. A held button never repeats, so it can't confirm a dialog that opens underneath it.
-- Interface sounds, synthesized locally (nothing is downloaded). Toggle them in the *System* channel.
-- Reduced motion and high-contrast (forced colors) are respected.
+- Mouse, keyboard (arrows, Enter, `I` details, `N` network, `F` favorite, `F2`, `Delete`, `/` or `Ctrl+F` search, `[` sidebar, `M` mute, `Esc`), and a standard-mapping controller: D-pad or stick to move through the grid and sidebar, **A** to play or select, **X** for network, **Y** for details, **B** to go back. A held button never repeats, so it can't confirm a dialog that opens underneath it. Every control has a visible focus ring and a screen-reader label.
+- Original interface sounds (move, select, open, back, launch, error), synthesized at run time from oscillators and filtered noise; no samples. Mute them with `M` or in *Settings*.
+- Reduced motion turns the 3D scene into still frames with no camera moves and makes every transition instant. High-contrast (forced colors) is respected.
+- Without WebGL 2, or if the GPU context is lost, a static painting of the scene is drawn instead and the interface works the same.
 
-**Command line** (`gamestrike`): `import`, `list`, `rename`, `reset-saves`, and `remove [--keep-saves]`.
+**Command line** (`gamestrike`): `import`, `list`, `rename`, `reset-saves`, `remove [--keep-saves]`, `set-source`, `favorite`, `set-cover`, `undo-cover`, and `reset-cover`.
 
 ## Screenshots
 
-All images come from the running Windows build of this branch, on 2026-10-17. Launcher views are from the final UI in this PR; the player capture is from the manual run at `c888e7e`. They are not mockups. Every game shown is a labeled **synthetic test fixture** created for testing; no third-party game appears.
-
-- **Launcher views** were rendered by the real `gamestrike-launcher.exe` through WebView2 `CapturePreview` (the `--capture-preview` option). They show the window's content area at 1250 × 800 unless noted. Startup frames were paused at a fixed point in the real animation. Captures use default preferences and never change saved ones.
-- **The player** was captured from the screen during a manual run of the real app and cropped to the player window.
+Every launcher image below was rendered by the real `gamestrike-launcher` in GitHub Actions ([Cross-platform checks run 39258622798](https://github.com/Gerbzz/GameStrike/actions/runs/39258622798)) through the `--capture-preview` option: WebView2 on Windows, WebKitGTK under Xvfb on Linux, and WKWebView on macOS. Each capture's log reports that WebGL drew the backdrop at the "high" quality step on all three systems. Captures put the camera at its station and render still frames, so the light sweep and camera flights are not shown. Frame rates were not measured; CI runners are virtual machines, and the macOS runner's screen crops its captures to 1024 × 645. Every game shown is a labeled **synthetic test fixture** with a generated cover; no third-party game or art appears. They are not mockups.
 
 | | |
 | --- | --- |
-| ![Network consent dialog with Go back and Allow network & play](docs/screenshots/network-dialog.png) **Network consent.** Offline is the default; network needs this extra step. | ![Manage dialog with Rename, Clear saves, Remove from library, Back](docs/screenshots/manage-dialog.png) **Manage** (Y on a controller). |
-| ![Empty library showing a single Add your first game tile](docs/screenshots/empty-library.png) **First launch** with an empty library. | ![About dialog with the PWDS publisher logo](docs/screenshots/about.png) **About**, with the publisher credit. |
-| ![Original style: a glowing green orb beside glossy green pill menus listing the games](docs/screenshots/style-original.png) **Original style.** | ![PWDS Orange style: the blades dashboard in orange with the PWDS logo in the corners](docs/screenshots/style-pwds.png) **PWDS Orange style.** |
-| ![Blades startup: the GameStrike mark and name on a white glow](docs/screenshots/boot-blades.png) **Blades startup**, final frame. | ![Original startup: a glowing green orb with GAMESTRIKE in spaced letters among green light tubes](docs/screenshots/boot-original.png) **Original startup**, final frame. |
-| ![PWDS startup: the orange PWDS logo inside a glowing orange ring on black](docs/screenshots/boot-pwds.png) **PWDS Orange startup**, at the logo. | ![System channel with Style, Color, Sounds, and About tiles](docs/screenshots/system-channel.png) **System channel**: style, color, sounds, About. | ![Dashboard at the 880 by 620 minimum window size](docs/screenshots/minimum-880x620.png) **Minimum window size**, 880 × 620. | ![Player window titled Save Counter (Synthetic Test), GameStrike, Offline, showing localStorage points 2 and IndexedDB opens 1](docs/screenshots/player-offline-save-counter.png) **A game in its own offline player window.** |
+| ![Focused cover lifted toward the camera with a chrome and green rim while the other covers recede](docs/screenshots/focus.png) **Focused cover** (Windows), lifted with a chrome and glow rim. | ![Detail panel flown in from the right with the cover, facts, and actions, the library turned away behind it](docs/screenshots/detail.png) **Game details** (Linux). The camera and library turn as the panel flies in. |
+| ![Startup: the GameStrike mark in front of the glowing core](docs/screenshots/boot.png) **Startup** (Linux), near its end. | ![Network consent dialog over the library](docs/screenshots/network-dialog.png) **Network consent** (macOS). Offline is the default. |
+| ![Favorites filter showing two games](docs/screenshots/favorites.png) **Favorites** filter (Windows). | ![Sidebar collapsed to icons beside a wider grid](docs/screenshots/collapsed.png) **Collapsed sidebar** (Linux). |
+| ![Search results for orbit](docs/screenshots/search.png) **Search** (macOS). | ![About dialog with the GameStrike mark and the PWDS publisher logo](docs/screenshots/about.png) **About** (Linux), with the publisher credit. |
+| ![Empty library with an Add a game button](docs/screenshots/empty-library.png) **First launch** (Windows). | ![Library at the 880 by 620 minimum window size](docs/screenshots/minimum-880x620.png) **Minimum window size**, 880 × 620 (Linux). |
+| ![Player window titled Save Counter (Synthetic Test), GameStrike, Offline, showing localStorage points 2 and IndexedDB opens 1](docs/screenshots/player-offline-save-counter.png) **A game in its own offline player window** (Windows, from the manual run at `c888e7e`; the player is unchanged). | |
 
-Screenshots of the earlier design are kept in [docs/history](docs/history).
+Screenshots of earlier designs are kept in [docs/history](docs/history).
 
 ## Platforms
 
@@ -141,7 +142,8 @@ bash scripts/hosted-library-capture.sh target/release /tmp/gamestrike-capture
 | Files | Only canonical files inside that game's content folder are served. `file://` fetches, frames, and navigation are blocked, as are other origins, popups, downloads, permission prompts, and external protocol launches. |
 | Offline mode | A strict Content-Security-Policy (only the game's own origin plus `data:`/`blob:`) on every response, plus a proxy owned by the player that answers every HTTP, HTTPS, and WebSocket connection with 403, including loopback. WebRTC is restricted to proxied traffic, which blocks its UDP. |
 | Network mode | Only plugins and base-URL changes are restricted. The game can reach the network, and you are told so first. |
-| Launcher | Serves six bundled files under `default-src 'none'`. It accepts six JSON commands, and only from its own origin. The page never supplies a file path; Rust validates every game ID. |
+| Launcher | Serves only its bundled files (UI, the vendored three.js, fonts) under `default-src 'none'`, plus cover PNGs that GameStrike encoded, by game ID only. It accepts eleven JSON commands, and only from its own origin. The page never supplies a file path; Rust validates every game ID. The 3D scene is decoration and never receives game content. |
+| Covers | Untrusted cover images are decoded only by the memory-safe Rust `image` crate (PNG, JPEG, GIF, WebP; 16 MiB per file, 8192 px per side, 256 MiB of decoder memory), scaled to fit 600 × 900, and re-encoded as a new PNG inside the library. SVG and HTML are refused. |
 | Imports | Rejects path traversal (zip-slip), absolute and drive paths, Windows device names, links and special files, case-insensitive duplicates, ambiguous entry points, unsupported compression, zip bombs (expansion ratio and size limits), and corrupt archives. Extraction is staged and published atomically. |
 | Integrity | The player refuses to open imported games from an elevated (high-integrity) process. |
 
@@ -153,9 +155,9 @@ Linux and macOS results come from CI only; see [Platforms](#platforms) and the p
 
 Results as of 2026-10-17 on Windows 11 Pro, WebView2 runtime as installed on the dev PC and on GitHub's `windows-latest` runner.
 
-**Automated, all passing locally and in [Windows CI](https://github.com/Gerbzz/GameStrike/actions/workflows/windows-source.yml):**
-- Rust: 26 library tests, 12 player tests, 4 launcher tests, and 1 player command-line test. They cover zip-slip, drive paths, device names, corrupt and empty files, expansion limits, duplicate and legacy re-imports, removal with and without saves, restoring kept saves, clearing saves, the per-game lock, rename validation, tolerant scanning, missing files, the launcher's origin and command allow-list, and CSP headers.
-- JavaScript: 11 tests of sorting, search, grid and shelf movement, the perspective tile layout, controller edge detection and repeat, generated covers, and formatting.
+**Automated, all passing in [cross-platform CI](https://github.com/Gerbzz/GameStrike/actions/workflows/cross-platform.yml) on Windows, Linux, and macOS:**
+- Rust: 36 library tests, 14 player tests (15 on Linux and macOS), 8 launcher tests, and 2 player command-line tests, plus the real-player isolation test. Besides the areas below, they cover cover decoding and its limits (including a forged 9000 × 9000 PNG header), custom, automatic, undone, and reset covers, sources and favorites, the cover endpoint, and that every bundled UI file is served and every module import resolves. They cover zip-slip, drive paths, device names, corrupt and empty files, expansion limits, duplicate and legacy re-imports, removal with and without saves, restoring kept saves, clearing saves, the per-game lock, rename validation, tolerant scanning, missing files, the launcher's origin and command allow-list, and CSP headers.
+- JavaScript: 16 tests of sorting, search, the sidebar filters built from library data, the source rule, cover URLs, grid reflow and list movement, the earlier shelf and perspective helpers, controller edge detection and repeat, generated covers, and formatting.
 - **Real player isolation test** (`tests/player_isolation.rs`). It runs the real WebView2 player against a bundled probe page, with a harness listening on loopback over TCP and UDP.
   - Offline, twice: 0 TCP and 0 UDP connections reached the harness. Fetch, XHR, WebSocket, image, `file://`, other-origin requests, and popups were all blocked.
   - Network mode, as a control: the same probe reached the harness (8 TCP connections, 4 UDP packets), which shows the offline zeros mean "blocked", not "unobservable".
@@ -172,7 +174,7 @@ Results as of 2026-10-17 on Windows 11 Pro, WebView2 runtime as installed on the
 
 That run found two issues, both fixed in `bc6fd31`: the offline summary counted WebView2's own background requests as the game's, and the corrupt-ZIP error was too technical.
 
-**Not yet verified by hand:** the console-style dashboard has been rendered and captured from the real launcher, but not driven interactively. Rename, clear saves, remove, duplicate re-import, network launch, and a physical controller were checked only by automated tests.
+**Not yet verified by hand:** the 3D library has been rendered and captured from the real launcher in CI on all three systems, and its keyboard flow was exercised in a browser preview with a stubbed IPC, but it has not been driven interactively in the real app. The manual run above used the earlier design. Rename, clear saves, remove, duplicate re-import, network launch, and a physical controller were checked only by automated tests.
 
 ## Limitations
 
@@ -180,7 +182,9 @@ That run found two issues, both fixed in `bc6fd31`: the offline summary counted 
 - WebView2 still defines `window.chrome.webview` in game pages. GameStrike registers nothing behind it, but the object exists.
 - In network mode, the runtime's own requests for the game's origin outside the custom protocol resolve to `localhost` and could reach a local server on port 443.
 - Controller support and network needs are shown as *not checked* for every game; GameStrike does not inspect games.
-- Covers are generated decorations (initials and a pattern from the game ID), not game artwork.
+- Generated covers are decorations (initials and a pattern from the game ID), not game artwork.
+- The 3D library was checked only through CI captures on virtual machines. It has not been run by hand on real hardware, and its frame rate on integrated GPUs has not been measured; the automatic quality steps are untested there. In one early CI run the Windows runner lost its WebGL context once, and the static fallback drew that capture.
+- The interface panels are HTML and CSS 3D in front of the WebGL scene, not meshes inside it, so they glow with CSS shadows rather than the scene's bloom, and WebKit (Linux and macOS) does not blur the scene behind 3D-transformed panels.
 - See [Platforms](#platforms) for which operating systems are verified. No installer, code signing, auto-update, or app icon resource yet.
 
 ## Credits and license
