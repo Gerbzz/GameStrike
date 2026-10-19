@@ -137,8 +137,7 @@ body.collapsed .side-item span, body.collapsed .side-item .count { display: none
 .gen[data-pattern="2"]::before { background: repeating-radial-gradient(circle at 80% 85%, rgb(255 255 255 / 45%) 0 2px, transparent 2px 18px); }
 .gen[data-pattern="3"]::before { background: linear-gradient(90deg, rgb(255 255 255 / 30%) 1px, transparent 1px) 0 0 / 18px 18px, linear-gradient(rgb(255 255 255 / 30%) 1px, transparent 1px) 0 0 / 18px 18px; }
 .gen::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgb(255 255 255 / 16%), transparent 22%), radial-gradient(ellipse 90% 40% at 50% 100%, rgb(125 255 58 / 18%), transparent 70%); }
-.gen-initials { position: absolute; left: 0; right: 0; top: 22%; text-align: center; font-size: clamp(38px, 4.6vw, 64px); font-weight: 900; letter-spacing: .06em; color: #f5ffef; text-shadow: 0 0 18px hsl(var(--h1) 100% 60% / 80%), 0 3px 0 rgb(0 0 0 / 45%); }
-.gen-title { position: absolute; left: 10px; right: 10px; bottom: 46px; text-align: center; font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: rgb(240 255 235 / 92%); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.gen-initials { position: absolute; left: 0; right: 0; top: 30%; text-align: center; font-size: clamp(38px, 4.6vw, 64px); font-weight: 900; letter-spacing: .06em; color: #f5ffef; text-shadow: 0 0 18px hsl(var(--h1) 100% 60% / 80%), 0 3px 0 rgb(0 0 0 / 45%); }
 .tile-label { position: absolute; left: 0; right: 0; bottom: 0; padding: 22px 10px 9px; background: linear-gradient(180deg, transparent, rgb(0 0 0 / 82%) 45%); }
 .tile-title { font-size: 13px; font-weight: 700; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile-meta { margin-top: 2px; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -156,8 +155,9 @@ body.collapsed .side-item span, body.collapsed .side-item .count { display: none
 
 /* ---------- detail blade ---------- */
 .detail { position: fixed; top: 12px; right: 12px; bottom: 58px; width: min(440px, calc(100vw - 24px)); z-index: 5; border-radius: 22px; display: flex; flex-direction: column; overflow: hidden;
-  transform: translateX(calc(100% + 40px)) skewX(-4deg); opacity: 0; visibility: hidden; transition: transform .45s var(--blade), opacity .3s, visibility .45s; }
-.detail.open { transform: none; opacity: 1; visibility: visible; }
+  transform: translateX(calc(100% + 40px)) skewX(-4deg); opacity: 0; visibility: hidden; transition: transform .45s var(--blade), opacity .3s, visibility 0s linear .45s; }
+/* Visible at once when opening, so focus can move in; hidden only after the slide-out. */
+.detail.open { transform: none; opacity: 1; visibility: visible; transition: transform .45s var(--blade), opacity .3s, visibility 0s; }
 .detail-cover { position: relative; flex: none; height: 38%; min-height: 160px; overflow: hidden; }
 .detail-cover .tile { position: absolute; inset: 0; aspect-ratio: auto; border-radius: 0; box-shadow: none; transform: none; pointer-events: none; }
 .detail-cover .tile-label { display: none; }

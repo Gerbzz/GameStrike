@@ -213,10 +213,7 @@
     const initials = document.createElement("div");
     initials.className = "gen-initials";
     initials.textContent = cover.initials;
-    const title = document.createElement("div");
-    title.className = "gen-title";
-    title.textContent = game.title;
-    node.append(initials, title);
+    node.append(initials);
     return node;
   }
 

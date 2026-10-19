@@ -1290,7 +1290,7 @@ mod launcher_app {
                 format!(r#"{{"type":"set_cover","id":"{id}","path":"/etc/passwd"}}"#),
                 format!(r#"{{"type":"set_favorite","id":"{id}"}}"#),
                 format!(r#"{{"type":"set_favorite","id":"{id}","favorite":"yes"}}"#),
-                format!(r#"{{"type":"undo_cover"}}"#),
+                r#"{"type":"undo_cover"}"#.to_owned(),
             ] {
                 assert_eq!(parse_command(&ui, &body), None, "{body}");
             }
