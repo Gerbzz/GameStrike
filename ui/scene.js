@@ -30,19 +30,19 @@ const leaving = document.documentElement.hasAttribute("data-leaving");
 
 const FOV = 40; // vertical field of view, degrees; the CSS perspective is derived from it
 const FRAME_DEPTH = 10; // world units from the camera to the frame's plane
-const DOME = { radius: 16, center: new THREE.Vector3(0.5, 1.5, -8) };
+const DOME = { radius: 30, center: new THREE.Vector3(1.0, 2.5, -14) };
 // Camera stations. Flights between them are what move the net; the frame stays with the camera.
 const VIEWS = {
   boot: { position: [0, 0.4, 5.5], yaw: 0, pitch: -2, net: 0.7 },
   library: { position: [0, 0, 0], yaw: 0, pitch: 0, net: 1 },
-  detail: { position: [1.1, -0.15, -1.6], yaw: -7, pitch: 0.5, net: 0.62 },
-  saves: { position: [1.6, -0.25, -2.0], yaw: -10, pitch: 0.8, net: 0.55 },
+  detail: { position: [1.1, -0.15, -1.6], yaw: -7, pitch: 0.5, net: 0.42 },
+  saves: { position: [1.6, -0.25, -2.0], yaw: -10, pitch: 0.8, net: 0.36 },
   settings: { position: [-0.7, 0.25, -0.9], yaw: 5, pitch: -1, net: 0.7 },
   about: { position: [-0.4, 0.2, -1.2], yaw: 3, pitch: -0.5, net: 0.7 },
 };
 const VARIANTS = {
-  orange: { net: [1.0, 0.42, 0.13], glow: [1.0, 0.55, 0.18], void: [0.022, 0.006, 0.002], tube: [1.0, 0.5, 0.12], light: [1.0, 0.75, 0.42] },
-  green: { net: [0.36, 0.9, 0.18], glow: [0.55, 1.0, 0.25], void: [0.004, 0.018, 0.004], tube: [0.42, 1.0, 0.2], light: [0.8, 1.0, 0.6] },
+  orange: { net: [0.95, 0.36, 0.09], glow: [1.0, 0.5, 0.14], void: [0.02, 0.006, 0.002], tube: [1.0, 0.4, 0.07], light: [1.0, 0.68, 0.36] },
+  green: { net: [0.32, 0.85, 0.14], glow: [0.55, 1.0, 0.22], void: [0.004, 0.018, 0.004], tube: [0.36, 1.0, 0.12], light: [0.8, 1.0, 0.6] },
 };
 const QUALITY = [
   { name: "high", pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5), bloom: true, bloomScale: 1 },
@@ -91,7 +91,7 @@ const SHADED_VERTEX = /* glsl */ `
 
 // The dome wall: the net is computed per pixel, so lines stay thin and anti-aliased at any size.
 function domeMaterial() {
-  const net = core?.NET || { rings: 26, meridians: 52, warp: 0.09, pole: [-0.62, 0.42, -0.66] };
+  const net = core?.NET || { rings: 34, meridians: 68, warp: 0.08, pole: [-0.62, 0.42, -0.66] };
   const basis = poleBasis(net.pole);
   return new THREE.ShaderMaterial({
     side: THREE.BackSide,
@@ -135,12 +135,12 @@ function domeMaterial() {
         float v = t * rings / PI;
         float dist = length(vWorld - cameraPosition);
         // Thicker and brighter near the camera, thin and faint far away.
-        float px = mix(1.6, 0.8, smoothstep(10.0, 30.0, dist));
+        float px = mix(1.3, 0.75, smoothstep(14.0, 44.0, dist));
         float lines = max(lineMask(u, px), lineMask(v, px));
         float light = pow(max(dot(d, lightDir), 0.0), 3.0);
-        float fog = exp(-max(dist - 9.0, 0.0) * 0.075);
+        float fog = exp(-max(dist - 18.0, 0.0) * 0.035);
         vec3 color = voidColor * (0.7 + 0.6 * light);
-        color += netColor * lines * (0.2 + 0.9 * light) * fog * intensity;
+        color += netColor * lines * (0.42 + 1.0 * light) * fog * intensity;
         color += glowColor * light * 0.06 * intensity;
         gl_FragColor = vec4(color, 1.0);
       }`,
@@ -163,9 +163,13 @@ function tubeMaterial() {
         float rim = pow(1.0 - facing, 2.2);
         float spec = pow(max(dot(reflect(-v, n), normalize(vec3(-0.45, 0.8, 0.4))), 0.0), 42.0);
         float streak = pow(max(dot(reflect(-v, n), normalize(vec3(0.5, -0.1, 0.86))), 0.0), 110.0);
-        float bands = 0.85 + 0.15 * step(0.92, fract(vUv.x * 9.0));
-        vec3 color = tint * (0.2 + rim * 1.15) * bands + vec3(1.4, 1.3, 1.1) * (spec * 0.9 + streak * 0.6);
-        float alpha = clamp(0.42 + rim * 0.55 + spec * 0.5, 0.0, 1.0);
+        // Joints: short bright collars along the tube.
+        float joint = smoothstep(0.86, 0.9, fract(vUv.x * 7.0)) * (1.0 - smoothstep(0.96, 1.0, fract(vUv.x * 7.0)));
+        // A dark glass core, a saturated lit rim, white highlights.
+        vec3 body = tint * 0.08;
+        vec3 color = mix(body, tint * 1.25, rim) + tint * joint * 0.9 + vec3(1.5, 1.35, 1.1) * (spec * 0.9 + streak * 0.7);
+        color += tint * 0.35 * pow(max(dot(n, normalize(vec3(-0.3, 0.9, 0.3))), 0.0), 4.0);
+        float alpha = clamp(0.78 + rim * 0.2 + spec * 0.3, 0.0, 1.0);
         gl_FragColor = vec4(color, alpha);
       }`,
   });
@@ -201,8 +205,10 @@ function glassMaterial(strength = 1) {
         float facing = abs(dot(n, v));
         float rim = pow(1.0 - facing, 1.6);
         float spec = pow(max(dot(reflect(-v, n), normalize(vec3(-0.4, 0.85, 0.45))), 0.0), 30.0);
-        vec3 color = tint * (0.14 + rim * 0.9) * strength + vec3(1.3, 1.25, 1.1) * spec * 0.8;
-        gl_FragColor = vec4(color, clamp(0.28 + rim * 0.55 + spec * 0.5, 0.0, 1.0));
+        // Faces catch the light from the emblem side, so flat plates read as solid glass.
+        float lit = max(dot(n, normalize(vec3(-0.5, 0.7, 0.6))), 0.0);
+        vec3 color = tint * (0.2 + rim * 0.85 + lit * 0.45) * strength + vec3(1.3, 1.25, 1.1) * spec * 0.8;
+        gl_FragColor = vec4(color, clamp(0.42 + rim * 0.45 + lit * 0.12 + spec * 0.4, 0.0, 1.0));
       }`,
   });
 }
@@ -228,11 +234,12 @@ function haloTexture() {
 // They wrap the frame: over the top right, down the left edge, around the bottom left, and a
 // hooked pipe into the right edge, as in the reference.
 const TUBES = [
-  [[[0.6, -0.12, 10.5], [0.7, 0.0, 10.3], [0.86, 0.015, 10.2], [0.98, 0.09, 10.2], [1.1, 0.2, 10.5]], 0.26],
-  [[[0.74, -0.14, 11], [0.82, 0.04, 10.8], [0.94, 0.1, 10.6], [1.0, 0.22, 10.5], [1.12, 0.32, 10.8]], 0.17],
-  [[[-0.1, 0.3, 10.6], [0.004, 0.42, 10.2], [0.008, 0.6, 10.2], [-0.002, 0.76, 10.2], [-0.12, 0.9, 10.6]], 0.22],
-  [[[-0.12, 1.08, 10.4], [0.02, 0.92, 10.2], [0.1, 0.9, 10.1], [0.16, 0.98, 10.2], [0.14, 1.15, 10.4]], 0.24],
-  [[[1.12, 0.36, 10.8], [1.0, 0.42, 10.4], [0.99, 0.52, 10.3], [1.0, 0.64, 10.4], [1.12, 0.72, 10.8]], 0.2],
+  [[[0.58, -0.14, 10.5], [0.66, 0.01, 10.3], [0.8, 0.035, 10.2], [0.95, 0.06, 10.2], [1.1, 0.16, 10.5]], 0.19],
+  [[[0.7, -0.16, 11], [0.77, 0.03, 10.8], [0.9, 0.06, 10.6], [1.0, 0.16, 10.5], [1.12, 0.3, 10.8]], 0.13],
+  [[[0.86, -0.14, 11], [0.9, 0.0, 10.8], [0.99, 0.04, 10.6], [1.12, 0.06, 10.8]], 0.1],
+  [[[-0.1, 0.3, 10.6], [0.0, 0.42, 10.2], [0.004, 0.6, 10.2], [-0.004, 0.76, 10.2], [-0.12, 0.9, 10.6]], 0.17],
+  [[[-0.12, 1.08, 10.4], [0.02, 0.93, 10.2], [0.1, 0.92, 10.1], [0.16, 0.99, 10.2], [0.14, 1.15, 10.4]], 0.19],
+  [[[1.12, 0.36, 10.8], [1.0, 0.42, 10.4], [0.993, 0.52, 10.3], [1.0, 0.64, 10.4], [1.12, 0.72, 10.8]], 0.15],
 ];
 
 // The cradle: a card carrying the cover, held by a translucent mechanical arm with glassy plates,
@@ -240,7 +247,6 @@ const TUBES = [
 function buildCradle() {
   const group = new THREE.Group();
   const holder = new THREE.Group();
-  group.add(holder);
   const cardW = 1.76;
   const cardH = 2.36;
   const chamfer = (w, h, c) => {
@@ -249,7 +255,32 @@ function buildCradle() {
     s.lineTo(w / 2 - c, h / 2); s.lineTo(-w / 2 + c, h / 2); s.lineTo(-w / 2, h / 2 - c); s.lineTo(-w / 2, -h / 2 + c); s.closePath();
     return s;
   };
-  const frameGeo = new THREE.ExtrudeGeometry(chamfer(cardW + 0.22, cardH + 0.22, 0.2), { depth: 0.08, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 2 });
+  const plates = [];
+  const glass = (mesh) => { plates.push(mesh); return mesh; };
+  const extrude = (shape, depth, bevel = 0.05) => new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2 });
+
+  // The arm: one long bevelled beam crossing behind the cover from the lower left to the upper
+  // right and out of view, with a second, slimmer strut, as the reference cradle's arm does.
+  const beam = glass(new THREE.Mesh(extrude(chamfer(1.15, 11, 0.32), 0.55, 0.08), glassMaterial(0.85)));
+  beam.position.set(0.6, 0.2, -1.5);
+  beam.rotation.set(0, 0, -0.72);
+  group.add(beam);
+  const strut = glass(new THREE.Mesh(extrude(chamfer(0.5, 7, 0.16), 0.3), glassMaterial(0.7)));
+  strut.position.set(-1.9, -1.2, -1.1);
+  strut.rotation.set(0, 0.2, 0.55);
+  group.add(strut);
+  // A collar ring behind the cover, where the arm holds it.
+  const collar = glass(new THREE.Mesh(new THREE.TorusGeometry(1.62, 0.17, 18, 96), glassMaterial(1.1)));
+  collar.position.set(0.05, 0, -0.55);
+  group.add(collar);
+  const collarPlate = glass(new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 0.12, 72), glassMaterial(0.45)));
+  collarPlate.rotation.x = Math.PI / 2;
+  collarPlate.position.set(0.05, 0, -0.75);
+  group.add(collarPlate);
+
+  // The cover, on a chamfered card with a lit edge, held by four claws.
+  group.add(holder);
+  const frameGeo = extrude(chamfer(cardW + 0.22, cardH + 0.22, 0.2), 0.08, 0.03);
   frameGeo.translate(0, 0, -0.06);
   const edge = new THREE.MeshBasicMaterial({ color: new THREE.Color(...VARIANTS.orange.glow) });
   holder.add(new THREE.Mesh(frameGeo, edge));
@@ -257,41 +288,33 @@ function buildCradle() {
   const cover = new THREE.Mesh(new THREE.PlaneGeometry(cardW, cardH), coverMaterial);
   cover.position.z = 0.06;
   holder.add(cover);
-  const sheen = new THREE.Mesh(new THREE.PlaneGeometry(cardW, cardH), glassMaterial(0.25));
+  const sheen = new THREE.Mesh(new THREE.PlaneGeometry(cardW, cardH), glassMaterial(0.22));
   sheen.position.z = 0.075;
   holder.add(sheen);
-  // The arm: a back plate, two claws, a lower clamp, a hub, and a boom reaching off to the lower right.
-  const plates = [];
-  const plate = (shape, depth, position, rotation, strength = 1) => {
-    const mesh = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 2 }), glassMaterial(strength));
-    mesh.position.set(...position);
-    mesh.rotation.set(...rotation);
-    group.add(mesh);
-    plates.push(mesh);
-    return mesh;
-  };
-  plate(chamfer(cardW + 0.9, cardH + 0.7, 0.45), 0.12, [0.12, -0.05, -0.42], [0, 0, 0], 0.7);
-  plate(chamfer(0.5, cardH * 0.7, 0.16), 0.32, [-(cardW / 2) - 0.32, 0, -0.2], [0, 0.25, 0]);
-  plate(chamfer(0.5, cardH * 0.7, 0.16), 0.32, [cardW / 2 + 0.32, 0, -0.2], [0, -0.25, 0]);
-  plate(chamfer(cardW * 0.8, 0.42, 0.14), 0.3, [0, -(cardH / 2) - 0.32, -0.12], [0.3, 0, 0]);
-  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 0.36, 32), glassMaterial(1.1));
+  for (const [x, y, rz] of [[-1, 1, -Math.PI / 2], [1, 1, Math.PI], [1, -1, Math.PI / 2], [-1, -1, 0]]) {
+    const claw = new THREE.Shape();
+    claw.moveTo(0, 0); claw.lineTo(0.62, 0); claw.lineTo(0.62, 0.16); claw.lineTo(0.16, 0.16); claw.lineTo(0.16, 0.62); claw.lineTo(0, 0.62); claw.closePath();
+    const mesh = glass(new THREE.Mesh(extrude(claw, 0.22, 0.03), glassMaterial(1.3)));
+    mesh.position.set(x * (cardW / 2 + 0.16), y * (cardH / 2 + 0.16), -0.08);
+    mesh.rotation.z = rz;
+    holder.add(mesh);
+  }
+  // A hub where the beam meets the collar.
+  const hub = glass(new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.56, 0.5, 40), glassMaterial(1.2)));
   hub.rotation.x = Math.PI / 2;
-  hub.position.set(0.9, -1.75, -0.6);
+  hub.position.set(1.55, -1.25, -1.1);
   group.add(hub);
-  plates.push(hub);
-  const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.36, 4.2, 24), glassMaterial(0.9));
-  boom.rotation.set(0, 0, -0.95);
-  boom.position.set(2.5, -2.9, -0.9);
-  group.add(boom);
-  plates.push(boom);
+
+  // Cables trailing off the arm and out of view, with energy running along them.
   const cables = [];
   [
-    [[[0.9, -1.75, -0.4], [1.8, -1.5, -0.2], [2.6, -2.4, 0.1], [4.6, -2.8, 0.2]], 0.045],
-    [[[-1.1, 1.0, -0.3], [-1.9, 1.8, -0.4], [-1.6, 2.9, -0.2], [-0.6, 4.2, 0]], 0.035],
-    [[[1.1, 1.2, -0.3], [1.8, 2.1, -0.5], [2.9, 2.3, -0.3], [4.4, 3.4, -0.2]], 0.03],
+    [[[1.55, -1.25, -0.8], [2.6, -1.0, -0.4], [3.4, -2.2, 0.0], [5.6, -2.6, 0.2]], 0.05],
+    [[[-1.2, 1.4, -0.7], [-2.0, 2.2, -0.6], [-1.7, 3.3, -0.3], [-0.8, 4.6, 0]], 0.04],
+    [[[1.3, 1.5, -0.9], [2.1, 2.5, -0.8], [3.2, 2.6, -0.5], [4.8, 3.8, -0.3]], 0.035],
+    [[[-1.6, -1.5, -0.9], [-2.6, -2.0, -0.7], [-3.3, -1.3, -0.4], [-5.0, -2.2, -0.2]], 0.04],
   ].forEach(([points, radius], index) => {
     const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(...p)));
-    const cable = new THREE.Mesh(new THREE.TubeGeometry(curve, 80, radius, 8, false), energyMaterial(index * 0.31));
+    const cable = new THREE.Mesh(new THREE.TubeGeometry(curve, 90, radius, 8, false), energyMaterial(index * 0.31));
     group.add(cable);
     cables.push(cable);
   });
@@ -388,8 +411,9 @@ function startWebGL() {
     // The light sits behind the emblem, top left.
     world.light.position.copy(viewportPoint(0.09, 0.09, FRAME_DEPTH + 2));
     world.light.scale.setScalar(9);
-    // The cradle sits in the right part of the detail view.
-    world.cradle.group.position.copy(viewportPoint(0.55, 0.4, 8.5));
+    // The cradle sits in the right part of the detail view, smaller in narrower windows.
+    world.cradle.group.position.copy(viewportPoint(0.54, 0.39, 8.5));
+    world.cradle.base = THREE.MathUtils.clamp(camera.aspect / 1.78, 0.72, 1.05);
   }
 
   function applyQuality() {
@@ -438,7 +462,7 @@ function startWebGL() {
     const c = world.cradle;
     c.group.visible = a > 0.01;
     // Flies in from deep in the dome, turning to face the camera.
-    c.group.scale.setScalar(0.55 + 0.45 * a);
+    c.group.scale.setScalar((c.base || 1) * (0.55 + 0.45 * a));
     c.group.position.z = -8.5 - (1 - a) * 9;
     c.group.rotation.set(-0.06 + (1 - a) * 0.2, -0.32 + (1 - a) * 0.9 + sway, 0.02);
   }

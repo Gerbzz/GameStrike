@@ -398,7 +398,7 @@
   // the light, bent by a smooth warp so the cells are irregular, quad-ish, and slightly wavy, as in
   // the reference. Returns polylines of unit vectors; scene.js draws the same pattern in a shader,
   // and the static fallback projects these lines on a 2D canvas.
-  const NET = Object.freeze({ rings: 26, meridians: 52, warp: 0.09, pole: Object.freeze([-0.62, 0.42, -0.66]) });
+  const NET = Object.freeze({ rings: 34, meridians: 68, warp: 0.08, pole: Object.freeze([-0.62, 0.42, -0.66]) });
   function domeNet({ rings = NET.rings, meridians = NET.meridians, steps = 72, warp = NET.warp, pole = NET.pole } = {}) {
     const n = Math.hypot(...pole) || 1;
     const p = pole.map((v) => v / n);

@@ -1052,7 +1052,23 @@
     drawFrame();
   }
 
-  window.GameStrike = Object.freeze({ receive, capture });
+  // Used only by --capture-view: true once a staged view has drawn (fonts, the covers in view,
+  // and the 3D scene or its fallback), so the launcher never captures a half-drawn view.
+  function ready() {
+    if (!state.capturing) return true;
+    if (document.fonts && document.fonts.status !== "loaded") return false;
+    if (!document.body.dataset.scene) return false;
+    if (state.booted && !el.grid.hidden) {
+      const tiles = [...el.grid.children].slice(0, state.metrics.columns * 4);
+      for (const node of tiles) {
+        const art = node.querySelector(".tile-art")?.firstChild;
+        if (!art || (art.tagName === "IMG" && !art.complete)) return false;
+      }
+    }
+    return true;
+  }
+
+  window.GameStrike = Object.freeze({ receive, capture, ready });
   window.addEventListener("resize", () => { applyMetrics(); requestAnimationFrame(() => { for (const art of el.grid.querySelectorAll(".tile-art")) art.replaceChildren(); paintCovers(); }); });
   // Covers and the frame use the bundled fonts; draw again once they have loaded.
   document.fonts?.ready?.then(() => { window.GameStrikeCovers?.clearCache(); for (const art of el.grid.querySelectorAll(".tile-art")) art.replaceChildren(); paintCovers(); drawFrame(); });

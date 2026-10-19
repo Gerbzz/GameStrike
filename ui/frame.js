@@ -106,7 +106,7 @@
 
     // ---- the frame body: a thick chamfered ring around the interior ----
     const c = 52 * u;
-    const top = head.y + head.h * 0.62;
+    const top = head.y + head.h * 0.3;
     const outer = [[0, top + c * 1.6], [c * 0.62, top + c * 0.9], [c * 0.62, top], [W - c, top], [W, top + c], [W, H - c * 1.4], [W - c * 0.6, H - c * 0.8], [W - c * 0.6, H], [c, H], [0, H - c]];
     const ix0 = side.x - 18 * u;
     const iy0 = lib.y - 12 * u;

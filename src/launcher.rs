@@ -58,6 +58,9 @@ mod launcher_app {
     enum UiEvent {
         Command(CommandMessage),
         CapturePreview,
+        /// Asks the page, up to a limit, whether the staged capture view has finished drawing.
+        CaptureCheck(u32),
+        CaptureNow,
         CaptureComplete(std::result::Result<(), String>),
         ImportResult(std::result::Result<ImportOutcome, String>),
         /// The one-time search for covers inside older games finished.
@@ -127,6 +130,19 @@ mod launcher_app {
         "boot-original",
         "boot-pwds",
     ];
+
+    /// Asks the page whether a staged capture view has finished drawing (fonts, covers, and the 3D
+    /// scene). A page without a `ready` check, such as classic.html, is always ready.
+    const CAPTURE_READY: &str =
+        "(function () { try { var g = window.GameStrike; return !g || typeof g.ready !== 'function' || g.ready() === true; } catch (e) { return true; } })()";
+
+    /// Records which renderer drew the backdrop: WebGL and its quality, the static fallback, or none.
+    const CAPTURE_RENDERER: &str =
+        "[document.body.dataset.scene, document.body.dataset.quality, document.body.dataset.sceneReason].filter(Boolean).join(' ') || 'not started'";
+
+    /// How many times a capture asks the page whether it is ready (250 ms apart) before taking the
+    /// picture anyway.
+    const CAPTURE_CHECKS: u32 = 40;
 
     /// The page the launcher opens. index.html itself switches to classic.html when the saved
     /// style is one of the earlier ones.
@@ -233,17 +249,43 @@ mod launcher_app {
                             eprintln!("Could not prepare launcher preview: {error}");
                             std::process::exit(2);
                         }
-                        // Records which renderer drew the backdrop (WebGL, the static fallback, or none).
-                        let _ = webview.evaluate_script_with_callback(
-                            "[document.body.dataset.scene, document.body.dataset.quality, document.body.dataset.sceneReason].filter(Boolean).join(' ') || 'not started'",
-                            |result| println!("GameStrike scene renderer: {result}"),
-                        );
                         let proxy = background_proxy.clone();
                         thread::spawn(move || {
                             thread::sleep(Duration::from_millis(900));
-                            let _ = proxy.send_event(UiEvent::CapturePreview);
+                            let _ = proxy.send_event(UiEvent::CaptureCheck(0));
                         });
                     } else if let Some(path) = capture_path.take()
+                        && let Err(error) = platform::capture_preview(&webview, path, background_proxy.clone())
+                    {
+                        eprintln!("Could not capture launcher: {error}");
+                        std::process::exit(2);
+                    }
+                }
+                Event::UserEvent(UiEvent::CaptureCheck(attempt)) => {
+                    // Waits until fonts, covers, and the 3D scene have drawn, so slow runners do not
+                    // capture a half-drawn view. classic.html has no check and is captured at once.
+                    let proxy = background_proxy.clone();
+                    let checked = webview.evaluate_script_with_callback(CAPTURE_READY, move |result| {
+                        let ready = result.trim() == "true";
+                        let proxy = proxy.clone();
+                        thread::spawn(move || {
+                            if ready || attempt >= CAPTURE_CHECKS {
+                                let _ = proxy.send_event(UiEvent::CaptureNow);
+                            } else {
+                                thread::sleep(Duration::from_millis(250));
+                                let _ = proxy.send_event(UiEvent::CaptureCheck(attempt + 1));
+                            }
+                        });
+                    });
+                    if checked.is_err() {
+                        let _ = background_proxy.send_event(UiEvent::CaptureNow);
+                    }
+                }
+                Event::UserEvent(UiEvent::CaptureNow) => {
+                    let _ = webview.evaluate_script_with_callback(CAPTURE_RENDERER, |result| {
+                        println!("GameStrike scene renderer: {result}")
+                    });
+                    if let Some(path) = capture_path.take()
                         && let Err(error) = platform::capture_preview(&webview, path, background_proxy.clone())
                     {
                         eprintln!("Could not capture launcher: {error}");
