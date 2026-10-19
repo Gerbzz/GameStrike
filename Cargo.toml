@@ -40,6 +40,8 @@ sha2 = "=0.10.9"
 uuid = { version = "=1.24.0", features = ["v4", "serde"] }
 zip = { version = "=3.0.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 percent-encoding = { version = "=2.3.2", optional = true }
+# Cover images are untrusted; they are decoded only by these memory-safe Rust decoders.
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 
 [target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
 # `mac-proxy` only compiles on macOS; it lets offline mode route WKWebView traffic to the sink-hole proxy.
