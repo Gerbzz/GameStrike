@@ -203,7 +203,7 @@ body.collapsed .side-item span, body.collapsed .side-item .count { display: none
  }
 .detail-box .tile-label { display: none; }
 /* A mirrored copy under the box art, fading out, as a reflection on the glass floor. */
-.detail-box .reflection { position: absolute; left: 0; right: 0; top: calc(100% + 6px); aspect-ratio: 2 / 3; transform: perspective(700px) rotateY(10deg) scaleY(-1); opacity: .32; pointer-events: none; -webkit-mask: linear-gradient(0deg, #000 0%, transparent 34%); mask: linear-gradient(0deg, #000 0%, transparent 34%); box-shadow: none; }
+.detail-box .reflection { position: absolute; left: 0; right: 0; top: calc(100% + 6px); aspect-ratio: 2 / 3; transform: perspective(700px) rotateY(10deg) scaleY(-1); opacity: .45; pointer-events: none; -webkit-mask: linear-gradient(0deg, #000 0%, transparent 34%); mask: linear-gradient(0deg, #000 0%, transparent 34%); box-shadow: none; }
 .detail-head { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .detail-head h2 { margin: 0; font-family: var(--display); font-size: clamp(18px, 2vw, 24px); font-weight: 900; letter-spacing: .03em; line-height: 1.2; overflow-wrap: anywhere; text-shadow: 0 0 18px rgb(141 255 74 / 35%), 0 2px 0 rgb(0 0 0 / 70%); }
 .detail-head .note { margin: 0; }
@@ -227,7 +227,9 @@ body.collapsed .side-item span, body.collapsed .side-item .count { display: none
 .view-title, .chip { white-space: nowrap; }
 
 /* ---------- generated box art ---------- */
-.tile { container-type: inline-size; }
+/* The art is absolutely sized by its tile, so size containment here never feeds back into the
+   grid's row sizing (on the tile itself it collapsed the rows and made covers overlap). */
+.art { container-type: size; }
 .art { position: absolute; inset: 0; overflow: hidden; color: var(--ink);
   background: radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--bg1) 70%, var(--accent) 30%), transparent 55%), linear-gradient(170deg, var(--bg1), var(--bg2) 72%); }
 .art-motif { position: absolute; inset: 0; opacity: .9; }
