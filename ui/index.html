@@ -8,15 +8,19 @@
   <link rel="stylesheet" href="/styles.css">
   <script src="/core.js" defer></script>
   <script src="/app.js" defer></script>
+  <script type="module" src="/scene.js"></script>
 </head>
-<body>
-  <!-- Ambient energy behind everything: a green glow, a slow swirl, and soft bloom. Decoration only. -->
+<body data-view="boot">
+  <!-- The 3D scene (scene.js, WebGL with bloom) renders here. It is decoration only and never shows game content. -->
+  <canvas id="scene" class="scene" aria-hidden="true"></canvas>
+  <!-- CSS stand-in shown until the scene starts, or if it cannot start. -->
   <div class="ambient" aria-hidden="true">
     <div class="energy"></div>
     <div class="swirl"></div>
     <div class="orb"></div>
     <div class="bloom"></div>
   </div>
+  <div class="vignette" aria-hidden="true"></div>
 
   <!-- Startup: the GameStrike mark forms inside a glowing core. Any key, click, or button skips it. -->
   <div id="boot" class="boot" aria-hidden="true">
@@ -28,7 +32,7 @@
   </div>
 
   <div id="app" class="app">
-    <aside id="sidebar" class="sidebar" aria-label="Library">
+    <aside id="sidebar" class="sidebar glass" aria-label="Library">
       <div class="side-top">
         <button id="collapse" class="collapse" type="button" aria-label="Collapse the sidebar" aria-expanded="true" aria-controls="sidebar">
           <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
@@ -58,10 +62,10 @@
           <h1 id="view-title" class="view-title">All games</h1>
           <p id="view-count" class="view-count" aria-live="polite"></p>
         </div>
-        <button id="sort" class="chip" type="button"></button>
+        <button id="sort" class="chip glass" type="button"></button>
       </header>
       <div id="grid" class="grid" role="listbox" aria-labelledby="view-title"></div>
-      <div id="empty" class="empty" hidden>
+      <div id="empty" class="empty glass" hidden>
         <div class="empty-mark" aria-hidden="true"><img src="/mark.svg" alt=""></div>
         <h2 id="empty-title"></h2>
         <p id="empty-copy"></p>
@@ -69,30 +73,31 @@
       </div>
       <div id="status" class="status" role="status" aria-live="polite"></div>
     </main>
-
-    <aside id="detail" class="detail" aria-labelledby="detail-title" aria-hidden="true" inert>
-      <div class="detail-cover" id="detail-cover"></div>
-      <div class="detail-body">
-        <div class="kicker" id="detail-kicker"></div>
-        <h2 id="detail-title"></h2>
-        <dl id="detail-facts" class="facts"></dl>
-        <p id="detail-note" class="note"></p>
-        <div class="detail-actions" id="detail-actions">
-          <button id="d-play" class="button primary" type="button"><span class="glyph a" aria-hidden="true">A</span>Play offline</button>
-          <button id="d-network" class="button" type="button"><span class="glyph x" aria-hidden="true">X</span>Play with network…</button>
-          <button id="d-favorite" class="button" type="button" aria-pressed="false"></button>
-          <button id="d-cover" class="button" type="button">Set cover image…</button>
-          <button id="d-undo-cover" class="button" type="button">Undo cover change</button>
-          <button id="d-reset-cover" class="button" type="button">Use automatic cover</button>
-          <button id="d-source" class="button" type="button">Set source…</button>
-          <button id="d-rename" class="button" type="button">Rename</button>
-          <button id="d-reset" class="button" type="button">Clear saves</button>
-          <button id="d-remove" class="button danger" type="button">Remove from library</button>
-          <button id="d-close" class="button ghost" type="button"><span class="glyph b" aria-hidden="true">B</span>Back</button>
-        </div>
-      </div>
-    </aside>
   </div>
+
+  <!-- Outside the 3D stage, so it can fly in while the library recedes behind it. -->
+  <aside id="detail" class="detail glass" aria-labelledby="detail-title" aria-hidden="true" inert>
+    <div class="detail-cover" id="detail-cover"></div>
+    <div class="detail-body">
+      <div class="kicker" id="detail-kicker"></div>
+      <h2 id="detail-title"></h2>
+      <dl id="detail-facts" class="facts"></dl>
+      <p id="detail-note" class="note"></p>
+      <div class="detail-actions" id="detail-actions">
+        <button id="d-play" class="button primary" type="button"><span class="glyph a" aria-hidden="true">A</span>Play offline</button>
+        <button id="d-network" class="button" type="button"><span class="glyph x" aria-hidden="true">X</span>Play with network…</button>
+        <button id="d-favorite" class="button" type="button" aria-pressed="false"></button>
+        <button id="d-cover" class="button" type="button">Set cover image…</button>
+        <button id="d-undo-cover" class="button" type="button">Undo cover change</button>
+        <button id="d-reset-cover" class="button" type="button">Use automatic cover</button>
+        <button id="d-source" class="button" type="button">Set source…</button>
+        <button id="d-rename" class="button" type="button">Rename</button>
+        <button id="d-reset" class="button" type="button">Clear saves</button>
+        <button id="d-remove" class="button danger" type="button">Remove from library</button>
+        <button id="d-close" class="button ghost" type="button"><span class="glyph b" aria-hidden="true">B</span>Back</button>
+      </div>
+    </div>
+  </aside>
 
   <footer class="hints" aria-hidden="true">
     <span><span class="glyph a">A</span><span id="hint-a">Play</span></span>
@@ -102,10 +107,10 @@
     <span class="keys">Arrows move · Enter plays · I details · N network · F favorite · / search · [ sidebar</span>
   </footer>
 
-  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <div id="toast" class="toast glass" role="status" aria-live="polite" hidden></div>
 
   <div id="network-dialog" class="dialog-backdrop" hidden>
-    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="network-title" aria-describedby="network-copy">
+    <section class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="network-title" aria-describedby="network-copy">
       <div class="kicker">Network access</div>
       <h2 id="network-title">Play with network?</h2>
       <p id="network-copy">The game will be able to contact websites and services on your network while it runs. Only allow this for games you trust. Choose offline play if you are unsure.</p>
@@ -117,7 +122,7 @@
   </div>
 
   <div id="rename-dialog" class="dialog-backdrop" hidden>
-    <form id="rename-form" class="dialog" role="dialog" aria-modal="true" aria-labelledby="rename-title">
+    <form id="rename-form" class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="rename-title">
       <div class="kicker">Rename</div>
       <h2 id="rename-title">Rename game</h2>
       <label class="field" for="rename-input"><span>Title</span><input id="rename-input" maxlength="80" autocomplete="off" spellcheck="false" required></label>
@@ -130,7 +135,7 @@
   </div>
 
   <div id="source-dialog" class="dialog-backdrop" hidden>
-    <form id="source-form" class="dialog" role="dialog" aria-modal="true" aria-labelledby="source-title" aria-describedby="source-copy">
+    <form id="source-form" class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="source-title" aria-describedby="source-copy">
       <div class="kicker">Source</div>
       <h2 id="source-title">Where is this game from?</h2>
       <p id="source-copy" class="small">Optional. For example itch.io, Newgrounds, or a friend's name. Games with the same source get their own filter in the sidebar. Leave it empty to remove it.</p>
@@ -144,7 +149,7 @@
   </div>
 
   <div id="reset-dialog" class="dialog-backdrop" hidden>
-    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="reset-title" aria-describedby="reset-copy">
+    <section class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="reset-title" aria-describedby="reset-copy">
       <div class="kicker">Clear saves</div>
       <h2 id="reset-title">Clear saves?</h2>
       <p id="reset-copy">This deletes the game's local storage, IndexedDB, and cookies on this computer. The game itself stays in your library.</p>
@@ -156,7 +161,7 @@
   </div>
 
   <div id="remove-dialog" class="dialog-backdrop" hidden>
-    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="remove-title" aria-describedby="remove-copy">
+    <section class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="remove-title" aria-describedby="remove-copy">
       <div class="kicker">Remove</div>
       <h2 id="remove-title">Remove game?</h2>
       <p id="remove-copy">GameStrike deletes its copy of the game files. Your original download is not touched.</p>
@@ -169,7 +174,7 @@
   </div>
 
   <div id="settings-dialog" class="dialog-backdrop" hidden>
-    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <section class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div class="kicker">Settings</div>
       <h2 id="settings-title">Settings</h2>
       <div class="dialog-actions stacked">
@@ -182,7 +187,7 @@
   </div>
 
   <div id="problems-dialog" class="dialog-backdrop" hidden>
-    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="problems-title">
+    <section class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="problems-title">
       <div class="kicker">Library check</div>
       <h2 id="problems-title">Some folders could not be read</h2>
       <p>These folders in the library are not valid games. GameStrike leaves them untouched.</p>
@@ -192,7 +197,7 @@
   </div>
 
   <div id="about-dialog" class="dialog-backdrop" hidden>
-    <section class="dialog about" role="dialog" aria-modal="true" aria-labelledby="about-title">
+    <section class="dialog glass about" role="dialog" aria-modal="true" aria-labelledby="about-title">
       <img class="about-mark" src="/mark.svg" alt="">
       <h2 id="about-title">GameStrike</h2>
       <p>A local library for the HTML games you keep. Games run in their own player window with their own saves, offline unless you allow network access.</p>

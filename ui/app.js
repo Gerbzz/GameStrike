@@ -42,27 +42,83 @@
   };
 
   // ---------- interface sounds (synthesized locally, never fetched) ----------
+  // Original sounds, built here from oscillators and filtered noise. No samples are used. The
+  // AudioContext starts only after the player's first key, click, or button press.
   const sound = (() => {
     let enabled = stored("gamestrike-sounds", "on") !== "off";
     let context = null;
-    const tones = { move: [880, 0.03, 0.03], zone: [660, 0.06, 0.04], select: [740, 0.1, 0.06], back: [440, 0.08, 0.05], open: [600, 0.12, 0.05], error: [200, 0.18, 0.06] };
+    let master = null;
+    function ready() {
+      if (!enabled || !window.AudioContext || state.capturing) return null;
+      if (!context) {
+        context = new AudioContext();
+        master = context.createDynamicsCompressor();
+        master.connect(context.destination);
+      }
+      if (context.state === "suspended") context.resume().catch(() => {});
+      return context;
+    }
+    // One voice: two slightly detuned oscillators through a resonant low-pass with an envelope.
+    function voice(at, { from, to = from, length, volume = 0.05, type = "sawtooth", cutoff = 2400, q = 6 }) {
+      const ctx = context;
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.Q.value = q;
+      filter.frequency.setValueAtTime(cutoff, at);
+      filter.frequency.exponentialRampToValueAtTime(Math.max(120, cutoff * 0.25), at + length);
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(volume, at + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
+      for (const detune of [-7, 7]) {
+        const osc = ctx.createOscillator();
+        osc.type = type;
+        osc.detune.value = detune;
+        osc.frequency.setValueAtTime(from, at);
+        osc.frequency.exponentialRampToValueAtTime(to, at + length);
+        osc.connect(filter);
+        osc.start(at);
+        osc.stop(at + length + 0.03);
+      }
+      filter.connect(gain).connect(master);
+    }
+    // A breathy sweep of filtered noise, for whooshes.
+    function whoosh(at, length, from, to, volume) {
+      const ctx = context;
+      const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * length), ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.Q.value = 1.4;
+      filter.frequency.setValueAtTime(from, at);
+      filter.frequency.exponentialRampToValueAtTime(to, at + length);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(volume, at + length * 0.35);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
+      source.connect(filter).connect(gain).connect(master);
+      source.start(at);
+    }
+    const SOUNDS = {
+      move: (t) => voice(t, { from: 1320, to: 990, length: 0.05, volume: 0.025, type: "triangle", cutoff: 5200 }),
+      zone: (t) => { voice(t, { from: 520, to: 780, length: 0.12, volume: 0.03, type: "triangle" }); whoosh(t, 0.18, 600, 2400, 0.02); },
+      select: (t) => { voice(t, { from: 660, length: 0.09, volume: 0.04 }); voice(t + 0.07, { from: 990, length: 0.16, volume: 0.04 }); },
+      open: (t) => { whoosh(t, 0.35, 300, 3200, 0.035); voice(t + 0.05, { from: 440, to: 880, length: 0.28, volume: 0.03, type: "triangle", cutoff: 3000 }); },
+      back: (t) => { voice(t, { from: 740, to: 370, length: 0.16, volume: 0.035, type: "triangle", cutoff: 2600 }); whoosh(t, 0.2, 2400, 500, 0.015); },
+      launch: (t) => {
+        whoosh(t, 0.9, 200, 5200, 0.05);
+        [523.25, 659.25, 783.99, 1046.5].forEach((note, i) => voice(t + i * 0.075, { from: note, length: 0.5 - i * 0.06, volume: 0.035, cutoff: 3800 }));
+        voice(t, { from: 65.4, to: 130.8, length: 0.9, volume: 0.05, type: "sine", cutoff: 800, q: 1 });
+      },
+      error: (t) => { voice(t, { from: 220, length: 0.12, volume: 0.045, type: "square", cutoff: 900 }); voice(t + 0.13, { from: 196, length: 0.18, volume: 0.045, type: "square", cutoff: 700 }); },
+    };
     function play(kind) {
-      if (!enabled || !window.AudioContext || state.capturing) return;
       try {
-        context = context || new AudioContext();
-        const [frequency, length, volume] = tones[kind] || tones.move;
-        const now = context.currentTime;
-        const osc = context.createOscillator();
-        const gain = context.createGain();
-        osc.type = "triangle";
-        osc.frequency.setValueAtTime(frequency, now);
-        if (kind === "select" || kind === "open") osc.frequency.exponentialRampToValueAtTime(frequency * 1.6, now + length);
-        if (kind === "back") osc.frequency.exponentialRampToValueAtTime(frequency * 0.7, now + length);
-        gain.gain.setValueAtTime(volume, now);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + length);
-        osc.connect(gain).connect(context.destination);
-        osc.start(now);
-        osc.stop(now + length + 0.02);
+        if (!ready()) return;
+        (SOUNDS[kind] || SOUNDS.move)(context.currentTime + 0.005);
       } catch (_) { /* sound is decoration only */ }
     }
     return {
@@ -72,6 +128,16 @@
     };
   })();
 
+  // ---------- 3D scene ----------
+  // The scene (scene.js) only hears where the camera should go and whether to pause.
+  function setView(view, instant = false) {
+    document.body.dataset.view = view;
+    window.dispatchEvent(new CustomEvent("gamestrike:view", { detail: { view, instant } }));
+  }
+  function pauseScene(paused) {
+    window.dispatchEvent(new CustomEvent("gamestrike:pause", { detail: { paused } }));
+  }
+
   // ---------- startup ----------
   let bootTimer = null;
   function finishBoot() {
@@ -79,6 +145,7 @@
     state.booted = true;
     clearTimeout(bootTimer);
     el.boot.classList.add("done");
+    setView("library", state.capturing);
     if (state.loaded) render({ focus: !state.dialog });
   }
   function startBoot() {
@@ -252,7 +319,9 @@
     meta.className = "tile-meta";
     meta.textContent = tileMeta(game);
     labelBox.append(title, meta);
-    node.append(coverNode(game), badges, labelBox);
+    const sheen = document.createElement("div");
+    sheen.className = "sheen";
+    node.append(coverNode(game), sheen, badges, labelBox);
     node.setAttribute("aria-label", `${game.title}. ${tileMeta(game)}.${game.favorite ? " Favorite." : ""}${game.id === state.running ? " Playing now." : ""}`);
     node.addEventListener("click", () => {
       if (state.zone === "grid" && Number(node.dataset.index) === state.gridIndex) launch(game, false);
@@ -275,9 +344,15 @@
   // Moves the visible focus (and keyboard focus) to the current zone's item.
   function layoutFocus(focus = true) {
     const tiles = [...el.grid.children];
+    const inGrid = state.zone === "grid" && tiles.length > 0;
+    const columns = gridColumns();
+    // The focused tile lifts; its row and column neighbours recede least, the rest a little more.
+    el.grid.classList.toggle("has-focus", inGrid);
     tiles.forEach((node, index) => {
-      const on = state.zone === "grid" && index === state.gridIndex;
+      const on = inGrid && index === state.gridIndex;
+      const offset = Math.abs(index - state.gridIndex);
       node.classList.toggle("focused", on);
+      node.classList.toggle("near", inGrid && !on && (offset === columns || (offset === 1 && Math.floor(index / columns) === Math.floor(state.gridIndex / columns))));
       node.setAttribute("aria-selected", String(index === state.gridIndex));
       node.tabIndex = index === state.gridIndex ? 0 : -1;
     });
@@ -403,6 +478,7 @@
     el.detail.classList.add("open");
     el.detail.removeAttribute("inert");
     el.detail.setAttribute("aria-hidden", "false");
+    setView("detail");
     sound.play("open");
     $("d-play").focus({ preventScroll: true });
   }
@@ -413,6 +489,7 @@
     el.detail.classList.remove("open");
     el.detail.setAttribute("inert", "");
     el.detail.setAttribute("aria-hidden", "true");
+    if (!state.dialog) setView("library");
     if (!silent) sound.play("back");
     if (restore) layoutFocus(true);
   }
@@ -473,7 +550,7 @@
     if (state.launching) return;
     if (!game.files_ok) { toast("This game's files are missing. Remove it, then add the original file again.", true); return; }
     state.launching = true;
-    sound.play("select");
+    sound.play("launch");
     send({ type: "launch_game", id: game.id, network });
   }
 
@@ -535,6 +612,7 @@
     }
     state.dialog = name;
     dialogs[name].node.hidden = false;
+    setView({ settings: "settings", problems: "settings", about: "about", network: "detail" }[name] || "saves");
     sound.play("open");
     const first = $(dialogs[name].first);
     first.focus();
@@ -545,6 +623,7 @@
     if (!state.dialog) return;
     dialogs[state.dialog].node.hidden = true;
     state.dialog = null;
+    setView(state.detailId ? "detail" : "library");
     if (!silent) sound.play("back");
     if (!restore) return;
     if (state.detailId && returnFocus && el.detail.contains(returnFocus) && !returnFocus.disabled) returnFocus.focus();
@@ -669,6 +748,7 @@
       case "Delete": event.preventDefault(); if (state.zone === "grid") openDialog("remove"); break;
       case "/": event.preventDefault(); focusSearch(); break;
       case "[": event.preventDefault(); toggleSidebar(); break;
+      case "m": case "M": event.preventDefault(); sound.toggle(); toast(`Sounds ${sound.enabled ? "on" : "off"}.`); break;
       case "Escape": case "Backspace": event.preventDefault(); back(); break;
     }
   });
@@ -721,6 +801,7 @@
         state.games = Array.isArray(message.games) ? message.games : [];
         state.problems = Array.isArray(message.problems) ? message.problems : [];
         state.running = message.running || null;
+        pauseScene(Boolean(state.running));
         state.loaded = true;
         render({ focus: !state.dialog && state.booted && !state.detailId && document.activeElement !== el.search });
         if (state.pendingFocus) {
@@ -752,11 +833,13 @@
       case "player_started":
         state.launching = false;
         state.running = message.id;
+        pauseScene(true);
         toast(message.network ? "Game opened with network access." : "Game opened offline in its own window.");
         render();
         break;
       case "player_exited":
         if (state.running === message.id) state.running = null;
+        pauseScene(Boolean(state.running));
         state.launching = false;
         toast(message.message, !message.ok);
         render({ focus: !state.dialog && !state.detailId });
@@ -795,11 +878,17 @@
       let best = 0;
       state.visible.forEach((game, index) => { if (game.title.length > state.visible[best].title.length) best = index; });
       state.gridIndex = best;
+    } else if (view === "focus") {
+      // A tile away from the edge, preferring one with a stored cover, so the lift shows clearly.
+      const covered = state.visible.findIndex((game) => game.cover);
+      state.gridIndex = covered > 0 ? covered : Math.min(1, state.visible.length - 1);
     }
     layoutFocus(false);
     if (view === "launch") openDialog("network");
     else if (view === "manage") openDetail();
     else if (view === "about") openDialog("about");
+    // Captures show the camera at its station, not partway through a flight.
+    setView(document.body.dataset.view, true);
   }
 
   window.GameStrike = Object.freeze({ receive, capture });
