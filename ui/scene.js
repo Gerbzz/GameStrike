@@ -537,19 +537,44 @@ function startWebGL() {
     setRunning();
   }
 
-  const loader = new THREE.TextureLoader();
+  // The cover the cradle holds: the stored image, read through a plain same-origin <img> and
+  // copied to a canvas (no CORS request, which WebKit refuses for the launcher's custom scheme), or
+  // the generated box art when there is no image or it cannot be read.
+  let coverRequest = 0;
   function setCover(detail) {
     const material = world.cradle.coverMaterial;
-    const apply = (texture) => {
+    const request = ++coverRequest;
+    body.dataset.cradle = "loading";
+    const apply = (source) => {
+      if (request !== coverRequest) return;
+      const texture = new THREE.CanvasTexture(source);
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.anisotropy = 4;
       material.map?.dispose();
       material.map = texture;
       material.needsUpdate = true;
+      body.dataset.cradle = "ready";
       if (!running) renderFrame(0);
     };
-    if (detail?.canvas) apply(new THREE.CanvasTexture(detail.canvas));
-    else if (detail?.url) loader.load(detail.url, apply);
+    const fallback = () => { if (detail?.canvas) apply(detail.canvas); else body.dataset.cradle = "ready"; };
+    if (!detail?.url) { fallback(); return; }
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => {
+      try {
+        const copy = document.createElement("canvas");
+        copy.width = Math.min(1024, image.naturalWidth || 300);
+        copy.height = Math.min(1536, image.naturalHeight || 450);
+        const g = copy.getContext("2d");
+        g.drawImage(image, 0, 0, copy.width, copy.height);
+        g.getImageData(0, 0, 1, 1); // throws if the image could not be read
+        apply(copy);
+      } catch (_) {
+        fallback();
+      }
+    };
+    image.onerror = fallback;
+    image.src = detail.url;
   }
 
   window.addEventListener("resize", resize);

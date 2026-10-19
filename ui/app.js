@@ -203,7 +203,7 @@
   function cradle(game) {
     if (!game) return;
     const url = core.coverUrl(game);
-    const canvas = url ? null : window.GameStrikeCovers?.canvasFor(game, kickerFor(game), 352, 472);
+    const canvas = window.GameStrikeCovers?.canvasFor(game, kickerFor(game), 352, 472);
     window.dispatchEvent(new CustomEvent("gamestrike:cradle", { detail: { id: game.id, url, canvas } }));
     const card = document.querySelector(".cradle-card");
     if (card) card.replaceChildren(coverNode(game, 352, 472));
@@ -1116,6 +1116,7 @@
     if (!state.capturing) return true;
     if (document.fonts && document.fonts.status !== "loaded") return false;
     if (!document.body.dataset.scene) return false;
+    if (state.detailId && document.body.dataset.scene === "webgl" && document.body.dataset.cradle !== "ready") return false;
     if (state.booted && !el.grid.hidden) {
       const tiles = [...el.grid.children].slice(0, state.metrics.columns * 4);
       for (const node of tiles) {
