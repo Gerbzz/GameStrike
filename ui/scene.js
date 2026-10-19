@@ -19,7 +19,7 @@ const reducedMotion = () => Boolean(motionQuery?.matches) || body.classList.cont
 const ORB = new THREE.Vector3(2.7, 0.25, -1.6);
 // Camera stations. Moving between views is a fly-through between these.
 const VIEWS = {
-  boot: { position: [2.9, 0.35, 1.25], target: [2.7, 0.25, -1.6] },
+  boot: { position: [3.1, 0.45, 4.4], target: [2.7, 0.25, -1.6] },
   library: { position: [-0.4, 0.6, 10.5], target: [-0.4, 0.1, -1.6] },
   detail: { position: [6.4, 1.5, 5.2], target: [1.6, 0.2, -1.8] },
   saves: { position: [1.0, -0.6, 6.4], target: [2.3, 0.1, -1.6] },
