@@ -122,9 +122,11 @@ capture() {
   local sum
   sum=$( (command -v sha256sum >/dev/null && sha256sum "$png" || shasum -a 256 "$png") | cut -d' ' -f1)
   echo "$name : ${width}x${height} sha256=$sum"
+  grep -h "scene renderer" "$out_dir/$name.out.txt" | sed "s/^/  /" || true
 }
 
 capture "$library" library
+capture "$library" focus --capture-view focus
 capture "$library" long-title --capture-view long
 capture "$library" network-dialog --capture-view launch
 capture "$library" manage --capture-view manage

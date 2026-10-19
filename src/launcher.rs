@@ -79,8 +79,9 @@ mod launcher_app {
     }
 
     /// A named UI state for `--capture-view`. Only names in this list reach the page script.
-    const CAPTURE_VIEWS: [&str; 9] = [
+    const CAPTURE_VIEWS: [&str; 10] = [
         "library",
+        "focus",
         "long",
         "launch",
         "manage",
@@ -167,7 +168,8 @@ mod launcher_app {
                     if capture_path.is_some() {
                         let proxy = background_proxy.clone();
                         thread::spawn(move || {
-                            thread::sleep(Duration::from_millis(1600));
+                            // Leaves time for the 3D scene to compile its shaders, even on software GL.
+                            thread::sleep(Duration::from_millis(2600));
                             let _ = proxy.send_event(UiEvent::CapturePreview);
                         });
                     }
@@ -185,9 +187,14 @@ mod launcher_app {
                             eprintln!("Could not prepare launcher preview: {error}");
                             std::process::exit(2);
                         }
+                        // Records which renderer drew the backdrop (WebGL, the static fallback, or none).
+                        let _ = webview.evaluate_script_with_callback(
+                            "[document.body.dataset.scene, document.body.dataset.quality, document.body.dataset.sceneReason].filter(Boolean).join(' ') || 'not started'",
+                            |result| println!("GameStrike scene renderer: {result}"),
+                        );
                         let proxy = background_proxy.clone();
                         thread::spawn(move || {
-                            thread::sleep(Duration::from_millis(450));
+                            thread::sleep(Duration::from_millis(900));
                             let _ = proxy.send_event(UiEvent::CapturePreview);
                         });
                     } else if let Some(path) = capture_path.take()
@@ -652,6 +659,126 @@ mod launcher_app {
         }
     }
 
+    const JS: &str = "text/javascript; charset=utf-8";
+    const WOFF2: &str = "font/woff2";
+
+    /// Every file the launcher page may load. Anything else is a 404.
+    static UI_FILES: &[(&str, &[u8], &str)] = &[
+        (
+            "/index.html",
+            include_bytes!("../ui/index.html"),
+            "text/html; charset=utf-8",
+        ),
+        ("/app.js", include_bytes!("../ui/app.js"), JS),
+        ("/core.js", include_bytes!("../ui/core.js"), JS),
+        ("/scene.js", include_bytes!("../ui/scene.js"), JS),
+        (
+            "/styles.css",
+            include_bytes!("../ui/styles.css"),
+            "text/css; charset=utf-8",
+        ),
+        (
+            "/mark.svg",
+            include_bytes!("../assets/branding/gamestrike-mark.svg"),
+            "image/svg+xml",
+        ),
+        (
+            "/pwds.svg",
+            include_bytes!("../assets/branding/PWDS-logo-orange.svg"),
+            "image/svg+xml",
+        ),
+        // three.js r170 (MIT), vendored; the add-ons import it by relative path.
+        (
+            "/vendor/three/three.module.min.js",
+            include_bytes!("../ui/vendor/three/three.module.min.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/postprocessing/EffectComposer.js",
+            include_bytes!("../ui/vendor/three/postprocessing/EffectComposer.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/postprocessing/MaskPass.js",
+            include_bytes!("../ui/vendor/three/postprocessing/MaskPass.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/postprocessing/OutputPass.js",
+            include_bytes!("../ui/vendor/three/postprocessing/OutputPass.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/postprocessing/Pass.js",
+            include_bytes!("../ui/vendor/three/postprocessing/Pass.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/postprocessing/RenderPass.js",
+            include_bytes!("../ui/vendor/three/postprocessing/RenderPass.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/postprocessing/ShaderPass.js",
+            include_bytes!("../ui/vendor/three/postprocessing/ShaderPass.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/postprocessing/UnrealBloomPass.js",
+            include_bytes!("../ui/vendor/three/postprocessing/UnrealBloomPass.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/shaders/CopyShader.js",
+            include_bytes!("../ui/vendor/three/shaders/CopyShader.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/shaders/LuminosityHighPassShader.js",
+            include_bytes!("../ui/vendor/three/shaders/LuminosityHighPassShader.js"),
+            JS,
+        ),
+        (
+            "/vendor/three/shaders/OutputShader.js",
+            include_bytes!("../ui/vendor/three/shaders/OutputShader.js"),
+            JS,
+        ),
+        // Orbitron and Exo 2 (SIL Open Font License 1.1), Latin subsets.
+        (
+            "/fonts/orbitron-latin-700-normal.woff2",
+            include_bytes!("../ui/fonts/orbitron-latin-700-normal.woff2"),
+            WOFF2,
+        ),
+        (
+            "/fonts/orbitron-latin-900-normal.woff2",
+            include_bytes!("../ui/fonts/orbitron-latin-900-normal.woff2"),
+            WOFF2,
+        ),
+        (
+            "/fonts/exo-2-latin-400-normal.woff2",
+            include_bytes!("../ui/fonts/exo-2-latin-400-normal.woff2"),
+            WOFF2,
+        ),
+        (
+            "/fonts/exo-2-latin-600-normal.woff2",
+            include_bytes!("../ui/fonts/exo-2-latin-600-normal.woff2"),
+            WOFF2,
+        ),
+        (
+            "/fonts/exo-2-latin-700-normal.woff2",
+            include_bytes!("../ui/fonts/exo-2-latin-700-normal.woff2"),
+            WOFF2,
+        ),
+    ];
+
+    fn bundled(path: &str) -> Option<(&'static [u8], &'static str)> {
+        let path = if path == "/" { "/index.html" } else { path };
+        UI_FILES
+            .iter()
+            .find(|(name, _, _)| *name == path)
+            .map(|(_, body, mime)| (*body, *mime))
+    }
+
     /// Serves the bundled UI files, and `/cover/<game uuid>.png`: a cover PNG that GameStrike
     /// itself encoded into the library. The page names only a game ID, never a path.
     fn serve_ui(library: &Library, request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
@@ -677,47 +804,21 @@ mod launcher_app {
                 ),
             }
         } else {
-            let (status, body, mime) = match request.uri().path() {
-                "/" | "/index.html" => (
-                    StatusCode::OK,
-                    &include_bytes!("../ui/index.html")[..],
-                    "text/html; charset=utf-8",
+            match bundled(request.uri().path()) {
+                Some((body, mime)) => (StatusCode::OK, Cow::Borrowed(body), mime),
+                None => (
+                    StatusCode::NOT_FOUND,
+                    Cow::Borrowed(&b"not found"[..]),
+                    "text/plain",
                 ),
-                "/app.js" => (
-                    StatusCode::OK,
-                    &include_bytes!("../ui/app.js")[..],
-                    "text/javascript; charset=utf-8",
-                ),
-                "/core.js" => (
-                    StatusCode::OK,
-                    &include_bytes!("../ui/core.js")[..],
-                    "text/javascript; charset=utf-8",
-                ),
-                "/styles.css" => (
-                    StatusCode::OK,
-                    &include_bytes!("../ui/styles.css")[..],
-                    "text/css; charset=utf-8",
-                ),
-                "/mark.svg" => (
-                    StatusCode::OK,
-                    &include_bytes!("../assets/branding/gamestrike-mark.svg")[..],
-                    "image/svg+xml",
-                ),
-                "/pwds.svg" => (
-                    StatusCode::OK,
-                    &include_bytes!("../assets/branding/PWDS-logo-orange.svg")[..],
-                    "image/svg+xml",
-                ),
-                _ => (StatusCode::NOT_FOUND, &b"not found"[..], "text/plain"),
-            };
-            (status, Cow::Borrowed(body), mime)
+            }
         };
         let mut response = Response::new(body);
         *response.status_mut() = status;
         response
             .headers_mut()
             .insert(header::CONTENT_TYPE, header::HeaderValue::from_static(mime));
-        response.headers_mut().insert(header::HeaderName::from_static("content-security-policy"), header::HeaderValue::from_static("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-src 'none'; form-action 'none'; connect-src 'none'"));
+        response.headers_mut().insert(header::HeaderName::from_static("content-security-policy"), header::HeaderValue::from_static("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-src 'none'; form-action 'none'; connect-src 'none'; font-src 'self'"));
         response.headers_mut().insert(
             header::HeaderName::from_static("x-content-type-options"),
             header::HeaderValue::from_static("nosniff"),
@@ -1186,6 +1287,60 @@ mod launcher_app {
             ] {
                 assert_eq!(parse_command(&origin, &body), None, "{origin} {body}");
             }
+        }
+
+        #[test]
+        fn every_bundled_ui_file_is_served_and_every_module_import_resolves() {
+            let dir = tempfile::tempdir().unwrap();
+            let library = Library::open(dir.path()).unwrap();
+            for (path, body, mime) in UI_FILES {
+                let response = serve_ui(
+                    &library,
+                    Request::builder().uri(ui(path)).body(Vec::new()).unwrap(),
+                );
+                assert_eq!(response.status(), StatusCode::OK, "{path}");
+                assert_eq!(response.body().as_ref(), *body, "{path}");
+                assert_eq!(response.headers().get(header::CONTENT_TYPE).unwrap(), mime);
+                let csp = response
+                    .headers()
+                    .get("content-security-policy")
+                    .unwrap()
+                    .to_str()
+                    .unwrap();
+                assert!(csp.contains("font-src 'self'") && csp.contains("connect-src 'none'"));
+            }
+            // The ES modules (scene.js and the vendored three.js add-ons) import only files in
+            // this table, by relative path; a missing one would leave the 3D scene unloaded.
+            for (path, body, _) in UI_FILES.iter().filter(|(path, _, _)| path.ends_with(".js")) {
+                let source = String::from_utf8_lossy(body);
+                for quote in ["from '", "from \""] {
+                    for piece in source.split(quote).skip(1) {
+                        let target = piece.split(['\'', '"']).next().unwrap();
+                        assert!(
+                            target.starts_with("./") || target.starts_with("../"),
+                            "{path} imports {target}"
+                        );
+                        let mut parts: Vec<&str> = path.split('/').collect();
+                        parts.pop();
+                        for segment in target.split('/') {
+                            match segment {
+                                "." => {}
+                                ".." => {
+                                    parts.pop();
+                                }
+                                other => parts.push(other),
+                            }
+                        }
+                        let resolved = parts.join("/");
+                        assert!(
+                            bundled(&resolved).is_some(),
+                            "{path} imports missing {resolved}"
+                        );
+                    }
+                }
+            }
+            assert!(bundled("/vendor/three/three.module.js").is_none());
+            assert!(bundled("/fonts/OFL-Orbitron.txt").is_none());
         }
 
         #[test]

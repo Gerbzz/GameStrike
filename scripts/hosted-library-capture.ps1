@@ -112,12 +112,14 @@ function Capture-Launcher([string]$Library, [string]$Name, [string[]]$Extra) {
     try {
         if ($bitmap.Width -lt 880 -or $bitmap.Height -lt 620) { throw "$Name capture is too small." }
         Write-Host "$Name : $($bitmap.Width)x$($bitmap.Height) sha256=$((Get-FileHash -LiteralPath $png -Algorithm SHA256).Hash)"
+        Get-Content -LiteralPath $out -ErrorAction SilentlyContinue | Where-Object { $_ -like '*scene renderer*' } | ForEach-Object { Write-Host "  $_" }
     } finally {
         $bitmap.Dispose()
     }
 }
 
 Capture-Launcher $library 'library' @()
+Capture-Launcher $library 'focus' @('--capture-view', 'focus')
 Capture-Launcher $library 'long-title' @('--capture-view', 'long')
 Capture-Launcher $library 'network-dialog' @('--capture-view', 'launch')
 Capture-Launcher $library 'manage' @('--capture-view', 'manage')
