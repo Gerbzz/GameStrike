@@ -637,17 +637,21 @@ fn remove_profile(profile: &Path) -> io::Result<()> {
         match fs::remove_dir_all(profile) {
             Ok(()) => return Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::PermissionDenied | io::ErrorKind::DirectoryNotEmpty
-                ) && std::time::Instant::now() < deadline =>
-            {
+            Err(error) if profile_busy(&error) && std::time::Instant::now() < deadline => {
                 std::thread::sleep(std::time::Duration::from_millis(200));
             }
             Err(error) => return Err(error),
         }
     }
+}
+
+/// Errors that mean another process still has a file in the profile open. On Windows these include
+/// ERROR_SHARING_VIOLATION (32) and ERROR_LOCK_VIOLATION (33), which Rust reports as uncategorized.
+fn profile_busy(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::PermissionDenied | io::ErrorKind::DirectoryNotEmpty
+    ) || (cfg!(windows) && matches!(error.raw_os_error(), Some(32 | 33)))
 }
 
 fn directory_size(root: &Path) -> u64 {
@@ -1806,6 +1810,26 @@ mod tests {
                 .find(|(key, _)| key == name)
                 .map(|(_, value)| value.into())
         }
+    }
+
+    #[test]
+    fn a_profile_held_open_by_webview2_counts_as_busy() {
+        assert!(profile_busy(&io::Error::from(
+            io::ErrorKind::PermissionDenied
+        )));
+        assert!(!profile_busy(&io::Error::from(io::ErrorKind::NotFound)));
+        assert!(!profile_busy(&io::Error::from(io::ErrorKind::InvalidData)));
+        assert_eq!(
+            profile_busy(&io::Error::from_raw_os_error(32)),
+            cfg!(windows)
+        );
+        let dir = tempfile::tempdir().unwrap();
+        remove_profile(&dir.path().join("never-created")).unwrap();
+        let profile = dir.path().join("profile");
+        fs::create_dir_all(profile.join("Default")).unwrap();
+        fs::write(profile.join("Default").join("Local State"), b"synthetic").unwrap();
+        remove_profile(&profile).unwrap();
+        assert!(!profile.exists());
     }
 
     #[test]
