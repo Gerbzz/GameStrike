@@ -24,7 +24,7 @@ Unknown message types and unknown fields are rejected. Game titles reach the pag
 The launcher has three dashboard styles over the same channels and actions. The style is set from *System* and stored in the WebView profile at `LIBRARY/launcher-ui`.
 
 - **Blades** (default): channels stacked vertically, and a row of tiles per channel, described below.
-- **Original**: a black-green backdrop with glowing tubes, a pulsing orb, and the current channel as a vertical list of glossy pills (six visible, with *more* markers). Up/Down moves within the menu; Left/Right changes menu.
+- **Original**: modeled on reference footage of the 2001 console dashboard. It has a green spherical wireframe mesh (CSS radial and conic gradients), a glowing orb with a goo shell and wing shards, and the channels as thin outlined bars on an arc beside the orb, each with a glass bead node and an SVG wire back to the orb. Up/Down moves; A or Right opens a channel as a sub-screen (a chamfered panel with a TOTAL header, ruled rows, an info box, and B BACK / A SELECT glyphs); B or Left goes back. Imports and searches land on the My Games sub-screen.
 - **PWDS Orange**: the Blades layout with an orange palette and the PWDS logo in the profile and corner.
 - **Startup**: each style has its own CSS animation of about 3.4 to 4.2 s. Any key, click, or controller button skips it, and it is skipped entirely for reduced motion. The PWDS credit appears in every startup sequence and in About.
 - **Backdrop** (Blades): a themed sky fading into light haze, slow bokeh circles, and a curved glossy floor, all in CSS. Five colors (Lime by default, Ocean, Sunset, Grape, Graphite) only change custom properties.
@@ -35,7 +35,7 @@ The launcher has three dashboard styles over the same channels and actions. The 
 - **Hints**, bottom left: A/X/Y/B glyphs that change with the focused tile (*Play offline* or *Select*), plus keyboard shortcuts on wide windows.
 - **Dialogs** are light glossy blades: Search, network consent (focus starts on *Go back*), Manage (which also states that controller and network needs are not checked), Rename, Clear saves, Remove (with *Keep saves* checked by default), unreadable folders, and About. Focused dialog buttons always show a ring.
 - **Sounds**: short tones synthesized with Web Audio (nothing is fetched), on by default, toggled in *System*, and remembered.
-- **Captures**: `--capture-view` accepts only a fixed list of names: library, long, launch, manage, about, system, original, pwds, boot-blades, boot-original, and boot-pwds. Captures use default preferences and never save them.
+- **Captures**: `--capture-view` accepts only a fixed list of names: library, long, launch, manage, about, system, original, original-games, pwds, boot-blades, boot-original, and boot-pwds. Captures use default preferences and never save them.
 
 Captures from the real launcher at 1250 × 800 and at the 880 × 620 minimum are in the README.
 
