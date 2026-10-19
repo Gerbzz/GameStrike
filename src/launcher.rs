@@ -133,12 +133,10 @@ mod launcher_app {
 
     /// Asks the page whether a staged capture view has finished drawing (fonts, covers, and the 3D
     /// scene). A page without a `ready` check, such as classic.html, is always ready.
-    const CAPTURE_READY: &str =
-        "(function () { try { var g = window.GameStrike; return !g || typeof g.ready !== 'function' || g.ready() === true; } catch (e) { return true; } })()";
+    const CAPTURE_READY: &str = "(function () { try { var g = window.GameStrike; return !g || typeof g.ready !== 'function' || g.ready() === true; } catch (e) { return true; } })()";
 
     /// Records which renderer drew the backdrop: WebGL and its quality, the static fallback, or none.
-    const CAPTURE_RENDERER: &str =
-        "[document.body.dataset.scene, document.body.dataset.quality, document.body.dataset.sceneReason].filter(Boolean).join(' ') || 'not started'";
+    const CAPTURE_RENDERER: &str = "[document.body.dataset.scene, document.body.dataset.quality, document.body.dataset.sceneReason].filter(Boolean).join(' ') || 'not started'";
 
     /// How many times a capture asks the page whether it is ready (250 ms apart) before taking the
     /// picture anyway.

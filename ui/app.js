@@ -124,12 +124,69 @@
       try {
         if (!ready()) return;
         (SOUNDS[kind] || SOUNDS.move)(context.currentTime + 0.005);
+        started = true;
+        hum(true);
       } catch (_) { /* sound is decoration only */ }
     }
+    // The dome's ambient hum: two low, slightly detuned tones and a breath of filtered noise under
+    // a slow swell, very quiet. It starts with the first sound, and stops while a game runs, while
+    // the window is hidden, and when sounds are off.
+    let drone = null;
+    let held = false;
+    let started = false;
+    function hum(on) {
+      try {
+        const want = on && enabled && !held && !document.hidden;
+        if (want && !drone && ready()) {
+          const ctx = context;
+          const gain = ctx.createGain();
+          gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.014, ctx.currentTime + 2.5);
+          const filter = ctx.createBiquadFilter();
+          filter.type = "lowpass";
+          filter.frequency.value = 340;
+          const swell = ctx.createOscillator();
+          const depth = ctx.createGain();
+          swell.frequency.value = 0.09;
+          depth.gain.value = 0.005;
+          swell.connect(depth).connect(gain.gain);
+          const sources = [55, 82.6, 110.3].map((frequency, index) => {
+            const osc = ctx.createOscillator();
+            osc.type = index === 2 ? "triangle" : "sine";
+            osc.frequency.value = frequency;
+            const level = ctx.createGain();
+            level.gain.value = index === 2 ? 0.25 : 0.6;
+            osc.connect(level).connect(filter);
+            return osc;
+          });
+          const noise = ctx.createBufferSource();
+          const buffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < data.length; i += 1) data[i] = (Math.random() * 2 - 1) * 0.18;
+          noise.buffer = buffer;
+          noise.loop = true;
+          noise.connect(filter);
+          filter.connect(gain).connect(master);
+          [...sources, noise, swell].forEach((node) => node.start());
+          drone = { gain, nodes: [...sources, noise, swell] };
+        } else if (!want && drone) {
+          const { gain, nodes } = drone;
+          drone = null;
+          const end = context.currentTime + 0.8;
+          gain.gain.cancelScheduledValues(context.currentTime);
+          gain.gain.setValueAtTime(Math.max(0.0001, gain.gain.value), context.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.0001, end);
+          nodes.forEach((node) => node.stop(end + 0.05));
+        }
+      } catch (_) { /* sound is decoration only */ }
+    }
+    document.addEventListener("visibilitychange", () => { if (started) hum(!document.hidden); });
     return {
       play,
       get enabled() { return enabled; },
-      toggle() { enabled = !enabled; store("gamestrike-sounds", enabled ? "on" : "off"); if (enabled) play("select"); },
+      toggle() { enabled = !enabled; store("gamestrike-sounds", enabled ? "on" : "off"); if (enabled) play("select"); else hum(false); },
+      // While a game runs the launcher stays quiet.
+      hold(on) { held = on; if (started) hum(!on); },
     };
   })();
 
@@ -140,6 +197,7 @@
     window.dispatchEvent(new CustomEvent("gamestrike:view", { detail: { view, instant } }));
   }
   function pauseScene(paused) {
+    sound.hold(paused);
     window.dispatchEvent(new CustomEvent("gamestrike:pause", { detail: { paused } }));
   }
   function cradle(game) {

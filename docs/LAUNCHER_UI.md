@@ -4,7 +4,7 @@
 
 ## Trusted surface
 
-The fixed `gamestrikeui` origin serves only the files in the `UI_FILES` table in `src/launcher.rs`: `index.html` (also at `/`), `app.js`, `core.js`, `scene.js`, `styles.css`, the GameStrike mark, the PWDS publisher logo, the vendored three.js modules under `/vendor/three/`, and the Orbitron and Exo 2 fonts under `/fonts/`. It also serves `/cover/<game uuid>.png`, but only for a valid game ID, and only as a regular PNG file of at most 8 MiB that GameStrike itself encoded into that game's library folder. Every response carries `default-src 'none'` with only `'self'` scripts, styles, images, and fonts, plus `connect-src 'none'`, `nosniff`, and `no-store`. Navigation is limited to this origin; new windows, downloads, devtools, and the default context menu are disabled. A test checks that every file in the table is served and that every ES module import resolves to a file in it.
+The fixed `gamestrikeui` origin serves only the files in the `UI_FILES` table in `src/launcher.rs`: `index.html` (also at `/`), `style-gate.js`, `app.js`, `core.js`, `frame.js`, `covers.js`, `scene.js`, `styles.css`, `classic.html`, `classic.js`, `classic.css`, the GameStrike mark, the PWDS publisher logo, the vendored three.js modules under `/vendor/three/`, and the Nova Square, Rajdhani, and Share Tech Mono fonts under `/fonts/`. It also serves `/cover/<game uuid>.png`, but only for a valid game ID, and only as a regular PNG file of at most 8 MiB that GameStrike itself encoded into that game's library folder. Every response carries `default-src 'none'` with only `'self'` scripts, styles, images, and fonts, plus `connect-src 'none'`, `nosniff`, and `no-store`. Navigation is limited to this origin; new windows, downloads, devtools, and the default context menu are disabled. A test checks that every file in the table is served and that every ES module import resolves to a file in it.
 
 The page can send only these IPC messages, as JSON of at most 1 KiB from the exact UI origin:
 
@@ -24,58 +24,84 @@ The page can send only these IPC messages, as JSON of at most 1 KiB from the exa
 
 Unknown message types and unknown fields are rejected. Game titles and sources reach the page as JSON and are rendered with `textContent`.
 
-## Covers
+## Styles
 
-Imported HTML games rarely have cover art, and any image that does come with them is untrusted.
+The launcher has five dashboard styles over the same library and actions, chosen in *Settings* (Collection) or in the *System* channel (the earlier styles), and stored in the WebView profile at `LIBRARY/launcher-ui`:
 
-- **Decoding.** Cover images are decoded only by the memory-safe Rust `image` crate (PNG, JPEG, GIF, WebP), with limits of 16 MiB per file, 8192 px per side, and 256 MiB of decoder memory. The result is scaled to fit 600 × 900 and saved as a freshly encoded PNG; nothing from the original file except its pixels is kept. SVG, HTML, and anything else are refused.
-- **Automatic cover.** When a game is imported (and once for games imported earlier), GameStrike looks among the game's own top-level files for a well-known name such as `cover.png`, `thumbnail.png`, `screenshot.png`, `icon.png`, or `favicon.png`, and runs the first readable one through the same decoder. The search runs once per game.
-- **Custom cover.** *Set cover image…* in the detail panel opens the native image picker. *Undo cover change* swaps back to the previous custom cover; *Use automatic cover* puts the custom one aside (Undo restores it).
-- **Generated cover.** A game with no stored cover gets box art drawn from its ID and title: one of ten curated, high-contrast palettes (contrast is checked by the JS tests), one of six geometric motifs (rings, sunburst, horizon, chevrons, halftone, slabs), a kicker with the source or kind, and the full title in Orbitron, sized by its length. It is clearly generated decoration, not the game's art.
-- Covers live in the game's own library folder (`cover.png`, `cover-previous.png`, `auto-cover.png`) and are deleted with the game.
+| Style | Page | What it is |
+| --- | --- | --- |
+| **Collection: PWDS Orange** (default) | `index.html` | The framed game collection described below, in PWDS orange, with the PWDS logo in the emblem. |
+| **Collection: Green** | `index.html` | The same frame in green, with the GameStrike mark in the emblem. Only colour tokens differ. |
+| **Blades** | `classic.html` | The Xbox 360-inspired blades dashboard from earlier versions. |
+| **Original** | `classic.html` | The 2001-inspired orb and menu style from earlier versions, with PR #9's transitions. |
+| **PWDS Orange** | `classic.html` | The blades layout in PWDS orange. |
 
-## The 3D scene
+`style-gate.js` runs first on `index.html` and opens `classic.html` when one of the last three is saved; choosing a Collection style there opens `index.html` again, without replaying a startup sequence. `classic.css` is byte-identical to the stylesheet before this change, `classic.html` differs only in its file references, and `classic.js` only in the style cycle (which now ends at Collection), the capture view names, and one description string. A library opened for the first time uses Collection: PWDS Orange; a library that had saved Blades, Original, or PWDS Orange keeps it.
 
-`ui/scene.js` renders the backdrop with the bundled three.js (r170, MIT): a deep green void with a faint nebula, a pulsing core inside a glassy shell with three orbiting rings, five translucent energy conduits with travelling pulses, and up to 1600 drifting wisps, all through UnrealBloom post-processing and ACES tone mapping. It is decoration only: it receives no game data, never touches the player, and listens to the page for just two events, where the camera should go (`gamestrike:view`) and whether to pause (`gamestrike:pause`).
+## The Collection style
 
-- **Camera.** The camera eases between stations for the startup, library, a game's detail, saves dialogs, settings, and About. The DOM stage moves with it in CSS 3D (the library pushes back and turns as the detail blade flies in from depth), and the pointer adds a slight parallax.
-- **Quality.** Four steps (pixel ratio, wisp count, bloom on or off and its resolution). After every 90 frames, if frames averaged more than 20 ms, the scene drops a step, and on the lowest two steps the glass panels stop blurring what is behind them. Rendering stops while a game is running and while the window is hidden.
-- **Reduced motion.** Still frames only: no camera flights, parallax, or animation, and every CSS transition is instant.
-- **Fallback.** Without WebGL 2 (or if the context is lost), a static 2D painting of the same composition replaces the canvas. If `scene.js` cannot load at all, a CSS glow stands in. The UI is the same in all three cases. Launcher captures print which renderer was used.
+The look follows a reference concept the project owner supplied: one thick, bevelled glass-and-metal frame filling the window, inside a glowing dome, styled after the 2001 console dashboard (hard chamfered panels with double edges, a wide square typeface, orange or lime selection, translucent panels, and a warped net on the inside of a sphere). It uses no console maker's logos, fonts, sounds, or artwork; the green variant puts the GameStrike mark in the emblem where the concept had a console logo.
 
-## Layout
+- **Frame** (`frame.js`): drawn as one SVG to the exact window size around the regions the stylesheet lays out. The outer edge, the header tab, the sidebar panel, the grid's well, and the two bottom panels each have a bright outer edge with a glow and an inset second edge; every corner is a 45-degree chamfer, never a radius. Glass inlays on the top bar and the sides, bracket ears and rivets on the sidebar panel, rivets on the right column, and gloss streaks finish it. It reads untransformed layout offsets, so the frame's own 3D drift never distorts it.
+- **Emblem and header tab**: a round orb set into the top-left corner (the PWDS logo or the GameStrike mark), then a raised tab with an arrow-cut end carrying the view title (*Game Collection*, a filter, a search, or the game in the detail view) in the square display face, and a small count (*21 games · Recent*, or *2 of 21*), like the reference list's item count.
+- **Sidebar**: *Search games* (an inline search field), then one chamfered slab per filter with GameStrike's own line icon and an uppercase label: *All games*, *Recently played*, *Favorites*, *HTML files* and *ZIP archives* (only the kinds present), and each source the player wrote (itch.io, Newgrounds, a friend's name). There are no rows or logos for stores GameStrike does not support. The selected filter is a solid accent slab with dark text and a play arrow; keyboard or controller focus is an outlined slab. *Add game*, *Settings*, and *Power* sit in their own panel at the bottom. Arrows mark when the list scrolls.
+- **Grid**: a dense grid of portrait covers (176 × 236 frame proportions), seven columns at the reference size and fewer in narrow windows, scrolling vertically. Each cover sits in its own dark, bevelled, chamfered frame with a thin highlight; the selected cover gets a thick, glowing accent frame and lifts toward the camera in CSS 3D, and the others dim slightly. Badges mark favorites, the game that is playing, and missing files.
+- **Bottom bar**: on the left, the selected game's title in large letterspaced capitals and its status (*Ready to play*, *Files missing*, *Playing now*, or *Another game is open*, with the play count) beside an HTML or ZIP icon; on the right, the prompts for the current view (*A Select, B Back, X Filter, Y Sort* in the grid; *X Network, Y Favorite* in a game's detail) as ringed button glyphs drawn in CSS (green A, red B, blue X, yellow Y), or as keys (Enter, Esc, Tab, S, N, F) after keyboard input. The prompts are clickable. The status lives here, so it is never hidden behind the grid, even at 880 × 620.
+- **Detail view** (A, Enter, I, or a click on the selected cover): the camera flies forward through the dome, the grid and sidebar recede, and the game's cover appears seated in a 3D cradle: a card with a lit chamfered edge held by corner claws, a collar ring, a long bevelled arm crossing behind it, a strut, and cables trailing out of view, all translucent glass with lit edges. The actions are slabs in the sidebar's panel: *Play offline*, *Play with network…*, favorite, *Set cover image…*, *Undo cover change*, *Use automatic cover*, *Set source…*, *Rename*, *Manage saves*, and *Back*. A dark chamfered info panel at the lower right gives the title in large white capitals and accent labels with white values (source, imported as, plays, last played, game data, added) and what the cover is. The net dims, as the reference's list screen is dimmer than its main menu. B returns to the grid.
+- **Saves** (*Manage saves*): the info panel becomes a saves panel with the game data size, what is stored, and *Clear saves* and *Remove from library*; the camera moves a little further. Clearing and removing still ask first.
+- **Dialogs**: network consent (focus starts on *Go back*), rename, source, clear saves, remove (with *Keep saves* checked by default), Settings (style, sounds, unreadable folders, About), and About, all as chamfered panels that fly in with depth.
+- **Generated box art** (`covers.js`): a game with no stored cover gets an illustrated cover drawn on a canvas. A word in the title picks one of twelve scenes (a harbour with a lighthouse, a forge, a reef, a frozen ridge, a castle, a neon grid, a city, dunes, a ringed planet in space, a forest, mountain ridges, or an emblem); otherwise the game ID does. A palette that suits the scene, a title treatment (block, wide, slanted, or stencil), and its placement come from the ID, and the source or kind is set as a small kicker. The detail view says the cover was drawn by GameStrike from the title. No third-party art is used.
+- **Synthetic test data**: a library with a `SYNTHETIC-TEST-LIBRARY` file in its root shows a "Synthetic test library" badge in the header tab. The CI capture scripts mark their libraries this way.
+- **Sounds**: short sounds synthesized at run time from oscillators and filtered noise (move, change zone, select, open, back, launch, error), plus a very quiet ambient hum (two low detuned tones and filtered noise under a slow swell) that starts with the first sound and stops while a game runs or the window is hidden. No samples. M or *Settings* mutes them, and the choice is remembered.
 
-The look is an original homage to the 2001 console dashboard (a dark 3D space with a glowing core and conduits, green glass panels with chrome rims, panels that fly in with depth, wide techno headings) combined with a cover-grid game launcher. It uses no console maker's logos, fonts, sounds, or artwork; the GameStrike mark appears in the startup animation and About.
+### The dome
 
-- **Typography.** Orbitron (SIL OFL) for headings, labels, and counts; Exo 2 (SIL OFL) for text. Both are bundled.
-- **Sidebar** (left, flies in on start): search at the top, then filter rows with an icon, an uppercase label, and a count: *All games*, *Recently played*, *Favorites*; *Imported as* HTML files or ZIP archives (only the kinds present); and *Sources*, one row per source the player wrote. There are no rows for stores GameStrike does not support. *Add game*, *Settings*, and *Power* are pinned at the bottom. The sidebar collapses to icons with its button or `[`, and does so automatically below 760 px.
-- **Grid**: a dense grid of 2:3 portrait covers that reflows with the window (`auto-fill`, 118 px tiles on narrow windows, 150 px normally, 180 px on very wide ones). Each tile shows its cover under a glass sheen, its title, and its source or kind with last-played time, plus badges for *Favorite*, *Playing*, and *Files missing*. The focused tile lifts toward the camera in CSS 3D with a chrome and green-glow rim and a repeating light sweep; its row and column neighbours recede slightly and the rest of the wall a little more.
-- **Header**: the current filter or search, the number of games, and a sort chip (Recent, Title A–Z, Title Z–A, Newest; Recently played is always newest first).
-- **Detail panel** (I, Y, or right-click): flies in from depth on the right with the cover, facts (imported as, source, last played, plays, game data, added, cover kind, and that controller and network needs are not checked), and actions: Play offline, Play with network…, favorite, Set cover image…, Undo cover change, Use automatic cover, Set source…, Rename, Clear saves, Remove from library, and Back.
-- **Dialogs** reuse the same flows as before: network consent (focus starts on *Go back*), rename, source, clear saves, remove (with *Keep saves* checked by default), settings (sounds, unreadable folders, About), and About.
-- **Prompts**: a strip of its own at the bottom shows prompts for the input in use: keyboard keys (Enter, N, I, Esc, and more on wide windows) after keyboard input, and the A, X, Y, B buttons after controller input. Buttons in the detail panel and dialogs follow the same rule.
-- **Synthetic test data**: a library with a `SYNTHETIC-TEST-LIBRARY` file in its root shows a "Synthetic test library" badge in the header. The CI capture scripts mark their libraries this way.
-- **Sounds**: short sounds synthesized at run time from oscillators and filtered noise (move, change zone, select, open, back, launch, error). No samples. On by default, but the audio context starts only after the first key, click, or button press; M or Settings mutes them, and the choice is remembered.
-- **Captures**: `--capture-view` accepts only a fixed list of names: library, focus, controller (the focused view with controller prompts), long, launch, manage (the detail panel), about, favorites, collapsed, search, and boot. Captures use default preferences, put the camera at its station, render still frames, and never save preferences.
+`scene.js` renders, with the bundled three.js (r170, MIT), the inside of a sphere of radius 30 whose centre sits ahead of and above the camera, so the near wall is close and the far wall recedes. The net is computed per pixel in a shader: 34 latitude rings and 68 meridians around a pole that leans toward the light at the upper left, bent by a smooth two-frequency warp so the cells are irregular, quad-ish, and slightly wavy (the same rule as `core.domeNet`, which the tests cover and the fallback uses). Lines are about 1.3 px with a soft halo near the camera and thinner far away, brighter toward the light, and fade into fog with distance; crowded lines near the pole fade out instead of shimmering. A soft light sits behind the emblem. Glossy tubes (dark glass, saturated rims, collars, white highlights, and a pulsing energy core) wrap over the top right, down the left edge, around the bottom left, and into the right edge. UnrealBloom lights only the bright parts. Rendering stops while a game runs and while the window is hidden; quality steps down automatically when frames take more than 22 ms.
+
+**One camera for both layers.** The CSS perspective is set from the camera's 40-degree field of view, and the frame, the tubes, and the cradle ride with the camera, tilted together by the same slow drift (about ±0.55° of yaw and ±0.35° of pitch). The net, much further away, moves against them, so the frame floats inside the dome. Flights between the library, the detail view, saves, Settings, and About are camera moves: the net slides and turns while the panels recede or swing in on their own depth. The dome also turns very slowly.
+
+**Fallbacks.** Without WebGL 2 (or if the context is lost), the same net is projected from `core.domeNet` onto a 2D canvas with the tubes and the light, the cradle becomes a CSS card, and the frame and panels lie flat. With reduced motion, the scene draws still frames, every transition is instant, and the panels lie flat. The UI works the same in every case. Launcher captures print which renderer drew the backdrop.
+
+## Reference study
+
+The Collection style was measured from frames the project owner supplied for this work: a still of the 2001 console dashboard's main menu, a still of its Music Collection screen, and the "Game Collection" concept (in green, and in PWDS orange, which is the primary design). They were used for measurement only and are not in the repository. Colours below are sampled from those frames; sizes are in each frame's own pixels.
+
+- **Concept, 1672 × 941**: frame margins 20 px left and 22 px right; header tab 50 to 100 px with a cap height of 25 px (2.7 % of the height) and about 0.15 em letter spacing; emblem centre (125, 80), radius about 75; sidebar 48 to 292 px, rows 47 px high on a 54.5 px pitch; grid 305 to 1597 by 112 to 830, seven columns by three rows, 184.6 × 244 px pitch, cover frames 176 × 236, gutters about 9 px; the selected frame about 10 px thick and scaled by about 1.08; bottom bar 835 to 915, with a 22 px title cap height at 0.16 em and a 13 px status line; prompt rings 38 px. Orange: selected fill #fd8e16 to #fe7411 with near-black ink, header #f58c39, row edges #c1703c, interior #090301, frame body #26150d, title #ffcc7e, background #080201 to #120401 with net lines up to #34130a. These are the `--u` = 1 values in `styles.css`; `--u` scales them to the window, with a floor on type size.
+- **Main menu, 1112 × 1652 crop**: void #0a1c04 to #152d09; net lines peaking at #243e1a to #375922, about 1.5 px with a halo, cells larger near the viewer and compressing toward the orb; menu slabs 72 px tall on a 200 px pitch with 10 to 12 px chamfers and a raised 13 px tab; selected #6d7c23 to #8b9c30 with #0d2b01 text; unselected fill #193c0c to #1f4410 with a #6f934e to #84ac61 double outline and #a0c164 text; square letterforms with a cap height of 38 px, strokes about a quarter of the cap height, and an m-shaped M. Nova Square, thickened with a 0.045 em stroke, was the closest open-licensed match of about forty fonts compared side by side; Rajdhani matches the concept's labels, and Share Tech Mono the list and info text.
+- **Music Collection, 640 × 480**: background #020801 to #051303 (much darker than the main menu, so the net dims per screen), selected row #c1f639, rows #33611e, header #1e5610, info panel #205e0c with #457d2b labels; eight rows of about 30 px.
+- **Motion**: camera flights ease exponentially (63 % of the way every 0.42 s, settled in about 1.5 s); panels move over 0.7 to 0.8 s with `cubic-bezier(.16, 1, .3, 1)`; the cradle flies in from deep in the dome over about a second.
 
 ## Input
 
 | Action | Keyboard | Controller (standard mapping) |
 | --- | --- | --- |
 | Move in the grid | Arrows, Home, End | D-pad or left stick (repeats while held) |
-| Move between the grid and the sidebar | Left from the first column; Right from the sidebar | Same |
-| Play offline, or choose a filter or sidebar item | Enter or Space; click the focused tile; double-click a game | A |
-| Play with network | N | X, then move to *Allow* and press A |
-| Details | I, the context-menu key, or right-click | Y |
-| Favorite | F | In the detail panel |
-| Rename, remove | F2, Delete | In the detail panel |
-| Search | / or Ctrl+F; Enter or Down returns to the grid | Search row in the sidebar |
-| Collapse the sidebar | [ | Collapse button |
+| Move between the grid and the sidebar | Left from the first column, Right from the sidebar, or Tab | X |
+| Open a game's detail view, or choose a filter or sidebar item | Enter or Space; click the selected cover | A |
+| Play offline | Enter on *Play offline*; double-click a cover | A on *Play offline* |
+| Play with network | N | X in the detail view, then move to *Allow* and press A |
+| Sort (Recent, Title A–Z, Title Z–A, Newest) | S | Y |
+| Favorite | F | Y in the detail view |
+| Rename, remove | F2, Delete | In the detail view |
+| Search | / or Ctrl+F; Enter returns to the grid | *Search games* row |
 | Mute sounds | M | Settings |
-| Back (closes the panel, leaves the sidebar, clears the search, then the filter) | Esc or Backspace | B |
+| Back (leaves saves, the detail view, or the sidebar, then clears the search, then the filter) | Esc or Backspace | B |
 
-Controller buttons fire once per press, so a held A cannot confirm a dialog that opens under it. Pad input is ignored while a game is open or the launcher is not focused. Every tile, filter, and button has a visible focus ring and a screen-reader label; launcher navigation does not mean a game supports controllers.
+Controller buttons fire once per press, so a held A cannot confirm a dialog that opens under it. Pad input is ignored while a game is open or the launcher is not focused. Every cover, row, and button has a visible focus state and a screen-reader label; launcher navigation does not mean a game supports controllers.
+
+## Covers
+
+Imported HTML games rarely have cover art, and any image that does come with them is untrusted.
+
+- **Decoding.** Cover images are decoded only by the memory-safe Rust `image` crate (PNG, JPEG, GIF, WebP), with limits of 16 MiB per file, 8192 px per side, and 256 MiB of decoder memory. The result is scaled to fit 600 × 900 and saved as a freshly encoded PNG; nothing from the original file except its pixels is kept. SVG, HTML, and anything else are refused.
+- **Automatic cover.** When a game is imported (and once for games imported earlier), GameStrike looks among the game's own top-level files for a well-known name such as `cover.png`, `thumbnail.png`, `screenshot.png`, `icon.png`, or `favicon.png`, and runs the first readable one through the same decoder.
+- **Custom cover.** *Set cover image…* opens the native image picker. *Undo cover change* swaps back to the previous custom cover; *Use automatic cover* puts the custom one aside (Undo restores it).
+- Covers live in the game's own library folder (`cover.png`, `cover-previous.png`, `auto-cover.png`) and are deleted with the game.
+
+## Captures
+
+`--capture-view` accepts only a fixed list of names. Collection views: library (the default), green, focus, controller, filters, search, favorites, long, detail, saves, moving (a still frame halfway through the flight from the grid to the cradle), settings, launch, about, and boot. Earlier styles, for which the launcher opens `classic.html`: blades, blades-long, blades-launch, blades-manage, blades-about, system, original, original-games, pwds, boot-blades, boot-original, and boot-pwds. Captures use default preferences and never save them. A Collection capture waits until its fonts, the covers in view, and the 3D scene have drawn (checked every 250 ms, for up to 10 s); `classic.html` has no such check, so the earlier styles are captured exactly as before.
 
 ## Logic tests
 
-`ui/core.js` holds the pure parts: filtering and sorting, the sidebar filters built from library data, the source rule (shared with Rust), cover URLs, grid and list movement, controller edge detection and repeat, generated covers, and formatting. `node --test ui/app.test.cjs` covers them. The DOM behaviour in `ui/app.js` and the 3D scene are checked by the launcher captures in CI; see the README.
+`ui/core.js` holds the pure parts: filtering and sorting, the sidebar filters built from library data, the source rule (shared with Rust), cover URLs, grid and list movement, controller edge detection and repeat, the style list and its cycle, the Collection scale and column count, the generated box art rules, the seeded random generator, the dome net, and formatting. `node --test ui/app.test.cjs` covers them. The DOM behaviour, the frame, the covers, and the 3D scene are checked by the launcher captures in CI; see the README.
