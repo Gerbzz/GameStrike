@@ -159,7 +159,86 @@
     return title.length >= 1 && [...title].length <= 80 ? title : null;
   }
 
-  const api = Object.freeze({ filterAndSort, gridMove, shelfMove, tileLayout, createPadReader, cover, formatBytes, formatWhen, cleanTitle });
+  // Same rule as the Rust library: no control characters, 1 to 32 characters after trimming.
+  function cleanSource(raw) {
+    const source = String(raw || "").replace(/[\u0000-\u001f\u007f]/g, "").trim();
+    return source.length >= 1 && [...source].length <= 32 ? source : null;
+  }
+
+  const KIND_LABELS = { single_html: "HTML files", zip: "ZIP archives" };
+
+  // Sidebar filters, built only from what the library really records: everything, recently
+  // played, favorites, how each game was imported, and the sources the player wrote down.
+  function buildFilters(games) {
+    const list = Array.isArray(games) ? games : [];
+    const filters = [
+      { key: "all", label: "All games", icon: "all", count: list.length },
+      { key: "recent", label: "Recently played", icon: "recent", count: list.filter((game) => game.last_played).length },
+      { key: "favorites", label: "Favorites", icon: "star", count: list.filter((game) => game.favorite).length },
+    ];
+    for (const [kind, label] of Object.entries(KIND_LABELS)) {
+      const count = list.filter((game) => game.source_kind === kind).length;
+      if (count) filters.push({ key: `kind:${kind}`, label, icon: kind === "zip" ? "zip" : "file", count, group: "Imported as" });
+    }
+    const sources = new Map();
+    for (const game of list) {
+      const source = cleanSource(game.source);
+      if (!source) continue;
+      const key = source.toLocaleLowerCase();
+      const entry = sources.get(key) || { label: source, count: 0 };
+      entry.count += 1;
+      sources.set(key, entry);
+    }
+    [...sources.entries()]
+      .sort((a, b) => a[1].label.localeCompare(b[1].label, undefined, { sensitivity: "base", numeric: true }))
+      .forEach(([key, entry]) => filters.push({ key: `source:${key}`, label: entry.label, icon: "tag", count: entry.count, group: "Sources" }));
+    return filters;
+  }
+
+  function matchesFilter(game, key) {
+    if (!key || key === "all") return true;
+    if (key === "recent") return Boolean(game.last_played);
+    if (key === "favorites") return Boolean(game.favorite);
+    if (key.startsWith("kind:")) return game.source_kind === key.slice(5);
+    if (key.startsWith("source:")) return (cleanSource(game.source) || "").toLocaleLowerCase() === key.slice(7);
+    return false;
+  }
+
+  // The games shown in the grid: filter, then search, then sort. Recently played always shows
+  // the latest first.
+  function applyFilter(games, key, query, sort) {
+    const filtered = (Array.isArray(games) ? games : []).filter((game) => matchesFilter(game, key));
+    return filterAndSort(filtered, query, key === "recent" ? "recent" : sort);
+  }
+
+  // Columns that fit `width` with tiles at least `minTile` wide and `gap` apart.
+  function gridColumns(width, minTile, gap) {
+    if (!(width > 0) || !(minTile > 0)) return 1;
+    return Math.max(1, Math.floor((width + gap) / (minTile + gap)));
+  }
+
+  // Sidebar rows: up and down move, and stop at the ends.
+  function listMove(index, count, direction) {
+    if (count <= 0) return -1;
+    const current = Math.min(Math.max(index, 0), count - 1);
+    if (direction === "up") return Math.max(0, current - 1);
+    if (direction === "down") return Math.min(count - 1, current + 1);
+    if (direction === "home") return 0;
+    if (direction === "end") return count - 1;
+    return current;
+  }
+
+  // The stored cover's URL, or null when the launcher draws a cover from the title.
+  // Only a validated UUID reaches the URL; the version makes a changed cover load again.
+  function coverUrl(game) {
+    if (!game || !game.cover || !/^[0-9a-f-]{36}$/i.test(String(game.id))) return null;
+    return `/cover/${game.id}.png?v=${Number(game.cover_version) || 0}`;
+  }
+
+  const api = Object.freeze({
+    filterAndSort, gridMove, shelfMove, tileLayout, createPadReader, cover, formatBytes, formatWhen, cleanTitle,
+    cleanSource, buildFilters, matchesFilter, applyFilter, gridColumns, listMove, coverUrl,
+  });
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.GameStrikeCore = api;
 })(typeof window === "object" ? window : globalThis);

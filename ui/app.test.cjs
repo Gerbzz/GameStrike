@@ -134,3 +134,60 @@ test("tile perspective: focused tile is full size, later tiles recede edge to ed
   assert.equal(core.tileLayout(-1).opacity, 0, "passed tiles slide out");
   assert.equal(core.tileLayout(6).visible, false, "far tiles are hidden");
 });
+
+const library = [
+  { id: "00000000-0000-4000-8000-000000000001", title: "Orbit Garden", source_kind: "single_html", source: "itch.io", favorite: true, last_played: 50, added_at: 1 },
+  { id: "00000000-0000-4000-8000-000000000002", title: "Pixel Harbor", source_kind: "zip", source: "ITCH.IO ", added_at: 2 },
+  { id: "00000000-0000-4000-8000-000000000003", title: "Lantern Maze", source_kind: "zip", source: "Newgrounds", last_played: 90, added_at: 3, cover: "custom", cover_version: 7 },
+  { id: "00000000-0000-4000-8000-000000000004", title: "Comet Courier", source_kind: "single_html", added_at: 4 },
+];
+
+test("sidebar filters come only from what the library records", () => {
+  const filters = core.buildFilters(library);
+  assert.deepEqual(filters.map((f) => [f.key, f.count]), [
+    ["all", 4], ["recent", 2], ["favorites", 1],
+    ["kind:single_html", 2], ["kind:zip", 2],
+    ["source:itch.io", 2], ["source:newgrounds", 1],
+  ]);
+  assert.equal(filters.find((f) => f.key === "source:itch.io").label, "itch.io", "the first spelling is shown");
+  assert.ok(!filters.some((f) => /steam|epic|gog/i.test(f.label)), "no stores GameStrike does not support");
+  const htmlOnly = core.buildFilters([library[3]]);
+  assert.deepEqual(htmlOnly.map((f) => f.key), ["all", "recent", "favorites", "kind:single_html"], "empty groups are left out");
+  assert.deepEqual(core.buildFilters(null).map((f) => f.count), [0, 0, 0]);
+});
+
+test("filters, search, and sort combine", () => {
+  const ids = (list) => list.map((g) => g.title);
+  assert.deepEqual(ids(core.applyFilter(library, "all", "", "title-asc")), ["Comet Courier", "Lantern Maze", "Orbit Garden", "Pixel Harbor"]);
+  assert.deepEqual(ids(core.applyFilter(library, "recent", "", "title-asc")), ["Lantern Maze", "Orbit Garden"], "recently played is newest first");
+  assert.deepEqual(ids(core.applyFilter(library, "favorites", "", "recent")), ["Orbit Garden"]);
+  assert.deepEqual(ids(core.applyFilter(library, "kind:zip", "", "title-asc")), ["Lantern Maze", "Pixel Harbor"]);
+  assert.deepEqual(ids(core.applyFilter(library, "source:itch.io", "pix", "recent")), ["Pixel Harbor"]);
+  assert.deepEqual(core.applyFilter(library, "source:steam", "", "recent"), []);
+  assert.deepEqual(core.applyFilter(library, "nonsense", "", "recent"), []);
+});
+
+test("sources are cleaned the same way as in Rust", () => {
+  assert.equal(core.cleanSource("  itch\u0007.io "), "itch.io");
+  assert.equal(core.cleanSource("   "), null);
+  assert.equal(core.cleanSource("x".repeat(33)), null);
+  assert.equal(core.cleanSource("x".repeat(32)), "x".repeat(32));
+});
+
+test("covers: stored covers get a versioned URL, others are drawn from the title", () => {
+  assert.equal(core.coverUrl(library[2]), "/cover/00000000-0000-4000-8000-000000000003.png?v=7");
+  assert.equal(core.coverUrl(library[0]), null, "no stored cover");
+  assert.equal(core.coverUrl({ id: "../../etc/passwd", cover: "custom" }), null, "only a game ID reaches the URL");
+  assert.equal(core.coverUrl({ id: "00000000-0000-4000-8000-000000000003", cover: "auto", cover_version: "x" }), "/cover/00000000-0000-4000-8000-000000000003.png?v=0");
+});
+
+test("the grid reflows to the window and the sidebar moves row by row", () => {
+  assert.equal(core.gridColumns(0, 150, 12), 1);
+  assert.equal(core.gridColumns(320, 150, 12), 2);
+  assert.equal(core.gridColumns(1920, 150, 12), 11);
+  assert.equal(core.listMove(0, 5, "up"), 0);
+  assert.equal(core.listMove(0, 5, "down"), 1);
+  assert.equal(core.listMove(4, 5, "down"), 4);
+  assert.equal(core.listMove(2, 5, "end"), 4);
+  assert.equal(core.listMove(0, 0, "down"), -1);
+});
