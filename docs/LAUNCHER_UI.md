@@ -31,7 +31,7 @@ Imported HTML games rarely have cover art, and any image that does come with the
 - **Decoding.** Cover images are decoded only by the memory-safe Rust `image` crate (PNG, JPEG, GIF, WebP), with limits of 16 MiB per file, 8192 px per side, and 256 MiB of decoder memory. The result is scaled to fit 600 × 900 and saved as a freshly encoded PNG; nothing from the original file except its pixels is kept. SVG, HTML, and anything else are refused.
 - **Automatic cover.** When a game is imported (and once for games imported earlier), GameStrike looks among the game's own top-level files for a well-known name such as `cover.png`, `thumbnail.png`, `screenshot.png`, `icon.png`, or `favicon.png`, and runs the first readable one through the same decoder. The search runs once per game.
 - **Custom cover.** *Set cover image…* in the detail panel opens the native image picker. *Undo cover change* swaps back to the previous custom cover; *Use automatic cover* puts the custom one aside (Undo restores it).
-- **Generated cover.** A game with no stored cover gets one drawn from its ID and title: two hues, one of four patterns, and the title's initials. It is clearly generated decoration, not the game's art.
+- **Generated cover.** A game with no stored cover gets box art drawn from its ID and title: one of ten curated, high-contrast palettes (contrast is checked by the JS tests), one of six geometric motifs (rings, sunburst, horizon, chevrons, halftone, slabs), a kicker with the source or kind, and the full title in Orbitron, sized by its length. It is clearly generated decoration, not the game's art.
 - Covers live in the game's own library folder (`cover.png`, `cover-previous.png`, `auto-cover.png`) and are deleted with the game.
 
 ## The 3D scene
@@ -53,8 +53,10 @@ The look is an original homage to the 2001 console dashboard (a dark 3D space wi
 - **Header**: the current filter or search, the number of games, and a sort chip (Recent, Title A–Z, Title Z–A, Newest; Recently played is always newest first).
 - **Detail panel** (I, Y, or right-click): flies in from depth on the right with the cover, facts (imported as, source, last played, plays, game data, added, cover kind, and that controller and network needs are not checked), and actions: Play offline, Play with network…, favorite, Set cover image…, Undo cover change, Use automatic cover, Set source…, Rename, Clear saves, Remove from library, and Back.
 - **Dialogs** reuse the same flows as before: network consent (focus starts on *Go back*), rename, source, clear saves, remove (with *Keep saves* checked by default), settings (sounds, unreadable folders, About), and About.
+- **Prompts**: a strip of its own at the bottom shows prompts for the input in use: keyboard keys (Enter, N, I, Esc, and more on wide windows) after keyboard input, and the A, X, Y, B buttons after controller input. Buttons in the detail panel and dialogs follow the same rule.
+- **Synthetic test data**: a library with a `SYNTHETIC-TEST-LIBRARY` file in its root shows a "Synthetic test library" badge in the header. The CI capture scripts mark their libraries this way.
 - **Sounds**: short sounds synthesized at run time from oscillators and filtered noise (move, change zone, select, open, back, launch, error). No samples. On by default, but the audio context starts only after the first key, click, or button press; M or Settings mutes them, and the choice is remembered.
-- **Captures**: `--capture-view` accepts only a fixed list of names: library, focus, long, launch, manage (the detail panel), about, favorites, collapsed, search, and boot. Captures use default preferences, put the camera at its station, render still frames, and never save preferences.
+- **Captures**: `--capture-view` accepts only a fixed list of names: library, focus, controller (the focused view with controller prompts), long, launch, manage (the detail panel), about, favorites, collapsed, search, and boot. Captures use default preferences, put the camera at its station, render still frames, and never save preferences.
 
 ## Input
 

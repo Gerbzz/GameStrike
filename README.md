@@ -36,7 +36,7 @@ Everything in this section is implemented in this repository and covered by the 
   - A dense grid of portrait covers that reflows from 880 × 620 to fullscreen. The focused cover lifts toward the camera with a chrome and green-glow rim and a light sweep; its neighbours recede.
   - Wide techno headings (Orbitron) and a clean text face (Exo 2), both bundled under the SIL Open Font License.
   - A startup sequence with the GameStrike mark in front of the core, skippable with any key, click, or button.
-- **Covers.** A game with no art gets one drawn from its title. An image in the game's own files (for example `icon.png` or `thumbnail.png`) becomes its cover automatically, and you can set your own from a local image, then undo or reset it. Every cover image is untrusted: it is decoded by memory-safe Rust code with size limits and re-encoded as a new PNG inside the library.
+- **Covers.** A game with no art gets generated box art: a curated palette, a geometric motif, and its full title in the display face. An image in the game's own files (for example `icon.png` or `thumbnail.png`) becomes its cover automatically, and you can set your own from a local image, then undo or reset it. Every cover image is untrusted: it is decoded by memory-safe Rust code with size limits and re-encoded as a new PNG inside the library.
 - **Favorites and sources.** Mark favorites, and note where a game came from (1 to 32 characters); both become sidebar filters.
 - Search by title, and sort by recently played, title, or date added.
 - A **detail panel** for each game: when it was added, last played, how often, how much data it has stored, and its cover kind, with play, favorite, cover, source, rename, clear saves, and remove. A removal can keep the saves, so adding the same file again brings them back.
@@ -183,7 +183,7 @@ That run found two issues, both fixed in `bc6fd31`: the offline summary counted 
 - WebView2 still defines `window.chrome.webview` in game pages. GameStrike registers nothing behind it, but the object exists.
 - In network mode, the runtime's own requests for the game's origin outside the custom protocol resolve to `localhost` and could reach a local server on port 443.
 - Controller support and network needs are shown as *not checked* for every game; GameStrike does not inspect games.
-- Generated covers are decorations (initials and a pattern from the game ID), not game artwork.
+- Generated box art is decoration (a palette, a motif, and the title, chosen from the game ID), not the game's own artwork.
 - The 3D library was checked only through CI captures on virtual machines. It has not been run by hand on real hardware, and its frame rate on integrated GPUs has not been measured; the automatic quality steps are untested there. In one early CI run the Windows runner lost its WebGL context once, and the static fallback drew that capture.
 - The interface panels are HTML and CSS 3D in front of the WebGL scene, not meshes inside it, so they glow with CSS shadows rather than the scene's bloom, and WebKit (Linux and macOS) does not blur the scene behind 3D-transformed panels.
 - See [Platforms](#platforms) for which operating systems are verified. No installer, code signing, auto-update, or app icon resource yet.
