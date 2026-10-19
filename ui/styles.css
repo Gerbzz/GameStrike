@@ -142,7 +142,7 @@ body.collapsed .side-item span, body.collapsed .side-item .count { display: none
 .chip:hover { color: #fff; }
 .chip:disabled { opacity: .55; cursor: default; }
 
-.grid { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--tile-min), 1fr)); grid-auto-rows: max-content; gap: var(--gap); align-content: start; padding: 58px 30px 44px; scrollbar-width: thin; scroll-padding: 34px; perspective: 1100px; animation: rise .9s .45s var(--blade) both; }
+.grid { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--tile-min), 1fr)); grid-auto-rows: max-content; gap: var(--gap); align-content: start; padding: 58px 42px 44px; scrollbar-width: thin; scroll-padding: 34px; perspective: 1100px; animation: rise .9s .45s var(--blade) both; }
 .tile { position: relative; aspect-ratio: 2 / 3; padding: 0; border: 0; border-radius: 16px; background: #081208; overflow: hidden; text-align: left; transform-style: preserve-3d;
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 10%), 0 12px 26px rgb(0 0 0 / 60%);
   transition: transform .38s var(--blade), box-shadow .3s var(--ease), filter .3s var(--ease); }
@@ -189,7 +189,7 @@ body.collapsed .side-item span, body.collapsed .side-item .count { display: none
 .empty-mark img { width: 84px; height: 84px; filter: drop-shadow(0 0 22px var(--glow)); }
 .empty h2 { margin: 16px 0 8px; font-family: var(--display); font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
 .empty p { color: var(--muted); line-height: 1.5; }
-.status { flex: none; padding: 6px 8px 0; min-height: 22px; font-size: 12px; letter-spacing: .04em; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status { position: relative; z-index: 4; flex: none; padding: 6px 8px 0; min-height: 22px; font-size: 12px; letter-spacing: .04em; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- detail blade ---------- */
 .detail { position: fixed; top: 14px; right: 14px; bottom: calc(var(--hint-h) + 12px); width: min(600px, calc(100vw - 28px)); z-index: 5; border-radius: 24px; display: flex; flex-direction: column; overflow: hidden; transform-origin: right center;
