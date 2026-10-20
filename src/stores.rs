@@ -855,7 +855,13 @@ pub fn ea_content_ids(installer_data: &str) -> Vec<String> {
             break;
         };
         let id = rest[..end].trim();
-        if store_id_ok(id) && !ids.iter().any(|known| known == id) {
+        // EA content IDs can carry a colon, as in "OFB-EAST:109552154".
+        let valid = !id.is_empty()
+            && id.len() <= 64
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_.:".contains(c));
+        if valid && !ids.iter().any(|known| known == id) {
             ids.push(id.to_owned());
         }
         rest = &rest[end..];
@@ -2190,7 +2196,10 @@ mod tests {
         }
         let client: &[(&str, &str)] = &[("client", &galaxy_path)];
         let mut with_galaxy = games.to_vec();
-        with_galaxy.push(("HKLM\\SOFTWARE\\WOW6432Node\\GOG.com\\GalaxyClient\\paths", client));
+        with_galaxy.push((
+            "HKLM\\SOFTWARE\\WOW6432Node\\GOG.com\\GalaxyClient\\paths",
+            client,
+        ));
         let found = scan_gog(&windows_env(&snapshot(&with_galaxy)));
         match &found[0].launch {
             Launch::Program { path, args, .. } => {

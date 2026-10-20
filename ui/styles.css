@@ -242,13 +242,13 @@ body[data-variant="green"] .emblem-logo.mark { display: block; }
 .now-title { min-height: 1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--ui); font-weight: 700; font-size: max(16px, calc(var(--tx) * 31)); line-height: 1; letter-spacing: .16em; text-transform: uppercase; color: var(--title-text); text-shadow: 0 0 calc(var(--px) * 12) var(--glow-soft); }
 .now-status { display: flex; align-items: center; gap: calc(var(--px) * 18); min-width: 0; font-family: var(--ui); font-weight: 600; font-size: max(12px, calc(var(--tx) * 19)); letter-spacing: .14em; text-transform: uppercase; color: var(--text); white-space: nowrap; }
 .now-status span { overflow: hidden; text-overflow: ellipsis; }
-.now-icon { flex: none; width: calc(var(--px) * 24); height: calc(var(--px) * 24); min-width: 14px; min-height: 14px; fill: var(--accent); stroke: none; }
+.now-icon { flex: none; width: calc(var(--px) * 24); height: calc(var(--px) * 24); min-width: 14px; min-height: 14px; color: var(--accent); fill: none; stroke: currentColor; stroke-width: 2.2; }
 .now-status.warn { color: #ffb4a8; }
 .prompts { flex: none; display: flex; align-items: center; gap: calc(var(--px) * 34); padding-right: calc(var(--px) * 30); font-family: var(--ui); font-weight: 600; font-size: max(12px, calc(var(--tx) * 18)); letter-spacing: .1em; text-transform: uppercase; color: var(--text); }
 .prompt { display: inline-flex; align-items: center; gap: calc(var(--px) * 16); white-space: nowrap; }
 /* Ringed button glyphs, drawn here: a coloured ring with the letter inside. */
 .ring { display: inline-grid; place-items: center; width: calc(var(--px) * 40); height: calc(var(--px) * 40); min-width: 24px; min-height: 24px; border-radius: 50%; font-family: var(--ui); font-weight: 700; font-size: max(13px, calc(var(--tx) * 24)); line-height: 1; color: var(--rc); background: radial-gradient(circle at 50% 38%, #1c1c1c, #050505 70%); box-shadow: 0 0 0 calc(var(--px) * 3) var(--rc), 0 0 0 calc(var(--px) * 4.5) rgb(0 0 0 / 70%), 0 0 calc(var(--px) * 14) var(--rc), inset 0 0 calc(var(--px) * 8) rgb(255 255 255 / 10%); text-shadow: 0 0 6px var(--rc); }
-.ring.a { --rc: var(--ring-a); } .ring.b { --rc: var(--ring-b); } .ring.x { --rc: var(--ring-x); } .ring.y { --rc: var(--ring-y); }
+.ring.a { --rc: var(--ring-a); } .ring.b { --rc: var(--ring-b); } .ring.x { --rc: var(--ring-x); } .ring.y { --rc: var(--ring-y); } .ring.menu { --rc: #c9c9c9; font-size: max(12px, calc(var(--tx) * 20)); }
 kbd.key { display: inline-grid; place-items: center; min-width: calc(var(--px) * 40); height: calc(var(--px) * 30); min-height: 22px; padding: 0 8px; font-family: var(--ui); font-weight: 700; font-size: max(12px, calc(var(--tx) * 15)); letter-spacing: .04em; text-transform: none; color: var(--text);
   background: linear-gradient(180deg, var(--edge) 0%, var(--edge-lo) 100%); --c: 6px; clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c)); text-shadow: 0 1px 0 rgb(0 0 0 / 60%); }
 body[data-input="pad"] kbd.key { display: none; }
@@ -347,6 +347,7 @@ body.flat[data-view="detail"] .info { transform: none; }
 
 /* ---------- smaller windows ---------- */
 @media (max-width: 1100px) { .prompts { gap: calc(var(--px) * 22); } .prompt { gap: calc(var(--px) * 10); } }
+@media (max-width: 1000px) { .prompt[data-button="menu"] .prompt-label { display: none; } }
 @media (max-width: 960px) { .prompt[data-button="y"] .prompt-label, .prompt[data-button="x"] .prompt-label { display: none; } .synthetic { display: none; } }
 
 /* ---------- accessibility ---------- */

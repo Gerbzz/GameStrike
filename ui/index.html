@@ -91,6 +91,11 @@
           <button id="d-source" class="slab" type="button">Set source…</button>
           <button id="d-rename" class="slab" type="button">Rename</button>
           <button id="d-saves" class="slab" type="button">Manage saves</button>
+          <button id="d-folder" class="slab" type="button" hidden>Open install folder</button>
+          <button id="d-args" class="slab" type="button" hidden>Edit arguments…</button>
+          <button id="d-workdir" class="slab" type="button" hidden>Set working folder…</button>
+          <button id="d-hide" class="slab" type="button" hidden>Hide game</button>
+          <button id="d-remove-program" class="slab danger" type="button" hidden>Remove program</button>
           <button id="d-close" class="slab ghost" type="button">Back</button>
         </div>
         <div id="cradle-fallback" class="cradle-fallback" aria-hidden="true"><div class="cradle-card"></div></div>
@@ -123,6 +128,7 @@
           <span class="prompt" data-button="b"><span class="ring b">B</span><kbd class="key" id="key-b">Esc</kbd><span class="prompt-label" id="label-b">Back</span></span>
           <span class="prompt" data-button="x"><span class="ring x">X</span><kbd class="key" id="key-x">Tab</kbd><span class="prompt-label" id="label-x">Filter</span></span>
           <span class="prompt" data-button="y"><span class="ring y">Y</span><kbd class="key" id="key-y">S</kbd><span class="prompt-label" id="label-y">Sort</span></span>
+          <span class="prompt" data-button="menu"><span class="ring menu">≡</span><kbd class="key" id="key-menu">I</kbd><span class="prompt-label" id="label-menu">Details</span></span>
         </div>
       </footer>
     </div>
@@ -186,7 +192,7 @@
       <div class="kicker">Remove</div>
       <h2 id="remove-title">Remove game?</h2>
       <p id="remove-copy">GameStrike deletes its copy of the game files. Your original download is not touched.</p>
-      <label class="check" for="remove-keep"><input id="remove-keep" type="checkbox" checked><span>Keep saves, so adding the same file again restores them</span></label>
+      <label class="check" id="remove-keep-row" for="remove-keep"><input id="remove-keep" type="checkbox" checked><span>Keep saves, so adding the same file again restores them</span></label>
       <div class="dialog-actions">
         <button id="remove-cancel" class="slab" type="button">Cancel</button>
         <button id="remove-confirm" class="slab danger-solid" type="button">Remove</button>
@@ -200,12 +206,54 @@
       <h2 id="settings-title">Settings</h2>
       <div class="dialog-actions stacked">
         <button id="settings-style" class="slab" type="button"></button>
+        <button id="settings-stores" class="slab" type="button">Store libraries…</button>
         <button id="settings-sound" class="slab" type="button" aria-pressed="true"></button>
         <button id="settings-problems" class="slab" type="button" hidden></button>
         <button id="settings-about" class="slab" type="button">About GameStrike</button>
         <button id="settings-close" class="slab ghost" type="button">Back</button>
       </div>
     </section>
+  </div>
+
+  <div id="add-dialog" class="dialog-backdrop" hidden>
+    <section class="dialog panel" role="dialog" aria-modal="true" aria-labelledby="add-title">
+      <div class="kicker">Add game</div>
+      <h2 id="add-title">Add to your collection</h2>
+      <div class="dialog-actions stacked">
+        <button id="add-program" class="slab primary" type="button">Add a program or shortcut…</button>
+        <button id="add-html" class="slab" type="button">Add an HTML game…</button>
+        <button id="add-refresh" class="slab" type="button">Refresh store libraries</button>
+        <button id="add-close" class="slab ghost" type="button">Back</button>
+      </div>
+      <p class="small">Store games appear by themselves: GameStrike reads what Steam, Epic Games, the EA app, the Microsoft Store, GOG Galaxy, Ubisoft Connect, and Battle.net have installed on this computer, without signing in.</p>
+    </section>
+  </div>
+
+  <div id="stores-dialog" class="dialog-backdrop" hidden>
+    <section class="dialog panel" role="dialog" aria-modal="true" aria-labelledby="stores-title">
+      <div class="kicker">System</div>
+      <h2 id="stores-title">Store libraries</h2>
+      <p class="small">GameStrike only reads what each launcher has installed on this computer. It never signs in, reads passwords, or changes the launchers' files. Turned-off stores are not scanned or shown.</p>
+      <div id="stores-list" class="dialog-actions stacked"></div>
+      <div class="dialog-actions">
+        <button id="stores-refresh" class="slab primary" type="button">Refresh now</button>
+        <button id="stores-close" class="slab ghost" type="button">Back</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="args-dialog" class="dialog-backdrop" hidden>
+    <form id="args-form" class="dialog panel" role="dialog" aria-modal="true" aria-labelledby="args-title">
+      <div class="kicker">Custom program</div>
+      <h2 id="args-title">Arguments</h2>
+      <p class="small">Passed to the program as separate arguments, never through a shell. Quote an argument that contains spaces.</p>
+      <label class="field" for="args-input"><span>Arguments</span><input id="args-input" maxlength="600" autocomplete="off" spellcheck="false"></label>
+      <p id="args-error" class="field-error" role="alert" hidden>Use up to 600 characters.</p>
+      <div class="dialog-actions">
+        <button id="args-cancel" class="slab" type="button">Cancel</button>
+        <button id="args-save" class="slab primary" type="submit">Save</button>
+      </div>
+    </form>
   </div>
 
   <div id="problems-dialog" class="dialog-backdrop" hidden>

@@ -65,20 +65,6 @@ titles=(
   'Comet Courier'
   'Tiny Tactics'
   'The Long Voyage of the Lantern Keepers'
-  'Neon Drift'
-  'Moss Kingdom'
-  'Frost Relay'
-  'Ember Forge'
-  'Glass Canyon'
-  'Rocket Bakery'
-  'Deep Reef'
-  'Hollow Moon'
-  'Turbo Turnip'
-  'Circuit Monk'
-  'Paper Pilots'
-  'Starfall Inn'
-  'Quiet Lighthouse'
-  'Volt Runner'
 )
 for title in "${titles[@]}"; do
   file="$fixtures/$title.html"
@@ -92,10 +78,6 @@ id_of() { "$cli" --library "$library" list | grep -F "$1" | cut -f1 | head -1; }
 "$cli" --library "$library" set-source "$(id_of 'Orbit Garden')" itch.io
 "$cli" --library "$library" set-source "$(id_of 'Pixel Harbor')" itch.io
 "$cli" --library "$library" set-source "$(id_of 'Lantern Maze')" Newgrounds
-for title in 'Neon Drift' 'Deep Reef' 'Volt Runner'; do "$cli" --library "$library" set-source "$(id_of "$title")" itch.io; done
-for title in 'Moss Kingdom' 'Paper Pilots'; do "$cli" --library "$library" set-source "$(id_of "$title")" Newgrounds; done
-for title in 'Ember Forge' 'Starfall Inn'; do "$cli" --library "$library" set-source "$(id_of "$title")" 'Game jam'; done
-"$cli" --library "$library" favorite "$(id_of 'Hollow Moon')" on
 "$cli" --library "$library" favorite "$(id_of 'Orbit Garden')" on
 "$cli" --library "$library" favorite "$(id_of 'Comet Courier')" on
 node "$repo/scripts/make-test-cover.cjs" "$work/cover.png" 125
@@ -111,6 +93,22 @@ grep -F 'Signal Tower' "$out_dir/library-list.txt" | grep -q 'cover: auto' \
   || { echo "the ZIP's icon did not become its automatic cover" >&2; exit 1; }
 grep -F 'Pixel Harbor' "$out_dir/library-list.txt" | grep -q 'cover: custom' \
   || { echo "the custom cover was not stored" >&2; exit 1; }
+
+# Synthetic store libraries: a Steam folder with cached art, Epic manifests, and a registry snapshot
+# for GOG, Ubisoft, EA, Battle.net, and the Microsoft Store, every game named "Synthetic ...". The
+# CLI reads them into the library, and the launcher reads the same fixtures (only in capture runs)
+# instead of this machine's real store launchers.
+stores="$work/store-fixtures"
+node "$repo/scripts/make-store-fixtures.cjs" "$stores"
+"$cli" --library "$library" refresh-stores --fixtures "$stores"
+"$cli" --library "$library" add-program "$stores/programs/Synthetic Tool.exe"
+"$cli" --library "$library" stores | tee "$out_dir/store-list.txt"
+for store in steam epic ea xbox gog ubisoft battlenet custom; do
+  grep -q "	$store	" "$out_dir/store-list.txt" || { echo "no synthetic $store game was found" >&2; exit 1; }
+done
+grep -F 'Synthetic Orbit Racer' "$out_dir/store-list.txt" | grep -q 'cover: store' \
+  || { echo "Steam's cached art did not become the cover" >&2; exit 1; }
+export GAMESTRIKE_CAPTURE_STORES="$stores"
 
 # Reads the width and height from a PNG's IHDR chunk.
 png_size() {
@@ -147,7 +145,7 @@ capture() {
 
 # The Collection style (the default page) in PWDS Orange, then each of its views.
 capture "$library" library
-for pair in focus:focus green:green controller:controller filters:filters search:search favorites:favorites long-title:long detail:detail saves:saves moving:moving settings:settings network-dialog:launch about:about boot:boot; do
+for pair in focus:focus green:green controller:controller filters:filters search:search favorites:favorites long-title:long detail:detail saves:saves moving:moving settings:settings network-dialog:launch about:about boot:boot stores:stores store-detail:store-detail add-menu:add-menu store-settings:store-settings; do
   capture "$library" "${pair%%:*}" --capture-view "${pair#*:}"
 done
 capture "$library" minimum --window-size 880 620
@@ -156,6 +154,7 @@ capture "$library" minimum --window-size 880 620
 # baseline run used (six games named "(Synthetic Test)", nothing else set), and captured right
 # after it is built, as the baseline was. These file names match the baseline run's, so the two
 # sets can be compared image by image.
+unset GAMESTRIKE_CAPTURE_STORES
 legacy="$work/legacy-library"
 mkdir -p "$legacy"
 for title in 'Orbit Garden' 'Pixel Harbor' 'Lantern Maze' 'Comet Courier' 'Tiny Tactics' \

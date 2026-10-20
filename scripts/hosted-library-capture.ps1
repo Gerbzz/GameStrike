@@ -46,21 +46,7 @@ $titles = @(
     'Lantern Maze',
     'Comet Courier',
     'Tiny Tactics',
-    'The Long Voyage of the Lantern Keepers',
-    'Neon Drift',
-    'Moss Kingdom',
-    'Frost Relay',
-    'Ember Forge',
-    'Glass Canyon',
-    'Rocket Bakery',
-    'Deep Reef',
-    'Hollow Moon',
-    'Turbo Turnip',
-    'Circuit Monk',
-    'Paper Pilots',
-    'Starfall Inn',
-    'Quiet Lighthouse',
-    'Volt Runner'
+    'The Long Voyage of the Lantern Keepers'
 )
 foreach ($title in $titles) {
     $file = Join-Path $fixtures "$title.html"
@@ -82,10 +68,6 @@ function Invoke-Cli([string[]]$Arguments) {
 Invoke-Cli @('set-source', (Id-Of 'Orbit Garden'), 'itch.io')
 Invoke-Cli @('set-source', (Id-Of 'Pixel Harbor'), 'itch.io')
 Invoke-Cli @('set-source', (Id-Of 'Lantern Maze'), 'Newgrounds')
-foreach ($title in 'Neon Drift', 'Deep Reef', 'Volt Runner') { Invoke-Cli @('set-source', (Id-Of $title), 'itch.io') }
-foreach ($title in 'Moss Kingdom', 'Paper Pilots') { Invoke-Cli @('set-source', (Id-Of $title), 'Newgrounds') }
-foreach ($title in 'Ember Forge', 'Starfall Inn') { Invoke-Cli @('set-source', (Id-Of $title), 'Game jam') }
-Invoke-Cli @('favorite', (Id-Of 'Hollow Moon'), 'on')
 Invoke-Cli @('favorite', (Id-Of 'Orbit Garden'), 'on')
 Invoke-Cli @('favorite', (Id-Of 'Comet Courier'), 'on')
 $coverFile = Join-Path $probeRoot 'cover.png'
@@ -102,6 +84,22 @@ $listing = & $cli --library $library list
 $listing | Set-Content -Encoding utf8 (Join-Path $probeRoot 'library-list.txt')
 if (-not ($listing | Where-Object { $_ -like '*Signal Tower*' -and $_ -like '*cover: auto*' })) { throw "The ZIP's icon did not become its automatic cover." }
 if (-not ($listing | Where-Object { $_ -like '*Pixel Harbor*' -and $_ -like '*cover: custom*' })) { throw 'The custom cover was not stored.' }
+
+# Synthetic store libraries (see scripts/make-store-fixtures.cjs): the CLI reads them into the
+# library, and the launcher reads the same fixtures, only in capture runs, instead of this machine's
+# real store launchers and registry.
+$stores = Join-Path $probeRoot 'store-fixtures'
+node (Join-Path $PWD 'scripts/make-store-fixtures.cjs') $stores
+if ($LASTEXITCODE -ne 0) { throw 'Could not write the store fixtures.' }
+Invoke-Cli @('refresh-stores', '--fixtures', $stores)
+Invoke-Cli @('add-program', (Join-Path $stores 'programs/Synthetic Tool.exe'))
+$storeList = & $cli --library $library stores
+$storeList | Set-Content -Encoding utf8 (Join-Path $probeRoot 'store-list.txt')
+foreach ($store in 'steam', 'epic', 'ea', 'xbox', 'gog', 'ubisoft', 'battlenet', 'custom') {
+    if (-not ($storeList | Where-Object { $_ -like "*`t$store`t*" })) { throw "No synthetic $store game was found." }
+}
+if (-not ($storeList | Where-Object { $_ -like '*Synthetic Orbit Racer*' -and $_ -like '*cover: store*' })) { throw "Steam's cached art did not become the cover." }
+$env:GAMESTRIKE_CAPTURE_STORES = $stores
 
 function Capture-Launcher([string]$Library, [string]$Name, [string[]]$Extra) {
     $png = Join-Path $probeRoot "$Name.png"
@@ -140,7 +138,7 @@ function Capture-Launcher([string]$Library, [string]$Name, [string[]]$Extra) {
 
 # The Collection style (the default page) in PWDS Orange, then each of its views.
 Capture-Launcher $library 'library' @()
-foreach ($pair in @(@('focus', 'focus'), @('green', 'green'), @('controller', 'controller'), @('filters', 'filters'), @('search', 'search'), @('favorites', 'favorites'), @('long-title', 'long'), @('detail', 'detail'), @('saves', 'saves'), @('moving', 'moving'), @('settings', 'settings'), @('network-dialog', 'launch'), @('about', 'about'), @('boot', 'boot'))) {
+foreach ($pair in @(@('focus', 'focus'), @('green', 'green'), @('controller', 'controller'), @('filters', 'filters'), @('search', 'search'), @('favorites', 'favorites'), @('long-title', 'long'), @('detail', 'detail'), @('saves', 'saves'), @('moving', 'moving'), @('settings', 'settings'), @('network-dialog', 'launch'), @('about', 'about'), @('boot', 'boot'), @('stores', 'stores'), @('store-detail', 'store-detail'), @('add-menu', 'add-menu'), @('store-settings', 'store-settings'))) {
     Capture-Launcher $library $pair[0] @('--capture-view', $pair[1])
 }
 Capture-Launcher $library 'minimum' @('--window-size', '880', '620')
@@ -149,6 +147,7 @@ Capture-Launcher $library 'minimum' @('--window-size', '880', '620')
 # baseline run used (six games named "(Synthetic Test)", nothing else set), and captured right
 # after it is built, as the baseline was. These file names match the baseline run's, so the two
 # sets can be compared image by image.
+Remove-Item Env:GAMESTRIKE_CAPTURE_STORES
 $legacy = Join-Path $probeRoot 'legacy-library'
 New-Item -ItemType Directory -Force -Path $legacy | Out-Null
 foreach ($title in 'Orbit Garden', 'Pixel Harbor', 'Lantern Maze', 'Comet Courier', 'Tiny Tactics', 'A Deliberately Long Title For Layout Checks In The Library') {
