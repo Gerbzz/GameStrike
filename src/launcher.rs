@@ -243,6 +243,9 @@ mod launcher_app {
             .with_download_started_handler(|_, _| false)
             .with_drag_drop_handler(|_| true)
             .with_devtools(false)
+            // The launcher's own synthesized startup and interface sounds may start before the
+            // first click. This webview only shows bundled pages; game players are separate.
+            .with_autoplay(true)
             .with_ipc_handler(move |request| {
                 if let Some(command) = parse_command(&request.uri().to_string(), request.body()) {
                     let _ = proxy.send_event(UiEvent::Command(command));
@@ -1036,6 +1039,7 @@ mod launcher_app {
             "text/css; charset=utf-8",
         ),
         ("/scene.js", include_bytes!("../ui/scene.js"), JS),
+        ("/chrome.js", include_bytes!("../ui/chrome.js"), JS),
         ("/frame.js", include_bytes!("../ui/frame.js"), JS),
         ("/covers.js", include_bytes!("../ui/covers.js"), JS),
         (

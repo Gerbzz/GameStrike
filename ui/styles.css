@@ -118,6 +118,11 @@ html[data-leaving] body { visibility: hidden; }
 /* ---------- the dome and its fallbacks ---------- */
 .scene { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; z-index: 0; pointer-events: none; }
 .vignette { position: fixed; inset: 0; z-index: 0; pointer-events: none; background: radial-gradient(ellipse 85% 80% at 50% 48%, transparent 45%, rgb(0 0 0 / 55%) 80%, rgb(0 0 0 / 85%)); }
+.scene-front { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; z-index: 4; pointer-events: none; }
+body[data-view="boot"] .scene-front { opacity: 0; }
+/* With WebGL the frame, panels, emblem disc, and rivets are 3D chrome in the scene; the SVG frame and
+   the CSS emblem glass are the fallback. */
+body[data-chrome="3d"] .frame-art, body[data-chrome="3d"] .emblem-glass, body[data-chrome="3d"] .emblem-shine { display: none; }
 
 /* ---------- startup ---------- */
 .boot { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: radial-gradient(circle, var(--void-2), var(--void) 70%); transition: opacity .7s ease, visibility .7s; }
@@ -155,7 +160,7 @@ body[data-variant="green"] .emblem-logo.mark { display: block; }
 
 /* Header tab text: wide, square, blocky caps. Cap height 25 at the reference size. */
 .head { position: absolute; left: calc(var(--px) * 202); top: calc(var(--px) * 30); height: calc(var(--px) * 58); display: flex; align-items: center; gap: calc(var(--px) * 22); padding-left: calc(var(--px) * 18); z-index: 3; max-width: calc(100% - var(--px) * 240); }
-.head-title { margin: 0; white-space: nowrap; font-family: var(--display); font-weight: 400; font-size: calc(var(--tx) * 35); letter-spacing: .15em; text-transform: uppercase; color: var(--accent-text); -webkit-text-stroke: .045em currentColor; text-shadow: 0 0 calc(var(--px) * 14) var(--glow); overflow: hidden; text-overflow: ellipsis; }
+.head-title { margin: 0; white-space: nowrap; font-family: var(--display); font-weight: 400; font-size: calc(var(--tx) * 44); letter-spacing: .13em; text-transform: uppercase; color: var(--accent-text); -webkit-text-stroke: .045em currentColor; text-shadow: 0 0 calc(var(--px) * 14) var(--glow); overflow: hidden; text-overflow: ellipsis; }
 .head-count { margin: 0; white-space: nowrap; font-family: var(--mono); font-size: calc(var(--tx) * 15); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); align-self: flex-start; padding-top: calc(var(--px) * 6); }
 .synthetic { white-space: nowrap; padding: calc(var(--px) * 5) calc(var(--px) * 12); font-family: var(--ui); font-weight: 700; font-size: max(10px, calc(var(--tx) * 12)); letter-spacing: .18em; text-transform: uppercase; color: #1b1300; background: repeating-linear-gradient(135deg, #ffd23f 0 10px, #f5b700 10px 20px); --c: 6px; clip-path: polygon(var(--c) 0, 100% 0, 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, 0 100%, 0 var(--c)); }
 
@@ -163,24 +168,25 @@ body[data-variant="green"] .emblem-logo.mark { display: block; }
 .sidebar { position: absolute; left: calc(var(--px) * 40); top: calc(var(--px) * 154); width: var(--side-w); bottom: calc(var(--px) * 96); display: flex; flex-direction: column; z-index: 2; transition: transform .7s var(--blade), opacity .45s ease; transform-origin: left center; }
 .filters { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; gap: calc(var(--px) * 7.5); padding: calc(var(--px) * 7.5) calc(var(--px) * 8) calc(var(--px) * 4) 0; }
 .filters::-webkit-scrollbar { display: none; }
-.row { --c: calc(var(--px) * 9); position: relative; flex: none; width: 100%; height: calc(var(--px) * 47); min-height: 30px; display: flex; align-items: center; gap: calc(var(--px) * 14); padding: 0 calc(var(--px) * 14) 0 calc(var(--px) * 18); border: 0; text-align: left; isolation: isolate;
-  font-family: var(--ui); font-weight: 600; font-size: max(12px, calc(var(--tx) * 17)); letter-spacing: .1em; text-transform: uppercase; color: var(--text);
-  background: linear-gradient(160deg, var(--edge-hi) 0%, var(--row-edge) 30%, var(--edge-lo) 100%);
+.row { --c: calc(var(--px) * 10); --rim: max(2px, calc(var(--px) * 2.6)); position: relative; flex: none; width: 100%; height: calc(var(--px) * 48); min-height: 30px; display: flex; align-items: center; gap: calc(var(--px) * 15); padding: 0 calc(var(--px) * 14) 0 calc(var(--px) * 17); border: 0; text-align: left; isolation: isolate;
+  font-family: var(--ui); font-weight: 600; font-size: max(12px, calc(var(--tx) * 17.5)); letter-spacing: .085em; text-transform: uppercase; color: var(--text);
+  background: linear-gradient(180deg, var(--edge-hi) 0%, var(--row-edge) 22%, var(--edge-lo) 70%, #2a0f04 100%);
   clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
   transition: transform .25s var(--ease), filter .2s; }
 /* The slab body inside its 1.5 px edge, with a lit top lip. */
-.row::before { content: ""; position: absolute; inset: 1.5px; z-index: -1; background: linear-gradient(180deg, var(--row-hi) 0%, var(--row) 55%, var(--row) 100%);
-  clip-path: polygon(calc(var(--c) - .6px) 0, calc(100% - var(--c) + .6px) 0, 100% calc(var(--c) - .6px), 100% calc(100% - var(--c) + .6px), calc(100% - var(--c) + .6px) 100%, calc(var(--c) - .6px) 100%, 0 calc(100% - var(--c) + .6px), 0 calc(var(--c) - .6px)); }
-.row::after { content: ""; position: absolute; left: 6%; right: 6%; top: 1.5px; height: 1px; background: linear-gradient(90deg, transparent, rgb(255 255 255 / 22%), transparent); z-index: -1; }
-.row-icon { flex: none; width: calc(var(--px) * 25); height: calc(var(--px) * 25); min-width: 16px; min-height: 16px; color: var(--text); stroke-width: 2.2; }
+.row::before { content: ""; position: absolute; inset: var(--rim); z-index: -1; background: linear-gradient(180deg, var(--row-hi) 0%, #1a0b05 46%, var(--row) 54%, #050201 100%);
+  box-shadow: inset 0 calc(var(--px) * -5) calc(var(--px) * 8) rgb(0 0 0 / 55%), inset 0 1px 0 rgb(255 190 130 / 18%);
+  clip-path: polygon(calc(var(--c) - var(--rim) * .41) 0, calc(100% - var(--c) + var(--rim) * .41) 0, 100% calc(var(--c) - var(--rim) * .41), 100% calc(100% - var(--c) + var(--rim) * .41), calc(100% - var(--c) + var(--rim) * .41) 100%, calc(var(--c) - var(--rim) * .41) 100%, 0 calc(100% - var(--c) + var(--rim) * .41), 0 calc(var(--c) - var(--rim) * .41)); }
+.row::after { content: ""; position: absolute; left: 8%; right: 8%; top: calc(var(--rim) + 1px); height: 1px; background: linear-gradient(90deg, transparent, rgb(255 230 200 / 30%), transparent); z-index: -1; }
+.row-icon { flex: none; width: calc(var(--px) * 28); height: calc(var(--px) * 28); min-width: 16px; min-height: 16px; color: var(--text); stroke-width: 2.2; filter: drop-shadow(0 1px 0 rgb(0 0 0 / 70%)); }
 .search-row .row-icon, .side-bottom .row-icon { color: var(--accent); }
 .row-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .filters .row .count { display: none; }
 .row .count { flex: none; font-family: var(--mono); font-size: max(11px, calc(var(--tx) * 14)); letter-spacing: .04em; color: var(--muted); }
 .row:hover { filter: brightness(1.18); }
 /* The selected filter: solid accent fill, dark text, and a play arrow at the right end. */
-.row[aria-current="true"] { color: var(--accent-ink); background: linear-gradient(160deg, #fff3d6 0%, var(--accent-hi) 25%, var(--accent-lo) 100%); filter: drop-shadow(0 0 calc(var(--px) * 10) var(--glow)); }
-.row[aria-current="true"]::before { background: linear-gradient(180deg, var(--accent-hi) 0%, var(--accent) 50%, var(--accent-lo) 100%); }
+.row[aria-current="true"] { color: var(--accent-ink); background: linear-gradient(180deg, #fff6e0 0%, var(--accent-hi) 30%, var(--accent-lo) 80%, #8a3404 100%); filter: drop-shadow(0 0 calc(var(--px) * 12) var(--glow)); }
+.row[aria-current="true"]::before { background: linear-gradient(180deg, #ffd08a 0%, var(--accent-hi) 18%, var(--accent) 48%, var(--accent-lo) 54%, #d95a06 100%); box-shadow: inset 0 calc(var(--px) * -4) calc(var(--px) * 7) rgb(120 40 0 / 45%), inset 0 calc(var(--px) * 2) 0 rgb(255 255 255 / 35%); }
 .row[aria-current="true"] .row-icon { color: var(--accent-ink); }
 .row[aria-current="true"] .count { color: var(--accent-ink); opacity: .8; margin-right: calc(var(--px) * 22); }
 .row[aria-current="true"]::after { left: auto; right: calc(var(--px) * 14); top: 50%; width: 0; height: 0; transform: translateY(-50%); background: none; border-style: solid; border-width: calc(var(--px) * 9) 0 calc(var(--px) * 9) calc(var(--px) * 12); border-color: transparent transparent transparent var(--accent-ink); z-index: 1; }
@@ -210,14 +216,14 @@ body[data-variant="green"] .emblem-logo.mark { display: block; }
 /* A tile: the glow layer (no clip, so the glow follows the chamfered shape), then the frame, the
    bevel, and the art. Each cover sits in its own dark bevelled frame with a thin highlight. */
 .tile { --c: calc(var(--px) * 9); position: relative; padding: 0; border: 0; background: none; aspect-ratio: 176 / 236; text-align: left; transition: transform .3s var(--blade), filter .25s var(--ease); }
-.tile-frame { position: absolute; inset: 0; background: linear-gradient(165deg, var(--tile-edge-hi) 0%, var(--tile-edge) 22%, #000 60%, var(--tile-edge) 100%);
+.tile-frame { position: absolute; inset: 0; background: linear-gradient(170deg, var(--tile-edge-hi) 0%, var(--tile-edge) 18%, #1a0802 55%, var(--tile-edge) 100%);
   clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c)); }
-.tile-frame::before { content: ""; position: absolute; inset: calc(var(--px) * 2 + 1px); background: linear-gradient(180deg, var(--frame-body-hi), var(--frame-body-lo));
+.tile-frame::before { content: ""; position: absolute; inset: calc(var(--px) * 2.5 + 1px); background: linear-gradient(180deg, #2c140a 0%, #120703 40%, #080302 100%); box-shadow: inset 0 calc(var(--px) * 2) 0 rgb(255 170 100 / 12%), inset 0 calc(var(--px) * -3) calc(var(--px) * 6) rgb(0 0 0 / 60%);
   clip-path: polygon(calc(var(--c) - 2px) 0, calc(100% - var(--c) + 2px) 0, 100% calc(var(--c) - 2px), 100% calc(100% - var(--c) + 2px), calc(100% - var(--c) + 2px) 100%, calc(var(--c) - 2px) 100%, 0 calc(100% - var(--c) + 2px), 0 calc(var(--c) - 2px)); }
-.tile-art { position: absolute; inset: calc(var(--px) * 6 + 1px); overflow: hidden; background: #000; --ci: calc(var(--c) * .55);
+.tile-art { position: absolute; inset: calc(var(--px) * 8.5 + 1px); overflow: hidden; background: #000; --ci: calc(var(--c) * .55);
   clip-path: polygon(var(--ci) 0, calc(100% - var(--ci)) 0, 100% var(--ci), 100% calc(100% - var(--ci)), calc(100% - var(--ci)) 100%, var(--ci) 100%, 0 calc(100% - var(--ci)), 0 var(--ci)); }
 .tile-art > canvas, .tile-art > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
-.tile-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(160deg, rgb(255 255 255 / 14%) 0%, transparent 26%), linear-gradient(0deg, rgb(0 0 0 / 30%), transparent 22%); pointer-events: none; }
+.tile-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(160deg, rgb(255 255 255 / 14%) 0%, transparent 26%), linear-gradient(0deg, rgb(0 0 0 / 30%), transparent 22%); box-shadow: inset 0 0 0 1px rgb(255 150 70 / 30%), inset 0 calc(var(--px) * 3) calc(var(--px) * 6) rgb(0 0 0 / 55%); pointer-events: none; }
 .tile-badges { position: absolute; top: calc(var(--px) * 12); right: calc(var(--px) * 12); z-index: 2; display: flex; gap: 4px; }
 .badge { padding: 2px 7px; font-family: var(--ui); font-weight: 700; font-size: max(10px, calc(var(--tx) * 12)); letter-spacing: .1em; text-transform: uppercase; color: var(--accent-ink); background: var(--accent); --c: 4px; clip-path: polygon(var(--c) 0, 100% 0, 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, 0 100%, 0 var(--c)); }
 .badge.missing { background: #ff5b4a; color: #fff; }
@@ -226,9 +232,9 @@ body[data-variant="green"] .emblem-logo.mark { display: block; }
 .grid.has-focus .tile:not(.focused) { filter: brightness(.82) saturate(.92); }
 /* The selected cover: a thick, glowing accent frame, lifted toward the camera. */
 .tile.focused { z-index: 3; transform: translateZ(calc(var(--px) * 40)) scale(1.075); filter: drop-shadow(0 0 calc(var(--px) * 14) var(--glow)) drop-shadow(0 0 calc(var(--px) * 3) var(--glow)); }
-.tile.focused .tile-frame { background: linear-gradient(165deg, #fff4d8 0%, var(--accent-hi) 18%, var(--accent) 50%, var(--accent-lo) 100%); }
-.tile.focused .tile-frame::before { inset: calc(var(--px) * 5 + 1px); background: linear-gradient(180deg, var(--accent-lo), var(--edge-lo)); }
-.tile.focused .tile-art { inset: calc(var(--px) * 11 + 1px); }
+.tile.focused .tile-frame { background: linear-gradient(170deg, #fff6e0 0%, var(--accent-hi) 16%, var(--accent) 45%, var(--accent-lo) 85%, #8a3404 100%); }
+.tile.focused .tile-frame::before { inset: calc(var(--px) * 6 + 1px); background: linear-gradient(180deg, #ffb24a 0%, var(--accent) 40%, var(--accent-lo) 100%); box-shadow: inset 0 calc(var(--px) * 2) 0 rgb(255 255 255 / 40%), inset 0 calc(var(--px) * -3) calc(var(--px) * 6) rgb(110 35 0 / 50%); }
+.tile.focused .tile-art { inset: calc(var(--px) * 12 + 1px); }
 .tile:focus-visible { outline: none; }
 
 .empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; text-align: center; padding: 30px; }
@@ -247,7 +253,10 @@ body[data-variant="green"] .emblem-logo.mark { display: block; }
 .prompts { flex: none; display: flex; align-items: center; gap: calc(var(--px) * 34); padding-right: calc(var(--px) * 30); font-family: var(--ui); font-weight: 600; font-size: max(12px, calc(var(--tx) * 18)); letter-spacing: .1em; text-transform: uppercase; color: var(--text); }
 .prompt { display: inline-flex; align-items: center; gap: calc(var(--px) * 16); white-space: nowrap; }
 /* Ringed button glyphs, drawn here: a coloured ring with the letter inside. */
-.ring { display: inline-grid; place-items: center; width: calc(var(--px) * 40); height: calc(var(--px) * 40); min-width: 24px; min-height: 24px; border-radius: 50%; font-family: var(--ui); font-weight: 700; font-size: max(13px, calc(var(--tx) * 24)); line-height: 1; color: var(--rc); background: radial-gradient(circle at 50% 38%, #1c1c1c, #050505 70%); box-shadow: 0 0 0 calc(var(--px) * 3) var(--rc), 0 0 0 calc(var(--px) * 4.5) rgb(0 0 0 / 70%), 0 0 calc(var(--px) * 14) var(--rc), inset 0 0 calc(var(--px) * 8) rgb(255 255 255 / 10%); text-shadow: 0 0 6px var(--rc); }
+.ring { display: inline-grid; place-items: center; width: calc(var(--px) * 42); height: calc(var(--px) * 42); min-width: 24px; min-height: 24px; border-radius: 50%; font-family: var(--ui); font-weight: 700; font-size: max(13px, calc(var(--tx) * 25)); line-height: 1; color: var(--rc);
+  border: max(2px, calc(var(--px) * 3.5)) solid var(--rc);
+  background: radial-gradient(ellipse 70% 42% at 50% 22%, rgb(255 255 255 / 30%), transparent 70%) padding-box, radial-gradient(circle at 50% 60%, #202020, #040404 72%) padding-box, linear-gradient(180deg, #ffffff, var(--rc) 35%, var(--rc) 60%, #000 130%) border-box;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 80%), 0 calc(var(--px) * 2) calc(var(--px) * 4) rgb(0 0 0 / 70%), 0 0 calc(var(--px) * 14) var(--rc), inset 0 calc(var(--px) * -3) calc(var(--px) * 5) rgb(0 0 0 / 60%); text-shadow: 0 0 6px var(--rc), 0 1px 0 rgb(0 0 0 / 80%); }
 .ring.a { --rc: var(--ring-a); } .ring.b { --rc: var(--ring-b); } .ring.x { --rc: var(--ring-x); } .ring.y { --rc: var(--ring-y); } .ring.menu { --rc: #c9c9c9; font-size: max(12px, calc(var(--tx) * 20)); }
 kbd.key { display: inline-grid; place-items: center; min-width: calc(var(--px) * 40); height: calc(var(--px) * 30); min-height: 22px; padding: 0 8px; font-family: var(--ui); font-weight: 700; font-size: max(12px, calc(var(--tx) * 15)); letter-spacing: .04em; text-transform: none; color: var(--text);
   background: linear-gradient(180deg, var(--edge) 0%, var(--edge-lo) 100%); --c: 6px; clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c)); text-shadow: 0 1px 0 rgb(0 0 0 / 60%); }
