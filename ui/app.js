@@ -676,13 +676,19 @@
     (on ? $("s-clear").disabled ? $("s-remove") : $("s-clear") : $("d-saves")).focus({ preventScroll: true });
   }
 
+  // A fact marked "path" keeps its real case (paths are case-sensitive on Linux and macOS) and
+  // spans both columns.
   function facts(list) {
-    return list.map(([name, value]) => {
+    return list.map(([name, value, kind]) => {
       const box = document.createElement("div");
       const dt = document.createElement("dt");
       dt.textContent = name;
       const dd = document.createElement("dd");
       dd.textContent = value;
+      if (kind === "path") {
+        box.className = "wide";
+        dd.className = "path";
+      }
       box.append(dt, dd);
       return box;
     });
@@ -703,10 +709,10 @@
     for (const id of ["d-args", "d-workdir", "d-remove-program"]) $(id).hidden = !custom;
     $("detail-facts").replaceChildren(...facts(store ? [
       ["Store", core.storeName(game.store)],
-      [custom ? "Program folder" : "Install folder", game.install_path || "Not found"],
+      [custom ? "Program folder" : "Install folder", game.install_path || "Not found", game.install_path ? "path" : ""],
       ["Plays", String(game.play_count || 0)],
       ["Last played", core.formatWhen(game.last_played)],
-      ...(custom ? [["Arguments", (game.args || []).join(" ") || "None"], ["Working folder", game.working_dir || "The program's folder"]] : [["Starts with", game.launch_kind === "uri" ? core.storeName(game.store) : "Its program"]]),
+      ...(custom ? [["Arguments", (game.args || []).join(" ") || "None", game.args?.length ? "path" : ""], ["Working folder", game.working_dir || "The program's folder", game.working_dir ? "path" : ""]] : [["Starts with", game.launch_kind === "uri" ? core.storeName(game.store) : "Its program"]]),
       ["Found", game.added_at ? core.formatWhen(game.added_at) : "Earlier"],
     ] : [
       ["Source", core.cleanSource(game.source) || "Not set"],

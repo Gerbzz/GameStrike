@@ -4,8 +4,8 @@
 
 <h1 align="center">GameStrike</h1>
 
-<p align="center"><strong>A console-style home for the HTML games you download, on Windows, Linux, and macOS.</strong><br>
-Add a game from an <code>.html</code> file or a <code>.zip</code>, pick it from a framed game collection floating in a glowing 3D dome with a mouse, keyboard, or controller, and play it in its own window. Offline by default, with saves kept per game. No account, no uploads.</p>
+<p align="center"><strong>One console-style launcher for all your games, on Windows, Linux, and macOS.</strong><br>
+GameStrike finds the games you have installed with Steam, Epic Games, the EA app, the Microsoft Store, GOG Galaxy, Ubisoft Connect, and Battle.net, lets you add any program and the HTML games you download, and shows them all in a framed game collection floating in a glowing 3D dome, for mouse, keyboard, or controller. It never signs in to a store. HTML games run offline in their own isolated window, with saves kept per game.</p>
 
 <p align="center">
   <a href="#what-works-today">What works</a> ·
@@ -27,7 +27,14 @@ Add a game from an <code>.html</code> file or a <code>.zip</code>, pick it from 
 
 Everything in this section is implemented in this repository and covered by the checks listed under [Verification](#verification).
 
-**Library**
+**Store libraries**
+- **Finds installed games** from Steam (Windows, Linux, macOS), Epic Games, GOG Galaxy, Ubisoft Connect, the EA app (best effort), Battle.net, and the Microsoft Store and Xbox app (Windows), by reading each launcher's own install records on this computer. No store accounts, logins, credentials, or network; nothing is written to the stores' folders. Steam's own cached library art becomes the cover.
+- **Launches them** with A through the store's own launcher link (for example `steam://rungameid/...`) or program, from an allow-list, with arguments passed as a list and never through a shell. GameStrike counts its launches; it does not track play time.
+- **Custom programs**: add any program, shortcut, app bundle, or `.desktop` entry, with optional arguments and a working folder.
+- Rescans on start and on *Refresh store libraries*. Uninstalled games disappear, or stay marked *Not installed* if you favorited, renamed, played, hid, or gave them a cover; your data is never deleted by a rescan. Hide games, favorite them, set your own covers, rename them, and turn any store off in *Settings → Store libraries*.
+- See the [support matrix](docs/LAUNCHER_UI.md#store-libraries) for exactly what is read and how each store's games start.
+
+**HTML games**
 - Add a game through the native file picker: a single `.html`/`.htm` file, or a `.zip` with `index.html` at its root or inside one wrapper folder. GameStrike copies the files into its own library; your original download is never modified.
 - Re-adding the exact same file is recognized, and the game keeps its saves.
 - Five dashboard **styles**, chosen in *Settings* and remembered per library:
@@ -53,7 +60,7 @@ Everything in this section is implemented in this repository and covered by the 
 - Reduced motion turns the 3D scene into still frames with no camera moves, lays the panels flat, and makes every transition instant. High-contrast (forced colors) is respected.
 - Without WebGL 2, or if the GPU context is lost, the same dome net is painted as a still image and the interface works the same.
 
-**Command line** (`gamestrike`): `import`, `list`, `rename`, `reset-saves`, `remove [--keep-saves]`, `set-source`, `favorite`, `set-cover`, `undo-cover`, and `reset-cover`.
+**Command line** (`gamestrike`): `import`, `list`, `rename`, `reset-saves`, `remove [--keep-saves]`, `set-source`, `favorite`, `set-cover`, `undo-cover`, `reset-cover`, `add-program`, `refresh-stores --fixtures` (synthetic fixtures, for tests), and `stores`.
 
 ## Screenshots
 
@@ -150,7 +157,8 @@ bash scripts/hosted-library-capture.sh target/release /tmp/gamestrike-capture
 | Files | Only canonical files inside that game's content folder are served. `file://` fetches, frames, and navigation are blocked, as are other origins, popups, downloads, permission prompts, and external protocol launches. |
 | Offline mode | A strict Content-Security-Policy (only the game's own origin plus `data:`/`blob:`) on every response, plus a proxy owned by the player that answers every HTTP, HTTPS, and WebSocket connection with 403, including loopback. WebRTC is restricted to proxied traffic, which blocks its UDP. |
 | Network mode | Only plugins and base-URL changes are restricted. The game can reach the network, and you are told so first. |
-| Launcher | Serves only its bundled files (the two style pages and their scripts and styles, the vendored three.js, fonts) under `default-src 'none'`, plus cover PNGs that GameStrike encoded, by game ID only. It accepts eleven JSON commands, and only from its own origin. The page never supplies a file path; Rust validates every game ID. The 3D scene is decoration; the only game content it receives is the selected game's cover. |
+| Launcher | Serves only its bundled files (the two style pages and their scripts and styles, the vendored three.js, fonts) under `default-src 'none'`, plus cover PNGs that GameStrike encoded, by game ID only. It accepts twenty-one JSON commands, and only from its own origin. The page never supplies a file path, link, or program; Rust validates every game ID. The 3D scene is decoration; the only game content it receives is the selected game's cover. |
+| Store games | Trusted apps you installed with their store. GameStrike only reads the stores' install records (never credentials or tokens) and starts a game through its store's link, from an allow-list of schemes with URL-safe characters only, or through the store's or your own program with its arguments as a list, never a shell. They run as ordinary programs, outside GameStrike's HTML isolation. |
 | Covers | Untrusted cover images are decoded only by the memory-safe Rust `image` crate (PNG, JPEG, GIF, WebP; 16 MiB per file, 8192 px per side, 256 MiB of decoder memory), scaled to fit 600 × 900, and re-encoded as a new PNG inside the library. SVG and HTML are refused. |
 | Imports | Rejects path traversal (zip-slip), absolute and drive paths, Windows device names, links and special files, case-insensitive duplicates, ambiguous entry points, unsupported compression, zip bombs (expansion ratio and size limits), and corrupt archives. Extraction is staged and published atomically. |
 | Integrity | The player refuses to open imported games from an elevated (high-integrity) process. |
@@ -188,6 +196,7 @@ That run found two issues, both fixed in `bc6fd31`: the offline summary counted 
 
 ## Limitations
 
+- **Store detection is tested against synthetic fixtures only.** The parsers run in CI on all three OSes, but no scanner has been tried against a real Steam, Epic, EA, Microsoft Store, GOG, Ubisoft, or Battle.net install, and the real registry reads and launch calls are not exercised in CI. EA detection is best effort (the EA app's own list is encrypted), Battle.net products outside a built-in table open Battle.net instead of the game, and Microsoft Store games without a `MicrosoftGame.config` are not found. The earlier styles (Blades, Original, PWDS Orange) show HTML games only.
 - **Not a sandbox.** The player is an ordinary user-level process. Offline mode blocks network paths at the browser level (CSP plus proxy plus WebRTC policy). It does not stop a browser engine exploit, and the probe doesn't cover every possible network path, such as DNS prefetch.
 - WebView2 still defines `window.chrome.webview` in game pages. GameStrike registers nothing behind it, but the object exists.
 - In network mode, the runtime's own requests for the game's origin outside the custom protocol resolve to `localhost` and could reach a local server on port 443.
