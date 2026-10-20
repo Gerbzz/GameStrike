@@ -13,6 +13,13 @@ The loopback target 127.0.0.1:47391 is a listener started by the test harness.</
   const settle = (name, promise, ok = "resolved", bad = "rejected") =>
     promise.then(() => record(name, ok), () => record(name, bad));
   const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms));
+  // Resolves if any of the URLs can be fetched, so one probe covers Windows and Unix paths.
+  const anyFetch = (urls) => Promise.any(urls.map((url) => Promise.race([fetch(url), timeout(3000)])));
+
+  // Counts Content-Security-Policy violations, so CSP is checked separately from the proxy.
+  let cspViolations = 0;
+  document.addEventListener("securitypolicyviolation", () => { cspViolations += 1; });
+  record("origin", location.origin);
 
   // Saves: one localStorage counter and one IndexedDB counter.
   const launch = Number(localStorage.getItem("probe-launches") || 0) + 1;
@@ -36,6 +43,8 @@ The loopback target 127.0.0.1:47391 is a listener started by the test harness.</
 
   // Host bridges: GameStrike registers no IPC handler or host objects in the player.
   record("ipc", typeof window.ipc);
+  // WebKit defines window.webkit only when a script message handler is registered.
+  record("webkit", typeof window.webkit);
   record("hostObjects", typeof window.chrome?.webview?.hostObjects);
   try {
     if (window.chrome?.webview?.postMessage) {
@@ -49,7 +58,30 @@ The loopback target 127.0.0.1:47391 is a listener started by the test harness.</
   }
 
   // Same-origin assets must keep working.
-  pending.push(settle("self-fetch", fetch("/index.html").then((r) => { if (!r.ok) throw new Error(); })));
+  // WebView2 has occasionally failed the first same-origin fetch on a relaunch, so the probe
+  // retries twice and reports the attempts and the first failure next to the result.
+  const clean = (text) => String(text).replace(/[;=\s]+/g, "_").slice(0, 60);
+  const selfFetch = (async () => {
+    let firstError = "";
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const response = await fetch("/index.html", { cache: "no-store" });
+        if (!response.ok) throw new Error(`status ${response.status}`);
+        record("self-fetch-attempts", attempt);
+        if (firstError) record("self-fetch-first-error", clean(firstError));
+        return;
+      } catch (error) {
+        firstError = firstError || `${error.name} ${error.message}`;
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
+    record("self-fetch-first-error", clean(firstError));
+    throw new Error(firstError);
+  })();
+  pending.push(settle("self-fetch", selfFetch));
+  // Probes for other schemes start only after the same-origin check has finished, so a
+  // cancelled navigation or unknown scheme cannot disturb that check.
+  const afterSelf = selfFetch.catch(() => {});
 
   // Network paths. The harness counts what reaches the loopback listener.
   pending.push(settle("fetch", Promise.race([fetch(`http://${target}/fetch`), timeout(3000)])));
@@ -106,13 +138,25 @@ The loopback target 127.0.0.1:47391 is a listener started by the test harness.</
   }
 
   // Local files and other origins.
-  pending.push(settle("file-fetch", fetch("file:///C:/Windows/win.ini")));
-  pending.push(settle("other-origin", Promise.race([fetch("https://gamestrike-other.localhost/index.html"), timeout(3000)])));
+  pending.push(settle("file-fetch", anyFetch(["file:///C:/Windows/win.ini", "file:///etc/hosts", "file:///etc/passwd"])));
+  pending.push(settle("other-origin", afterSelf.then(() => anyFetch([
+    "https://gamestrike-other.localhost/index.html",
+    "gamestrikeother://localhost/index.html",
+  ]))));
+  pending.push(afterSelf.then(() => {
+    for (const [name, url] of [["file-frame", "file:///etc/hosts"], ["other-frame", "gamestrikeother://localhost/index.html"]]) {
+      const child = document.createElement("iframe");
+      child.title = name;
+      child.src = url;
+      document.body.append(child);
+    }
+  }));
   const popup = window.open("about:blank", "_blank");
   record("popup", popup === null ? "null" : "handle");
   if (popup) popup.close();
 
   Promise.all(pending).then(() => setTimeout(() => {
+    record("csp", cspViolations > 0 ? "enforced" : "none");
     results.sort();
     document.getElementById("results").textContent = results.join("\n");
     document.title = `GameStrike isolation probe launch=${launch};${results.join(";")}`;

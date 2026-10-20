@@ -134,3 +134,153 @@ test("tile perspective: focused tile is full size, later tiles recede edge to ed
   assert.equal(core.tileLayout(-1).opacity, 0, "passed tiles slide out");
   assert.equal(core.tileLayout(6).visible, false, "far tiles are hidden");
 });
+
+const library = [
+  { id: "00000000-0000-4000-8000-000000000001", title: "Orbit Garden", source_kind: "single_html", source: "itch.io", favorite: true, last_played: 50, added_at: 1 },
+  { id: "00000000-0000-4000-8000-000000000002", title: "Pixel Harbor", source_kind: "zip", source: "ITCH.IO ", added_at: 2 },
+  { id: "00000000-0000-4000-8000-000000000003", title: "Lantern Maze", source_kind: "zip", source: "Newgrounds", last_played: 90, added_at: 3, cover: "custom", cover_version: 7 },
+  { id: "00000000-0000-4000-8000-000000000004", title: "Comet Courier", source_kind: "single_html", added_at: 4 },
+];
+
+test("sidebar filters come only from what the library records", () => {
+  const filters = core.buildFilters(library);
+  assert.deepEqual(filters.map((f) => [f.key, f.count]), [
+    ["all", 4], ["recent", 2], ["favorites", 1],
+    ["kind:single_html", 2], ["kind:zip", 2],
+    ["source:itch.io", 2], ["source:newgrounds", 1],
+  ]);
+  assert.equal(filters.find((f) => f.key === "source:itch.io").label, "itch.io", "the first spelling is shown");
+  assert.ok(!filters.some((f) => /steam|epic|gog/i.test(f.label)), "no stores GameStrike does not support");
+  const htmlOnly = core.buildFilters([library[3]]);
+  assert.deepEqual(htmlOnly.map((f) => f.key), ["all", "recent", "favorites", "kind:single_html"], "empty groups are left out");
+  assert.deepEqual(core.buildFilters(null).map((f) => f.count), [0, 0, 0]);
+});
+
+test("filters, search, and sort combine", () => {
+  const ids = (list) => list.map((g) => g.title);
+  assert.deepEqual(ids(core.applyFilter(library, "all", "", "title-asc")), ["Comet Courier", "Lantern Maze", "Orbit Garden", "Pixel Harbor"]);
+  assert.deepEqual(ids(core.applyFilter(library, "recent", "", "title-asc")), ["Lantern Maze", "Orbit Garden"], "recently played is newest first");
+  assert.deepEqual(ids(core.applyFilter(library, "favorites", "", "recent")), ["Orbit Garden"]);
+  assert.deepEqual(ids(core.applyFilter(library, "kind:zip", "", "title-asc")), ["Lantern Maze", "Pixel Harbor"]);
+  assert.deepEqual(ids(core.applyFilter(library, "source:itch.io", "pix", "recent")), ["Pixel Harbor"]);
+  assert.deepEqual(core.applyFilter(library, "source:steam", "", "recent"), []);
+  assert.deepEqual(core.applyFilter(library, "nonsense", "", "recent"), []);
+});
+
+test("sources are cleaned the same way as in Rust", () => {
+  assert.equal(core.cleanSource("  itch\u0007.io "), "itch.io");
+  assert.equal(core.cleanSource("   "), null);
+  assert.equal(core.cleanSource("x".repeat(33)), null);
+  assert.equal(core.cleanSource("x".repeat(32)), "x".repeat(32));
+});
+
+test("covers: stored covers get a versioned URL, others are drawn from the title", () => {
+  assert.equal(core.coverUrl(library[2]), "/cover/00000000-0000-4000-8000-000000000003.png?v=7");
+  assert.equal(core.coverUrl(library[0]), null, "no stored cover");
+  assert.equal(core.coverUrl({ id: "../../etc/passwd", cover: "custom" }), null, "only a game ID reaches the URL");
+  assert.equal(core.coverUrl({ id: "00000000-0000-4000-8000-000000000003", cover: "auto", cover_version: "x" }), "/cover/00000000-0000-4000-8000-000000000003.png?v=0");
+});
+
+test("the grid reflows to the window and the sidebar moves row by row", () => {
+  assert.equal(core.gridColumns(0, 150, 12), 1);
+  assert.equal(core.gridColumns(320, 150, 12), 2);
+  assert.equal(core.gridColumns(1920, 150, 12), 11);
+  assert.equal(core.listMove(0, 5, "up"), 0);
+  assert.equal(core.listMove(0, 5, "down"), 1);
+  assert.equal(core.listMove(4, 5, "down"), 4);
+  assert.equal(core.listMove(2, 5, "end"), 4);
+  assert.equal(core.listMove(0, 0, "down"), -1);
+});
+
+test("generated box art uses curated, high-contrast palettes and the full title", () => {
+  const luminance = (hex) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
+  for (const palette of core.PALETTES) {
+    assert.ok(contrast(palette.ink, palette.bg1) >= 7, `${palette.name} title ink is readable`);
+    assert.ok(contrast(palette.accent, palette.bg2) >= 4.5, `${palette.name} accent stands out`);
+    assert.ok(luminance(palette.bg2) < 0.02, `${palette.name} background is deep, not muddy`);
+  }
+  const one = core.coverDesign("6c1f6f7e-0000-4000-8000-000000000001", "Orbit Garden", "itch.io");
+  assert.deepEqual(one, core.coverDesign("6c1f6f7e-0000-4000-8000-000000000001", "Orbit Garden", "itch.io"), "stable per game");
+  assert.equal(one.title, "Orbit Garden");
+  assert.equal(one.size, "l");
+  assert.equal(one.kicker, "itch.io");
+  assert.ok(one.motif >= 0 && one.motif < 6);
+  assert.equal(core.coverDesign("x", "Tetris").size, "xl");
+  assert.equal(core.coverDesign("x", "The Long Voyage of the Lantern Keepers").size, "s");
+  assert.equal(core.coverDesign("x", "  ").title, "Untitled");
+  const palettes = new Set(Array.from({ length: 40 }, (_, i) => core.coverDesign(`game-${i}`, "x").palette.name));
+  assert.ok(palettes.size >= 6, "different games get different palettes");
+});
+
+test("styles: Collection in PWDS Orange is the default, and the cycle reaches every style", () => {
+  assert.equal(core.styleFor(null).key, "collection-orange");
+  assert.equal(core.styleFor("something-else").key, "collection-orange");
+  assert.equal(core.styleFor("collection-green").variant, "green");
+  assert.equal(core.styleFor("blades").page, "classic");
+  const seen = [];
+  let style = core.styleFor(null);
+  for (let i = 0; i < core.STYLES.length; i += 1) { seen.push(style.key); style = core.nextStyle(style.key); }
+  assert.deepEqual(seen, ["collection-orange", "collection-green", "blades", "original", "pwds"]);
+  assert.equal(style.key, "collection-orange", "the cycle wraps around");
+  assert.deepEqual(core.STYLES.filter((s) => s.page === "classic").map((s) => s.key), ["blades", "original", "pwds"], "the earlier styles keep their saved names");
+});
+
+test("Collection metrics: seven columns by three rows at the reference size, reflowing elsewhere", () => {
+  assert.deepEqual(core.collectionMetrics(1672, 941), { u: 1, t: 1, columns: 7 });
+  assert.equal(core.collectionMetrics(1920, 1080).columns, 7, "the same shape at a larger size");
+  assert.ok(core.collectionMetrics(1250, 800).columns < 7, "a squarer window gets fewer, larger columns");
+  assert.ok(core.collectionMetrics(2560, 1080).columns > 7, "an ultrawide window gets more");
+  const small = core.collectionMetrics(880, 620);
+  assert.ok(small.columns >= 4 && small.columns <= 6, `${small.columns} columns at the minimum size`);
+  assert.ok(small.t >= 0.72, "type never shrinks below its floor");
+  assert.ok(core.collectionMetrics(3840, 2160).u <= 1.6);
+  assert.equal(core.collectionMetrics(0, 0).columns, 2, "a zero-size window still lays out");
+});
+
+test("generated box art: a scene that fits the title, stable per game, drawn only from GameStrike's rules", () => {
+  assert.equal(core.coverArt("a", "Quiet Lighthouse").scene, "harbor");
+  assert.equal(core.coverArt("a", "Ember Forge").scene, "forge");
+  assert.equal(core.coverArt("a", "Deep Reef").scene, "reef");
+  assert.equal(core.coverArt("a", "Frost Relay").scene, "frost");
+  assert.ok(core.SCENES.includes(core.coverArt("b", "Zzyzx").scene), "unknown words fall back to a scene from the ID");
+  const one = core.coverArt("6c1f6f7e-0000-4000-8000-000000000001", "Orbit Garden", "itch.io");
+  assert.deepEqual(one, core.coverArt("6c1f6f7e-0000-4000-8000-000000000001", "Orbit Garden", "itch.io"));
+  assert.equal(one.title, "Orbit Garden");
+  assert.equal(one.kicker, "itch.io");
+  assert.ok(["top", "bottom"].includes(one.titleAt));
+  assert.ok(one.palette && /^#[0-9a-f]{6}$/.test(one.palette.ink));
+  assert.ok(core.coverArt("c", "Incomprehensibilities").titleScale < 1, "long words get a smaller title");
+  assert.equal(core.coverArt("c", " \u0007 ").title, "Untitled");
+  const scenes = new Set(Array.from({ length: 60 }, (_, i) => core.coverArt(`game-${i}`, "x").scene));
+  assert.ok(scenes.size >= 8, "different games get different scenes");
+});
+
+test("seeded random numbers repeat for a seed and stay in [0, 1)", () => {
+  const a = core.seededRandom(42);
+  const b = core.seededRandom(42);
+  for (let i = 0; i < 100; i += 1) {
+    const value = a();
+    assert.equal(value, b());
+    assert.ok(value >= 0 && value < 1);
+  }
+  assert.notEqual(core.seededRandom(1)(), core.seededRandom(2)());
+});
+
+test("the dome net is rings and meridians of unit vectors, bent but never torn", () => {
+  const lines = core.domeNet({ rings: 6, meridians: 8, steps: 24 });
+  assert.equal(lines.length, 5 + 8, "rings minus one latitude lines, plus the meridians");
+  for (const line of lines) {
+    for (const [x, y, z] of line) assert.ok(Math.abs(Math.hypot(x, y, z) - 1) < 1e-9, "points lie on the unit sphere");
+    for (let i = 1; i < line.length; i += 1) {
+      const step = Math.hypot(...line[i].map((v, k) => v - line[i - 1][k]));
+      assert.ok(step < 0.6, "neighbouring points stay close, so the line is continuous");
+    }
+  }
+  const flat = core.domeNet({ rings: 6, meridians: 8, steps: 24, warp: 0 });
+  assert.notDeepEqual(flat, lines, "the warp bends the net");
+});

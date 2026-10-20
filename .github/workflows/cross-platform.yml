@@ -1,0 +1,128 @@
+name: Cross-platform checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "gamestrike-cross-platform"
+      - "gamestrike-dome-console"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_TERM_COLOR: always
+      # Software rendering for WebKitGTK under Xvfb. Rendering only; no isolation setting changes.
+      WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install WebKitGTK, GTK, and Xvfb
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
+            xvfb xauth dbus-x11 at-spi2-core
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Toolchain and OS
+        shell: bash
+        run: |
+          rustc --version
+          cargo --version
+          node --version
+          case "$RUNNER_OS" in
+            Linux) pkg-config --modversion webkit2gtk-4.1 gtk+-3.0 libsoup-3.0 ;;
+            macOS) sw_vers ;;
+          esac
+
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: JavaScript syntax
+        run: |
+          node --check ui/core.js
+          node --check ui/app.js
+          node --check ui/classic.js
+          node --check ui/style-gate.js
+          node --check ui/frame.js
+          node --check ui/covers.js
+      - name: Launcher logic tests
+        run: node --test ui/app.test.cjs
+
+      - name: Clippy
+        run: cargo clippy --locked --features launcher --all-targets -- -D warnings
+      - name: Rust tests
+        run: cargo test --locked --features launcher
+
+      - name: Real player isolation test (Linux, Xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- cargo test --locked --features launcher --test player_isolation -- --ignored --nocapture
+      - name: Real player isolation test
+        if: runner.os != 'Linux'
+        run: cargo test --locked --features launcher --test player_isolation -- --ignored --nocapture
+      - name: macOS crash reports from GameStrike
+        if: runner.os == 'macOS' && failure()
+        run: |
+          for report in $(ls -t "$HOME"/Library/Logs/DiagnosticReports/gamestrike* 2>/dev/null | head -2); do
+            echo "== $report"; head -c 12000 "$report"; echo
+          done
+      - name: WebKit data stores left after the macOS test
+        if: runner.os == 'macOS' && always()
+        run: find "$HOME/Library/WebKit" -maxdepth 4 -type d 2>/dev/null | head -50 || true
+
+      - name: Build release binaries
+        run: cargo build --locked --release --features launcher --bins
+
+      - name: Launch and capture smoke test (Linux, Xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- bash scripts/hosted-library-capture.sh target/release "$RUNNER_TEMP/gamestrike-capture"
+      - name: Launch and capture smoke test (macOS)
+        if: runner.os == 'macOS'
+        run: bash scripts/hosted-library-capture.sh target/release "$RUNNER_TEMP/gamestrike-capture"
+      - name: Launch and capture smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GAMESTRIKE_CHECKS_DONE: "1"
+          GAMESTRIKE_BIN_DIR: ${{ github.workspace }}/target/release
+        run: |
+          ./scripts/hosted-library-capture.ps1
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/gamestrike-capture" | Out-Null
+          Copy-Item "$env:RUNNER_TEMP/gamestrike-library-visual/*.png", "$env:RUNNER_TEMP/gamestrike-library-visual/*.txt" "$env:RUNNER_TEMP/gamestrike-capture/" -ErrorAction SilentlyContinue
+
+      - name: Upload captures and smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamestrike-capture-${{ runner.os }}
+          path: ${{ runner.temp }}/gamestrike-capture/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Upload release binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamestrike-release-${{ runner.os }}
+          path: |
+            target/release/gamestrike
+            target/release/gamestrike-launcher
+            target/release/gamestrike-player
+            target/release/gamestrike.exe
+            target/release/gamestrike-launcher.exe
+            target/release/gamestrike-player.exe
+          if-no-files-found: error
+          retention-days: 14
