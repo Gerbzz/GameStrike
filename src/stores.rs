@@ -12,8 +12,8 @@
 //! plays) in `LIBRARY/stores/<game id>/`, which a rescan never deletes.
 
 use crate::{
-    COVER_HEIGHT, COVER_WIDTH, HostOs, Result, cover_png_from_file, decode_cover_file, encode_cover,
-    invalid, new_file, regular_file,
+    COVER_HEIGHT, COVER_WIDTH, HostOs, Result, cover_png_from_file, decode_cover_file,
+    encode_cover, invalid, new_file, regular_file,
 };
 use image::{
     DynamicImage, RgbaImage,
@@ -210,7 +210,11 @@ fn hero_with_logo(hero: &DynamicImage, logo: &DynamicImage) -> RgbaImage {
         shade(pixel, 1.0 - 0.6 * depth);
     }
     let logo = logo
-        .resize(COVER_WIDTH * 86 / 100, COVER_HEIGHT * 30 / 100, FilterType::Triangle)
+        .resize(
+            COVER_WIDTH * 86 / 100,
+            COVER_HEIGHT * 30 / 100,
+            FilterType::Triangle,
+        )
         .to_rgba8();
     let x = (COVER_WIDTH - logo.width()) / 2;
     let y = COVER_HEIGHT * 74 / 100 - logo.height() / 2;
@@ -2897,10 +2901,16 @@ mod tests {
         // Any library_600x900 variant, the plain name first.
         touch(&cache, &["2/library_600x900_2x.jpg"]);
         assert_eq!(steam_cover(&root, "2"), image("2/library_600x900_2x.jpg"));
-        touch(&cache, &["2b/library_600x900_2x.jpg", "2b/library_600x900.jpg"]);
+        touch(
+            &cache,
+            &["2b/library_600x900_2x.jpg", "2b/library_600x900.jpg"],
+        );
         assert_eq!(steam_cover(&root, "2b"), image("2b/library_600x900.jpg"));
         // One folder deeper still counts as the per-app portrait, ahead of the capsule.
-        touch(&cache, &["3/abc123/library_600x900.jpg", "3/library_capsule.jpg"]);
+        touch(
+            &cache,
+            &["3/abc123/library_600x900.jpg", "3/library_capsule.jpg"],
+        );
         assert_eq!(
             steam_cover(&root, "3"),
             image("3/abc123/library_600x900.jpg")
@@ -2972,7 +2982,10 @@ mod tests {
     fn write_image(path: &Path, pixels: image::RgbaImage) {
         let mut bytes = Vec::new();
         DynamicImage::ImageRgba8(pixels)
-            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
             .unwrap();
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, bytes).unwrap();
@@ -3018,7 +3031,10 @@ mod tests {
         );
         assert_eq!(cover.dimensions(), (COVER_WIDTH, COVER_HEIGHT));
         let top = cover.get_pixel(300, 60).0;
-        assert!(top[2] > 200 && top[0] < 40, "the hero fills the top: {top:?}");
+        assert!(
+            top[2] > 200 && top[0] < 40,
+            "the hero fills the top: {top:?}"
+        );
         let middle = cover.get_pixel(300, COVER_HEIGHT * 74 / 100).0;
         assert!(
             middle[0] > 200 && middle[2] < 60,
@@ -3119,10 +3135,7 @@ mod tests {
             },
         ] {
             let text = serde_json::to_string(&source).unwrap();
-            assert_eq!(
-                serde_json::from_str::<CoverSource>(&text).unwrap(),
-                source
-            );
+            assert_eq!(serde_json::from_str::<CoverSource>(&text).unwrap(), source);
         }
     }
 }
