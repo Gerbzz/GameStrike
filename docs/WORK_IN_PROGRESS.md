@@ -18,17 +18,18 @@ Hard rules: no local cargo or rustc (all Rust builds and tests run in GitHub Act
 - `ui/frame.js`: `measure()` split out of `draw()`; the SVG frame is now only the fallback (`body[data-chrome="3d"]` hides it). The bottom title plate is one long plate.
 - `ui/styles.css`: thicker lit rows and tiles, glossy rings, header title 1.25 times larger.
 - `src/launcher.rs`: serves `/chrome.js`; launcher webview `with_autoplay(true)` for the startup sounds.
-- Commit `68868cb`, pushed. CI: Cross-platform checks run 39488810319, Windows source checks run 39488810308 (results pending at the time of writing).
+- Commit `68868cb` (3D chrome), pushed; its Cross-platform run was cancelled in favour of `149ef57` (same code plus this note): Cross-platform checks https://github.com/Gerbzz/GameStrike/actions/runs/39488904943, Windows source checks https://github.com/Gerbzz/GameStrike/actions/runs/39488905136 (passed).
+- Commit `95a5bef` (WIP startup): `ui/boot.js` (particles, tendrils, core, flash, shockwave, emblem with the real PWDS logo, light sweep, flight to the seat), driven from `scene.js` (`gamestrike:boot` play / skip / freeze, `poseBoot(t)`, `extendTubes(p)`, `chrome.setAssembly`, `chrome.seat()`); page side in `app.js` (`startBoot`, `skipBoot`, `finishBoot({ assemble })`, `stagger()`, startup sounds on a bus that a skip fades out) and `styles.css` (wordmark, `body.assembling` slide and flip animations, `--seek` and `--aseek` for captures). Capture views `boot` (3.5 s), `boot-0.5`, `boot-2`, `boot-4.5`, `boot-5.5`. CI step "Record the startup (Linux, Xvfb)" runs `scripts/record-startup.sh` (ffmpeg; mp4, gif, stills in the Linux capture artifact).
 
 ## In progress
 
-- Checking the CI captures of the 3D chrome on Windows, Linux, and macOS against the goal (local previews look close; see the comparison notes below).
+- CI for `95a5bef`: check the boot captures and the Linux recording on all three systems, and the chrome captures from run 39488904943.
 
 ## Next steps
 
 1. Fix anything the CI captures show (each OS renders with a different GL stack).
-2. Startup: a boot timeline in `scene.js` (black, a point of light, particles and tendrils swirling in, an orb, camera pull-back with the dome net fading in, flash and shockwave, the PWDS emblem disc with the real `PWDS-logo-orange.svg`, the GAMESTRIKE wordmark with a light sweep, then the emblem flying to its seat while the chrome assembles via `chrome.setAssembly(t)`, tubes extend, and the DOM header, rows, and tiles slide and flip in). Synthesized sounds in `app.js` (swell, shimmer, impact, clunks, hiss), muted when sounds are off. Any key, click, or button skips to the end; reduced motion is a short fade. The library loads in parallel.
-3. Capture views for the boot at about 0.5, 2, 3.5, 4.5, and 5.5 s (add names to `CAPTURE_VIEWS` in `src/launcher.rs` and update its test; add them to `scripts/hosted-library-capture.sh` and `.ps1`), plus an animated PNG from a frame sequence on one runner if feasible.
+2. (Done as WIP in `95a5bef`; tune after CI.) Startup: a boot timeline in `scene.js` (black, a point of light, particles and tendrils swirling in, an orb, camera pull-back with the dome net fading in, flash and shockwave, the PWDS emblem disc with the real `PWDS-logo-orange.svg`, the GAMESTRIKE wordmark with a light sweep, then the emblem flying to its seat while the chrome assembles via `chrome.setAssembly(t)`, tubes extend, and the DOM header, rows, and tiles slide and flip in). Synthesized sounds in `app.js` (swell, shimmer, impact, clunks, hiss), muted when sounds are off. Any key, click, or button skips to the end; reduced motion is a short fade. The library loads in parallel.
+3. (Done in `95a5bef`.) Capture views for the boot at about 0.5, 2, 3.5, 4.5, and 5.5 s (add names to `CAPTURE_VIEWS` in `src/launcher.rs` and update its test; add them to `scripts/hosted-library-capture.sh` and `.ps1`), plus an animated PNG from a frame sequence on one runner if feasible.
 4. Side-by-sides against the goal, the PR description, and the report.
 
 ## How to preview locally (no cargo)
