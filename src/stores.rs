@@ -468,7 +468,11 @@ fn steam_roots(env: &ScanEnv) -> Vec<PathBuf> {
         HostOs::Windows => {
             for (hive, path, name) in [
                 (Hive::CurrentUser, "Software\\Valve\\Steam", "SteamPath"),
-                (Hive::LocalMachine, "SOFTWARE\\WOW6432Node\\Valve\\Steam", "InstallPath"),
+                (
+                    Hive::LocalMachine,
+                    "SOFTWARE\\WOW6432Node\\Valve\\Steam",
+                    "InstallPath",
+                ),
                 (Hive::LocalMachine, "SOFTWARE\\Valve\\Steam", "InstallPath"),
             ] {
                 if let Some(value) = env.registry.string(hive, path, name) {
@@ -703,10 +707,18 @@ const GOG_GAMES: &str = "SOFTWARE\\WOW6432Node\\GOG.com\\Games";
 fn scan_gog(env: &ScanEnv) -> Vec<Found> {
     let registry = env.registry;
     let galaxy = registry
-        .string(Hive::LocalMachine, "SOFTWARE\\WOW6432Node\\GOG.com\\GalaxyClient\\paths", "client")
+        .string(
+            Hive::LocalMachine,
+            "SOFTWARE\\WOW6432Node\\GOG.com\\GalaxyClient\\paths",
+            "client",
+        )
         .map(|folder| {
             let exe = registry
-                .string(Hive::LocalMachine, "SOFTWARE\\WOW6432Node\\GOG.com\\GalaxyClient", "clientExecutable")
+                .string(
+                    Hive::LocalMachine,
+                    "SOFTWARE\\WOW6432Node\\GOG.com\\GalaxyClient",
+                    "clientExecutable",
+                )
                 .unwrap_or_else(|| "GalaxyClient.exe".to_owned());
             PathBuf::from(folder).join(exe)
         })
@@ -722,7 +734,10 @@ fn scan_gog(env: &ScanEnv) -> Vec<Found> {
         if value("dependsOn").is_some_and(|parent| !parent.trim().is_empty()) {
             continue;
         }
-        let Some(path) = value("path").map(PathBuf::from).filter(|path| path.is_dir()) else {
+        let Some(path) = value("path")
+            .map(PathBuf::from)
+            .filter(|path| path.is_dir())
+        else {
             continue;
         };
         let Some(title) = value("gameName").as_deref().and_then(clean_store_title) else {
@@ -739,7 +754,9 @@ fn scan_gog(env: &ScanEnv) -> Vec<Found> {
                 working_dir: client.parent().map(Path::to_path_buf),
             },
             None => {
-                let Some(exe) = value("exe").map(PathBuf::from).filter(|exe| regular_file(exe))
+                let Some(exe) = value("exe")
+                    .map(PathBuf::from)
+                    .filter(|exe| regular_file(exe))
                 else {
                     continue;
                 };
@@ -794,7 +811,11 @@ fn scan_ubisoft(env: &ScanEnv) -> Vec<Found> {
         let title = UNINSTALL_KEYS
             .iter()
             .find_map(|root| {
-                registry.string(Hive::LocalMachine, &format!("{root}\\Uplay Install {id}"), "DisplayName")
+                registry.string(
+                    Hive::LocalMachine,
+                    &format!("{root}\\Uplay Install {id}"),
+                    "DisplayName",
+                )
             })
             .as_deref()
             .and_then(clean_store_title)
@@ -903,7 +924,10 @@ fn scan_ea(env: &ScanEnv) -> Vec<Found> {
         found.push(Found {
             store: Store::Ea,
             launch: Launch::Uri {
-                uri: format!("origin2://game/launch?offerIds={}&autoDownload=1", ids.join(",")),
+                uri: format!(
+                    "origin2://game/launch?offerIds={}&autoDownload=1",
+                    ids.join(",")
+                ),
             },
             store_id: first,
             title,
@@ -1070,7 +1094,10 @@ pub fn xbox_game(full_name: &str, root: &Path) -> Option<Found> {
         _ => return None,
     };
     let app = xml_attribute(&manifest, "Application", "Id")?;
-    if ![name, publisher, app.as_str()].iter().all(|part| store_id_ok(part)) {
+    if ![name, publisher, app.as_str()]
+        .iter()
+        .all(|part| store_id_ok(part))
+    {
         return None;
     }
     let title = xml_attribute(&config, "ShellVisuals", "DefaultDisplayName")
@@ -1099,7 +1126,11 @@ pub fn xbox_game(full_name: &str, root: &Path) -> Option<Found> {
 fn scan_xbox(env: &ScanEnv) -> Vec<Found> {
     let registry = env.registry;
     let mut found = Vec::new();
-    for full_name in registry.subkeys(Hive::CurrentUser, PACKAGES).into_iter().take(5000) {
+    for full_name in registry
+        .subkeys(Hive::CurrentUser, PACKAGES)
+        .into_iter()
+        .take(5000)
+    {
         let key = format!("{PACKAGES}\\{full_name}");
         let Some(root) = registry
             .string(Hive::CurrentUser, &key, "PackageRootFolder")
@@ -1149,8 +1180,7 @@ pub fn check_launch(launch: &Launch) -> Result<()> {
             args,
             working_dir,
         } => {
-            if !path.is_absolute() || working_dir.as_deref().is_some_and(|dir| !dir.is_absolute())
-            {
+            if !path.is_absolute() || working_dir.as_deref().is_some_and(|dir| !dir.is_absolute()) {
                 return Err(invalid("program paths must be absolute").into());
             }
             check_arguments(args)
@@ -1241,7 +1271,9 @@ fn read_bounded(path: &Path, limit: u64) -> Result<String> {
         return Err(invalid("file is missing or too large").into());
     }
     let mut text = String::new();
-    File::open(path)?.take(limit + 1).read_to_string(&mut text)?;
+    File::open(path)?
+        .take(limit + 1)
+        .read_to_string(&mut text)?;
     Ok(text)
 }
 
@@ -1382,7 +1414,10 @@ impl StoreLibrary {
 
     /// Changes the catalog under the lock.
     fn update<T>(&self, change: impl FnOnce(&mut Catalog) -> Result<T>) -> Result<T> {
-        let _guard = self.lock.lock().unwrap_or_else(|poison| poison.into_inner());
+        let _guard = self
+            .lock
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let mut catalog = self.catalog();
         let result = change(&mut catalog)?;
         self.save_catalog(&catalog)?;
@@ -1436,7 +1471,10 @@ impl StoreLibrary {
             }
         }
         let now = crate::now_unix();
-        let found: Vec<Found> = scanned.iter().flat_map(|(_, games)| games.clone()).collect();
+        let found: Vec<Found> = scanned
+            .iter()
+            .flat_map(|(_, games)| games.clone())
+            .collect();
         for game in &found {
             if let Some(source) = &game.cover_source {
                 let _ = self.cache_store_cover(store_game_id(game.store, &game.store_id), source);
@@ -1592,7 +1630,8 @@ impl StoreLibrary {
     /// What to start for a game, checked again right before it is used.
     pub fn launch_target(&self, id: Uuid) -> Result<(Launch, Store)> {
         let catalog = self.catalog();
-        let (launch, store) = if let Some(entry) = catalog.games.iter().find(|entry| entry.id == id) {
+        let (launch, store) = if let Some(entry) = catalog.games.iter().find(|entry| entry.id == id)
+        {
             if !entry.installed {
                 return Err(invalid("this game is no longer installed").into());
             }
@@ -1732,9 +1771,17 @@ impl StoreLibrary {
     }
 
     /// Sets a custom program's arguments and, optionally, its working folder.
-    pub fn set_program(&self, id: Uuid, args: Vec<String>, working_dir: Option<PathBuf>) -> Result<()> {
+    pub fn set_program(
+        &self,
+        id: Uuid,
+        args: Vec<String>,
+        working_dir: Option<PathBuf>,
+    ) -> Result<()> {
         check_arguments(&args)?;
-        if working_dir.as_deref().is_some_and(|dir| !dir.is_absolute() || !dir.is_dir()) {
+        if working_dir
+            .as_deref()
+            .is_some_and(|dir| !dir.is_absolute() || !dir.is_dir())
+        {
             return Err(invalid("the working folder was not found").into());
         }
         self.update(|catalog| {
@@ -1904,15 +1951,31 @@ mod tests {
         )
         .unwrap();
         let manifests = [
-            (&root, acf("440", "Synthetic Fortress (Synthetic Test)", "Fortress", 4)),
-            (&second, acf("620", "Synthetic Portal ™ (Synthetic Test)", "Portal", 4)),
-            (&root, acf("700", "Half Downloaded (Synthetic Test)", "Half", 1026 & !4)),
-            (&root, acf("228980", "Steamworks Common Redistributables", "Redist", 4)),
+            (
+                &root,
+                acf("440", "Synthetic Fortress (Synthetic Test)", "Fortress", 4),
+            ),
+            (
+                &second,
+                acf("620", "Synthetic Portal ™ (Synthetic Test)", "Portal", 4),
+            ),
+            (
+                &root,
+                acf("700", "Half Downloaded (Synthetic Test)", "Half", 1026 & !4),
+            ),
+            (
+                &root,
+                acf("228980", "Steamworks Common Redistributables", "Redist", 4),
+            ),
             (&root, acf("999", "Proton 9.0", "Proton", 4)),
         ];
         for (library, text) in &manifests {
             let id = text.split('"').nth(5).unwrap();
-            fs::write(library.join(format!("steamapps/appmanifest_{id}.acf")), text).unwrap();
+            fs::write(
+                library.join(format!("steamapps/appmanifest_{id}.acf")),
+                text,
+            )
+            .unwrap();
         }
         let flat = root.join("appcache/librarycache");
         fs::create_dir_all(flat.join("620/abcdef")).unwrap();
@@ -1929,16 +1992,29 @@ mod tests {
         };
         let found = scan(Store::Steam, &env);
         let ids: Vec<&str> = found.iter().map(|game| game.store_id.as_str()).collect();
-        assert_eq!(ids, ["440", "620"], "only installed games, no tools or runtimes");
-        assert_eq!(found[1].title, "Synthetic Portal (Synthetic Test)", "trademark signs dropped");
+        assert_eq!(
+            ids,
+            ["440", "620"],
+            "only installed games, no tools or runtimes"
+        );
+        assert_eq!(
+            found[1].title, "Synthetic Portal (Synthetic Test)",
+            "trademark signs dropped"
+        );
         assert_eq!(
             found[0].launch,
             Launch::Uri {
                 uri: "steam://rungameid/440".to_owned()
             }
         );
-        assert_eq!(found[1].install_path.as_deref(), Some(second.join("steamapps/common/Portal").as_path()));
-        assert_eq!(found[0].cover_source.as_deref(), Some(flat.join("440_library_600x900.jpg").as_path()));
+        assert_eq!(
+            found[1].install_path.as_deref(),
+            Some(second.join("steamapps/common/Portal").as_path())
+        );
+        assert_eq!(
+            found[0].cover_source.as_deref(),
+            Some(flat.join("440_library_600x900.jpg").as_path())
+        );
         assert_eq!(
             found[1].cover_source.as_deref(),
             Some(flat.join("620/abcdef/library_600x900.jpg").as_path()),
@@ -1998,7 +2074,9 @@ mod tests {
                 uri: "com.epicgames.launcher://apps/abc123%3A0f1e2d%3ASynthQuest?action=launch&silent=true".to_owned()
             }
         );
-        let short = epic_game(r#"{"DisplayName":"Old","AppName":"Old","InstallLocation":"D:\\Old"}"#).unwrap();
+        let short =
+            epic_game(r#"{"DisplayName":"Old","AppName":"Old","InstallLocation":"D:\\Old"}"#)
+                .unwrap();
         assert_eq!(
             short.launch,
             Launch::Uri {
@@ -2048,11 +2126,26 @@ mod tests {
     fn registry_snapshot_lists_subkeys_case_insensitively() {
         let registry = snapshot(&[
             ("HKLM\\SOFTWARE\\Vendor\\Games\\100", &[("Name", "A")]),
-            ("HKLM\\SOFTWARE\\Vendor\\Games\\200\\Deeper", &[("Name", "B")]),
+            (
+                "HKLM\\SOFTWARE\\Vendor\\Games\\200\\Deeper",
+                &[("Name", "B")],
+            ),
         ]);
-        assert_eq!(registry.subkeys(Hive::LocalMachine, "software\\vendor\\games"), ["100", "200"]);
-        assert_eq!(registry.string(Hive::LocalMachine, "SOFTWARE\\VENDOR\\GAMES\\100", "name").as_deref(), Some("A"));
-        assert!(registry.subkeys(Hive::CurrentUser, "SOFTWARE\\Vendor\\Games").is_empty());
+        assert_eq!(
+            registry.subkeys(Hive::LocalMachine, "software\\vendor\\games"),
+            ["100", "200"]
+        );
+        assert_eq!(
+            registry
+                .string(Hive::LocalMachine, "SOFTWARE\\VENDOR\\GAMES\\100", "name")
+                .as_deref(),
+            Some("A")
+        );
+        assert!(
+            registry
+                .subkeys(Hive::CurrentUser, "SOFTWARE\\Vendor\\Games")
+                .is_empty()
+        );
     }
 
     #[test]
@@ -2070,11 +2163,20 @@ mod tests {
         let games: &[(&str, &[(&str, &str)])] = &[
             (
                 "HKLM\\SOFTWARE\\WOW6432Node\\GOG.com\\Games\\1207658924",
-                &[("gameName", "Synthetic Witcher (Synthetic Test)"), ("path", &game_path), ("exe", &exe), ("launchParam", "-skip \"intro movie\"")],
+                &[
+                    ("gameName", "Synthetic Witcher (Synthetic Test)"),
+                    ("path", &game_path),
+                    ("exe", &exe),
+                    ("launchParam", "-skip \"intro movie\""),
+                ],
             ),
             (
                 "HKLM\\SOFTWARE\\WOW6432Node\\GOG.com\\Games\\1500000000",
-                &[("gameName", "A Soundtrack"), ("path", &game_path), ("dependsOn", "1207658924")],
+                &[
+                    ("gameName", "A Soundtrack"),
+                    ("path", &game_path),
+                    ("dependsOn", "1207658924"),
+                ],
             ),
         ];
         let found = scan_gog(&windows_env(&snapshot(games)));
@@ -2086,8 +2188,9 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+        let client: &[(&str, &str)] = &[("client", &galaxy_path)];
         let mut with_galaxy = games.to_vec();
-        with_galaxy.push(("HKLM\\SOFTWARE\\WOW6432Node\\GOG.com\\GalaxyClient\\paths", &[("client", &galaxy_path)]));
+        with_galaxy.push(("HKLM\\SOFTWARE\\WOW6432Node\\GOG.com\\GalaxyClient\\paths", client));
         let found = scan_gog(&windows_env(&snapshot(&with_galaxy)));
         match &found[0].launch {
             Launch::Program { path, args, .. } => {
@@ -2106,17 +2209,28 @@ mod tests {
         fs::create_dir_all(&game).unwrap();
         let install = format!("{}/", game.to_string_lossy().replace('\\', "/"));
         let registry = snapshot(&[
-            ("HKLM\\SOFTWARE\\WOW6432Node\\Ubisoft\\Launcher\\Installs\\720", &[("InstallDir", &install)]),
+            (
+                "HKLM\\SOFTWARE\\WOW6432Node\\Ubisoft\\Launcher\\Installs\\720",
+                &[("InstallDir", &install)],
+            ),
             (
                 "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Uplay Install 720",
                 &[("DisplayName", "Synthetic Creed (Synthetic Test)")],
             ),
-            ("HKLM\\SOFTWARE\\WOW6432Node\\Ubisoft\\Launcher\\Installs\\721", &[("InstallDir", "Z:/missing")]),
+            (
+                "HKLM\\SOFTWARE\\WOW6432Node\\Ubisoft\\Launcher\\Installs\\721",
+                &[("InstallDir", "Z:/missing")],
+            ),
         ]);
         let found = scan_ubisoft(&windows_env(&registry));
         assert_eq!(found.len(), 1, "missing folders are skipped");
         assert_eq!(found[0].title, "Synthetic Creed (Synthetic Test)");
-        assert_eq!(found[0].launch, Launch::Uri { uri: "uplay://launch/720/0".to_owned() });
+        assert_eq!(
+            found[0].launch,
+            Launch::Uri {
+                uri: "uplay://launch/720/0".to_owned()
+            }
+        );
     }
 
     #[test]
@@ -2134,14 +2248,32 @@ mod tests {
         let game_path = game.to_string_lossy().into_owned();
         let bare_path = bare.to_string_lossy().into_owned();
         let registry = snapshot(&[
-            ("HKLM\\SOFTWARE\\WOW6432Node\\EA Games\\Synthetic Battlefront", &[("Install Dir", &game_path), ("DisplayName", "Synthetic Battlefront (Synthetic Test)")]),
-            ("HKLM\\SOFTWARE\\WOW6432Node\\EA Games\\No Data", &[("Install Dir", &bare_path)]),
-            ("HKLM\\SOFTWARE\\WOW6432Node\\EA Games\\EA Desktop", &[("Install Dir", &game_path)]),
+            (
+                "HKLM\\SOFTWARE\\WOW6432Node\\EA Games\\Synthetic Battlefront",
+                &[
+                    ("Install Dir", &game_path),
+                    ("DisplayName", "Synthetic Battlefront (Synthetic Test)"),
+                ],
+            ),
+            (
+                "HKLM\\SOFTWARE\\WOW6432Node\\EA Games\\No Data",
+                &[("Install Dir", &bare_path)],
+            ),
+            (
+                "HKLM\\SOFTWARE\\WOW6432Node\\EA Games\\EA Desktop",
+                &[("Install Dir", &game_path)],
+            ),
         ]);
         let found = scan_ea(&windows_env(&registry));
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].store_id, "1234567");
-        assert_eq!(found[0].launch, Launch::Uri { uri: "origin2://game/launch?offerIds=1234567,OFB-EAST:7654&autoDownload=1".to_owned() });
+        assert_eq!(
+            found[0].launch,
+            Launch::Uri {
+                uri: "origin2://game/launch?offerIds=1234567,OFB-EAST:7654&autoDownload=1"
+                    .to_owned()
+            }
+        );
         assert!(ea_content_ids("<contentID>bad id</contentID>").is_empty());
     }
 
@@ -2155,14 +2287,41 @@ mod tests {
         fs::write(client.join("Battle.net.exe"), b"").unwrap();
         let game_path = game.to_string_lossy().into_owned();
         let client_path = client.to_string_lossy().into_owned();
-        let uninstall = "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall";
+        let uninstall =
+            "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall";
         let fenris = format!("{uninstall}\\Diablo IV");
         let bnet = format!("{uninstall}\\Battle.net");
         let other = format!("{uninstall}\\Other");
         let registry = snapshot(&[
-            (&fenris, &[("DisplayName", "Synthetic Diablo (Synthetic Test)"), ("Publisher", "Blizzard Entertainment"), ("InstallLocation", &game_path), ("UninstallString", "\"C:\\ProgramData\\Battle.net\\Agent\\Blizzard Uninstaller.exe\" --lang=enUS --uid=fenris --displayname=\"Diablo IV\"")]),
-            (&bnet, &[("DisplayName", "Battle.net"), ("Publisher", "Blizzard Entertainment"), ("InstallLocation", &client_path)]),
-            (&other, &[("DisplayName", "Not Blizzard"), ("Publisher", "Someone"), ("InstallLocation", &game_path), ("UninstallString", "x --uid=wow")]),
+            (
+                &fenris,
+                &[
+                    ("DisplayName", "Synthetic Diablo (Synthetic Test)"),
+                    ("Publisher", "Blizzard Entertainment"),
+                    ("InstallLocation", &game_path),
+                    (
+                        "UninstallString",
+                        "\"C:\\ProgramData\\Battle.net\\Agent\\Blizzard Uninstaller.exe\" --lang=enUS --uid=fenris --displayname=\"Diablo IV\"",
+                    ),
+                ],
+            ),
+            (
+                &bnet,
+                &[
+                    ("DisplayName", "Battle.net"),
+                    ("Publisher", "Blizzard Entertainment"),
+                    ("InstallLocation", &client_path),
+                ],
+            ),
+            (
+                &other,
+                &[
+                    ("DisplayName", "Not Blizzard"),
+                    ("Publisher", "Someone"),
+                    ("InstallLocation", &game_path),
+                    ("UninstallString", "x --uid=wow"),
+                ],
+            ),
         ]);
         let found = scan_battlenet(&windows_env(&registry));
         assert_eq!(found.len(), 1);
@@ -2173,7 +2332,10 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
-        assert_eq!(battlenet_uid("x --uid=wow_classic --y"), Some("wow_classic".to_owned()));
+        assert_eq!(
+            battlenet_uid("x --uid=wow_classic --y"),
+            Some("wow_classic".to_owned())
+        );
         assert_eq!(battlenet_uid("no uid"), None);
     }
 
@@ -2207,24 +2369,49 @@ mod tests {
         ]);
         let found = scan_xbox(&windows_env(&registry));
         assert_eq!(found.len(), 1, "apps without a game config are not games");
-        assert_eq!(found[0].title, "Synthetic Horizon & Friends (Synthetic Test)");
+        assert_eq!(
+            found[0].title,
+            "Synthetic Horizon & Friends (Synthetic Test)"
+        );
         assert_eq!(found[0].store_id, "SynthForza_8wekyb3d8bbwe");
-        assert_eq!(found[0].launch, Launch::Uri { uri: "shell:AppsFolder\\SynthForza_8wekyb3d8bbwe!Game".to_owned() });
-        assert_eq!(found[0].cover_source.as_deref(), Some(game.join("Logo480.png").as_path()));
-        assert_eq!(xml_attribute("<A x=\"1\" ax=\"2\"/>", "A", "x").as_deref(), Some("1"));
-        assert_eq!(xml_attribute("<AB x=\"1\"/><A x=\"2\"/>", "A", "x").as_deref(), Some("2"));
+        assert_eq!(
+            found[0].launch,
+            Launch::Uri {
+                uri: "shell:AppsFolder\\SynthForza_8wekyb3d8bbwe!Game".to_owned()
+            }
+        );
+        assert_eq!(
+            found[0].cover_source.as_deref(),
+            Some(game.join("Logo480.png").as_path())
+        );
+        assert_eq!(
+            xml_attribute("<A x=\"1\" ax=\"2\"/>", "A", "x").as_deref(),
+            Some("1")
+        );
+        assert_eq!(
+            xml_attribute("<AB x=\"1\"/><A x=\"2\"/>", "A", "x").as_deref(),
+            Some("2")
+        );
     }
 
     #[test]
     fn windows_only_stores_are_not_scanned_elsewhere_unless_fixtures_say_so() {
-        let registry = snapshot(&[("HKLM\\SOFTWARE\\WOW6432Node\\Ubisoft\\Launcher\\Installs\\1", &[("InstallDir", "/tmp")])]);
+        let registry = snapshot(&[(
+            "HKLM\\SOFTWARE\\WOW6432Node\\Ubisoft\\Launcher\\Installs\\1",
+            &[("InstallDir", "/tmp")],
+        )]);
         let mut env = windows_env(&registry);
         env.os = HostOs::Unix;
         assert!(scan(Store::Ubisoft, &env).is_empty());
-        assert!(Store::Steam.supported_on(HostOs::MacOs) && Store::Custom.supported_on(HostOs::Unix));
+        assert!(
+            Store::Steam.supported_on(HostOs::MacOs) && Store::Custom.supported_on(HostOs::Unix)
+        );
         assert!(!Store::Epic.supported_on(HostOs::Unix));
         env.all_platforms = true;
-        assert_eq!(scan(Store::Ubisoft, &env).len(), usize::from(Path::new("/tmp").is_dir()));
+        assert_eq!(
+            scan(Store::Ubisoft, &env).len(),
+            usize::from(Path::new("/tmp").is_dir())
+        );
     }
 
     #[test]
@@ -2249,11 +2436,21 @@ mod tests {
         ] {
             assert!(check_launch_uri(bad).is_err(), "{bad}");
         }
-        assert!(check_launch(&Launch::Program { path: PathBuf::from("relative.exe"), args: Vec::new(), working_dir: None }).is_err());
+        assert!(
+            check_launch(&Launch::Program {
+                path: PathBuf::from("relative.exe"),
+                args: Vec::new(),
+                working_dir: None
+            })
+            .is_err()
+        );
         assert!(check_arguments(&["a\0b".to_owned()]).is_err());
         let many: Vec<String> = (0..33).map(|_| "x".to_owned()).collect();
         assert!(check_arguments(&many).is_err());
-        assert_eq!(split_arguments("  -w \"my save\" --fast  "), ["-w", "my save", "--fast"]);
+        assert_eq!(
+            split_arguments("  -w \"my save\" --fast  "),
+            ["-w", "my save", "--fast"]
+        );
         assert_eq!(split_arguments("\"\""), [""]);
     }
 
@@ -2275,7 +2472,11 @@ mod tests {
             }
         }
         for (id, name) in games {
-            fs::write(root.join(format!("steamapps/appmanifest_{id}.acf")), acf(id, name, name, 4)).unwrap();
+            fs::write(
+                root.join(format!("steamapps/appmanifest_{id}.acf")),
+                acf(id, name, name, 4),
+            )
+            .unwrap();
         }
         root
     }
@@ -2301,19 +2502,38 @@ mod tests {
         steam_fixture(dir.path(), &[]);
         assert_eq!(library.refresh(&env).unwrap(), 0);
         let entries = library.entries();
-        assert_eq!(entries.len(), 1, "a game the player never touched disappears");
+        assert_eq!(
+            entries.len(),
+            1,
+            "a game the player never touched disappears"
+        );
         assert_eq!(entries[0].id, keep);
         assert!(!entries[0].installed && entries[0].favorite && entries[0].play_count == 1);
         assert_eq!(entries[0].title, "My Name");
-        assert!(library.launch_target(keep).is_err(), "uninstalled games do not launch");
+        assert!(
+            library.launch_target(keep).is_err(),
+            "uninstalled games do not launch"
+        );
         steam_fixture(dir.path(), &[("10", "Keep Me")]);
         library.refresh(&env).unwrap();
         let entry = &library.entries()[0];
-        assert!(entry.installed && entry.favorite, "reinstalling keeps the player's data");
-        assert_eq!(library.rename(keep, "  ").unwrap(), "Keep Me", "an empty name goes back to the store's");
+        assert!(
+            entry.installed && entry.favorite,
+            "reinstalling keeps the player's data"
+        );
+        assert_eq!(
+            library.rename(keep, "  ").unwrap(),
+            "Keep Me",
+            "an empty name goes back to the store's"
+        );
         let (launch, store) = library.launch_target(keep).unwrap();
         assert_eq!(store, Store::Steam);
-        assert_eq!(launch, Launch::Uri { uri: "steam://rungameid/10".to_owned() });
+        assert_eq!(
+            launch,
+            Launch::Uri {
+                uri: "steam://rungameid/10".to_owned()
+            }
+        );
     }
 
     #[test]
@@ -2333,9 +2553,18 @@ mod tests {
         library.set_store_enabled(Store::Steam, false).unwrap();
         assert!(library.entries().is_empty());
         let statuses = library.statuses(HostOs::Unix);
-        let steam = statuses.iter().find(|status| status.key == "steam").unwrap();
+        let steam = statuses
+            .iter()
+            .find(|status| status.key == "steam")
+            .unwrap();
         assert!(!steam.enabled && steam.supported && steam.games == 0);
-        assert!(!statuses.iter().find(|status| status.key == "epic").unwrap().supported);
+        assert!(
+            !statuses
+                .iter()
+                .find(|status| status.key == "epic")
+                .unwrap()
+                .supported
+        );
         library.set_store_enabled(Store::Steam, true).unwrap();
         assert_eq!(library.entries().len(), 1);
     }
@@ -2346,23 +2575,39 @@ mod tests {
         let program = dir.path().join("Synthetic Tool.exe");
         fs::write(&program, b"").unwrap();
         let library = StoreLibrary::open(dir.path()).unwrap();
-        assert!(library.add_program(Path::new("relative.exe"), None).is_err());
+        assert!(
+            library
+                .add_program(Path::new("relative.exe"), None)
+                .is_err()
+        );
         let id = library.add_program(&program, None).unwrap();
         let entry = library.entries().into_iter().next().unwrap();
         assert_eq!(entry.title, "Synthetic Tool");
         assert_eq!(entry.store, Store::Custom);
         library
-            .set_program(id, split_arguments("--windowed -x 2"), Some(dir.path().to_path_buf()))
+            .set_program(
+                id,
+                split_arguments("--windowed -x 2"),
+                Some(dir.path().to_path_buf()),
+            )
             .unwrap();
         match library.launch_target(id).unwrap().0 {
-            Launch::Program { path, args, working_dir } => {
+            Launch::Program {
+                path,
+                args,
+                working_dir,
+            } => {
                 assert_eq!(path, program);
                 assert_eq!(args, ["--windowed", "-x", "2"]);
                 assert_eq!(working_dir.as_deref(), Some(dir.path()));
             }
             other => panic!("{other:?}"),
         }
-        assert!(library.set_program(id, Vec::new(), Some(dir.path().join("missing"))).is_err());
+        assert!(
+            library
+                .set_program(id, Vec::new(), Some(dir.path().join("missing")))
+                .is_err()
+        );
         library.set_hidden(id, true).unwrap();
         assert!(library.entries()[0].hidden);
         library.remove_program(id).unwrap();
@@ -2409,7 +2654,9 @@ mod tests {
     fn fixtures_scan_every_store_from_one_folder() {
         let dir = tempfile::tempdir().unwrap();
         steam_fixture(dir.path(), &[("10", "Synthetic Steam Game")]);
-        let manifests = dir.path().join("ProgramData/Epic/EpicGamesLauncher/Data/Manifests");
+        let manifests = dir
+            .path()
+            .join("ProgramData/Epic/EpicGamesLauncher/Data/Manifests");
         fs::create_dir_all(&manifests).unwrap();
         let epic_dir = dir.path().join("EpicGame");
         fs::create_dir_all(&epic_dir).unwrap();

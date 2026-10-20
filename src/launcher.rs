@@ -1324,10 +1324,15 @@ mod launcher_app {
                 match kind {
                     REG_SZ | REG_EXPAND_SZ => {
                         let units: Vec<u16> = data
-                            .chunks_exact(2)
-                            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                            .as_chunks::<2>()
+                            .0
+                            .iter()
+                            .map(|pair| u16::from_le_bytes(*pair))
                             .collect();
-                        let end = units.iter().position(|unit| *unit == 0).unwrap_or(units.len());
+                        let end = units
+                            .iter()
+                            .position(|unit| *unit == 0)
+                            .unwrap_or(units.len());
                         Some(String::from_utf16_lossy(&units[..end]))
                     }
                     REG_DWORD if data.len() >= 4 => {
@@ -1370,10 +1375,12 @@ mod launcher_app {
                     args,
                     working_dir,
                 } => {
-                    let shortcut = path
-                        .extension()
-                        .and_then(|ext| ext.to_str())
-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("lnk") || ext.eq_ignore_ascii_case("url"));
+                    let shortcut =
+                        path.extension()
+                            .and_then(|ext| ext.to_str())
+                            .is_some_and(|ext| {
+                                ext.eq_ignore_ascii_case("lnk") || ext.eq_ignore_ascii_case("url")
+                            });
                     if shortcut {
                         shell_open(path.as_os_str())
                     } else {
@@ -1396,9 +1403,12 @@ mod launcher_app {
             let failed = |error: windows::core::Error| format!("Folder picker failed ({error}).");
             unsafe {
                 let dialog: IFileOpenDialog =
-                    CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).map_err(failed)?;
+                    CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)
+                        .map_err(failed)?;
                 let options = dialog.GetOptions().map_err(failed)?;
-                dialog.SetOptions(options | FOS_PICKFOLDERS).map_err(failed)?;
+                dialog
+                    .SetOptions(options | FOS_PICKFOLDERS)
+                    .map_err(failed)?;
                 if dialog.Show(Some(HWND(window.hwnd() as *mut _))).is_err() {
                     return Ok(None);
                 }
@@ -1406,7 +1416,9 @@ mod launcher_app {
                 let name = item.GetDisplayName(SIGDN_FILESYSPATH).map_err(failed)?;
                 let path = name.to_string();
                 CoTaskMemFree(Some(name.0 as *const core::ffi::c_void));
-                Ok(Some(PathBuf::from(path.map_err(|_| "the folder name is not valid".to_owned())?)))
+                Ok(Some(PathBuf::from(
+                    path.map_err(|_| "the folder name is not valid".to_owned())?,
+                )))
             }
         }
         use std::{
@@ -1645,12 +1657,9 @@ mod launcher_app {
                 return Ok(picked);
             }
             let (title, accept, name, patterns): (&str, &str, &str, &[&str]) = match pick {
-                Pick::Program | Pick::Folder => (
-                    "Add a program",
-                    "Add",
-                    "Programs and launchers",
-                    &["*"],
-                ),
+                Pick::Program | Pick::Folder => {
+                    ("Add a program", "Add", "Programs and launchers", &["*"])
+                }
                 Pick::Game => (
                     "Add a local HTML game",
                     "Add",
@@ -1926,11 +1935,17 @@ mod launcher_app {
             let ui = ui("/index.html");
             let id = Uuid::new_v4().to_string();
             assert_eq!(
-                parse_command(&ui, &format!(r#"{{"type":"launch_store_game","id":"{id}"}}"#)),
+                parse_command(
+                    &ui,
+                    &format!(r#"{{"type":"launch_store_game","id":"{id}"}}"#)
+                ),
                 Some(CommandMessage::LaunchStoreGame { id: id.clone() })
             );
             assert_eq!(
-                parse_command(&ui, r#"{"type":"set_store_enabled","store":"ea","enabled":false}"#),
+                parse_command(
+                    &ui,
+                    r#"{"type":"set_store_enabled","store":"ea","enabled":false}"#
+                ),
                 Some(CommandMessage::SetStoreEnabled {
                     store: "ea".to_owned(),
                     enabled: false
@@ -1938,7 +1953,9 @@ mod launcher_app {
             );
             // A store game is named by ID only; the page can never supply a link or a program.
             for body in [
-                format!(r#"{{"type":"launch_store_game","id":"{id}","uri":"https://example.com"}}"#),
+                format!(
+                    r#"{{"type":"launch_store_game","id":"{id}","uri":"https://example.com"}}"#
+                ),
                 r#"{"type":"add_program","path":"C:\\Windows\\System32\\cmd.exe"}"#.to_owned(),
                 format!(r#"{{"type":"open_install_folder","id":"{id}","path":"C:\\"}}"#),
             ] {
