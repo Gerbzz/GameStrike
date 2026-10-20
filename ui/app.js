@@ -348,7 +348,21 @@
       return button;
     });
     el.filters.replaceChildren(...nodes);
-    requestAnimationFrame(() => el.sidebar.classList.toggle("scrolls", el.filters.scrollHeight > el.filters.clientHeight + 2));
+    requestAnimationFrame(fitFilters);
+  }
+
+  // With many stores and sources the filter list scrolls: show the scroll marks and keep the chosen
+  // filter in view, again whenever the list changes size (window resizes, the frame's scale).
+  function fitFilters() {
+    el.sidebar.classList.toggle("scrolls", el.filters.scrollHeight > el.filters.clientHeight + 2);
+    // Only the list scrolls (scrollIntoView could also move the page while the sidebar is away).
+    const list = el.filters;
+    const current = list.querySelector('[aria-current="true"]');
+    if (!current) return;
+    const top = current.offsetParent === list ? current.offsetTop : current.offsetTop - list.offsetTop;
+    const bottom = top + current.offsetHeight;
+    if (top < list.scrollTop) list.scrollTop = Math.max(0, top - 8);
+    else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight + 8;
   }
 
   function setFilter(key) {
@@ -1286,6 +1300,7 @@
 
   window.GameStrike = Object.freeze({ receive, capture, ready });
   window.addEventListener("resize", () => { applyMetrics(); requestAnimationFrame(() => { for (const art of el.grid.querySelectorAll(".tile-art")) art.replaceChildren(); paintCovers(); }); });
+  if (window.ResizeObserver) new ResizeObserver(fitFilters).observe(el.filters);
   // Covers and the frame use the bundled fonts; draw again once they have loaded.
   document.fonts?.ready?.then(() => { window.GameStrikeCovers?.clearCache(); for (const art of el.grid.querySelectorAll(".tile-art")) art.replaceChildren(); paintCovers(); drawFrame(); });
   applyMetrics();
