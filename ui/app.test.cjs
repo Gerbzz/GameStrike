@@ -230,11 +230,13 @@ test("styles: Collection in PWDS Orange is the default, and the cycle reaches ev
   assert.deepEqual(core.STYLES.filter((s) => s.page === "classic").map((s) => s.key), ["blades", "original", "pwds"], "the earlier styles keep their saved names");
 });
 
-test("Collection metrics: seven columns at the reference size, fewer when narrow, readable type", () => {
+test("Collection metrics: seven columns by three rows at the reference size, reflowing elsewhere", () => {
   assert.deepEqual(core.collectionMetrics(1672, 941), { u: 1, t: 1, columns: 7 });
-  assert.equal(core.collectionMetrics(1250, 800).columns, 7);
+  assert.equal(core.collectionMetrics(1920, 1080).columns, 7, "the same shape at a larger size");
+  assert.ok(core.collectionMetrics(1250, 800).columns < 7, "a squarer window gets fewer, larger columns");
+  assert.ok(core.collectionMetrics(2560, 1080).columns > 7, "an ultrawide window gets more");
   const small = core.collectionMetrics(880, 620);
-  assert.ok(small.columns >= 4 && small.columns <= 7, `${small.columns} columns at the minimum size`);
+  assert.ok(small.columns >= 4 && small.columns <= 6, `${small.columns} columns at the minimum size`);
   assert.ok(small.t >= 0.72, "type never shrinks below its floor");
   assert.ok(core.collectionMetrics(3840, 2160).u <= 1.6);
   assert.equal(core.collectionMetrics(0, 0).columns, 2, "a zero-size window still lays out");

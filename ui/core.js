@@ -290,18 +290,23 @@
   }
 
   // Scale for the frame, measured from the reference concept at 1672 x 941: layout scale u, a
-  // type scale t that stays readable in small windows, and the number of cover columns (seven at
-  // the reference size, fewer when the window is narrow).
+  // type scale t that stays readable in small windows, and the number of cover columns. Columns
+  // are chosen so that three rows of covers fill the grid's height, as in the reference (seven
+  // columns by three rows at 1672 x 941); taller windows get fewer, larger columns and scroll.
   function collectionMetrics(width, height) {
     const w = Math.max(1, Number(width) || 0);
     const h = Math.max(1, Number(height) || 0);
     const raw = Math.min(w / 1672, h / 941);
     const u = Math.max(0.5, Math.min(1.6, raw));
     const t = Math.max(0.72, u);
-    // The grid well spans from 288u to 54u from the edges of the frame (20u and 22u margins).
-    const gridWidth = w - u * (20 + 22 + 288 + 54) - u * 20;
-    const tile = Math.max(96, 168 * Math.max(u, 0.62));
-    const columns = Math.max(2, Math.min(12, Math.floor((gridWidth + 9 * u) / (tile + 9 * u))));
+    // The grid's well: the frame's margins (20 + 22, 6 + 12), the sidebar column (288 incl. gap),
+    // the right column (54), the header (108), and the bottom bar (100), all scaled by u.
+    const gridWidth = w - u * (20 + 22 + 288 + 54);
+    const gridHeight = h - u * (6 + 12 + 108 + 100);
+    const gap = 9.5 * u;
+    const tileHeight = Math.max(80, (gridHeight - gap * 2 - 28 * u) / 3);
+    const tileWidth = (tileHeight * 176) / 236;
+    const columns = Math.max(2, Math.min(12, Math.floor((gridWidth + gap) / (tileWidth + gap))));
     return { u: Number(u.toFixed(4)), t: Number(t.toFixed(4)), columns };
   }
 
