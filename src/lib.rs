@@ -2,6 +2,8 @@
 
 //! Import-only foundation. This crate never interprets imported HTML or JavaScript.
 
+pub mod stores;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -563,6 +565,17 @@ impl Library {
             fs::rename(&current, folder.join(PREVIOUS_COVER))?;
         }
         Ok(())
+    }
+
+    /// Whether this ID is an HTML game in the library (store games live in [`stores`]).
+    pub fn has_game(&self, id: Uuid) -> bool {
+        self.game(id).is_ok()
+    }
+
+    /// The cover the launcher serves for any game ID: an HTML game's cover, or a store game's.
+    pub fn display_cover_file(&self, id: Uuid) -> Option<PathBuf> {
+        self.cover_file(id)
+            .or_else(|| stores::cover_file_at(&self.root, id))
     }
 
     /// The PNG the launcher shows for this game: the custom cover, else the automatic one.

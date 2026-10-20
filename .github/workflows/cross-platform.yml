@@ -51,8 +51,25 @@ jobs:
             macOS) sw_vers ;;
           esac
 
+      # Format and Clippy failures do not stop the job, so one run also reports compile and test
+      # results; the "Format and lint gate" step at the end still fails the job.
       - name: Format
+        id: format
+        continue-on-error: true
         run: cargo fmt --all -- --check
+      - name: Formatting patch
+        if: steps.format.outcome == 'failure' && runner.os == 'Linux'
+        run: |
+          cargo fmt --all
+          git diff > "$RUNNER_TEMP/rustfmt.patch"
+          git checkout -- .
+      - name: Upload formatting patch
+        if: steps.format.outcome == 'failure' && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustfmt-patch
+          path: ${{ runner.temp }}/rustfmt.patch
+          retention-days: 3
       - name: JavaScript syntax
         run: |
           node --check ui/core.js
@@ -65,6 +82,8 @@ jobs:
         run: node --test ui/app.test.cjs
 
       - name: Clippy
+        id: clippy
+        continue-on-error: true
         run: cargo clippy --locked --features launcher --all-targets -- -D warnings
       - name: Rust tests
         run: cargo test --locked --features launcher
@@ -113,6 +132,12 @@ jobs:
           path: ${{ runner.temp }}/gamestrike-capture/
           if-no-files-found: ignore
           retention-days: 14
+      - name: Format and lint gate
+        if: steps.format.outcome == 'failure' || steps.clippy.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "Format: ${{ steps.format.outcome }}, Clippy: ${{ steps.clippy.outcome }}"
+          exit 1
       - name: Upload release binaries
         uses: actions/upload-artifact@v4
         with:

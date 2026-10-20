@@ -1,4 +1,7 @@
-use gamestrike::{Library, clear_engine_data};
+use gamestrike::{
+    Library, clear_engine_data,
+    stores::{ScanEnv, SnapshotRegistry, StoreLibrary},
+};
 use std::{env, error::Error, io, path::PathBuf};
 use uuid::Uuid;
 
@@ -109,6 +112,35 @@ fn main() -> Result<(), Box<dyn Error>> {
             library.reset_cover(id(4)?)?;
             println!("Cover reset; undo-cover brings it back.");
         }
+        Some("add-program") if args.len() == 5 || args.len() == 6 => {
+            let title = args.get(5).and_then(|arg| arg.to_str());
+            let stores = StoreLibrary::open(&root)?;
+            let id = stores.add_program(&PathBuf::from(&args[4]), title)?;
+            println!("Added custom program {id}");
+        }
+        // Reads synthetic store fixtures (a Steam folder, Epic manifests, and a registry snapshot);
+        // the launcher reads the real locations. Used by the capture scripts.
+        Some("refresh-stores") if args.len() == 6 && args[4] == "--fixtures" => {
+            let dir = PathBuf::from(&args[5]);
+            let registry = SnapshotRegistry::load(&dir.join("registry.json"))?;
+            let stores = StoreLibrary::open(&root)?;
+            let installed = stores.refresh(&ScanEnv::for_fixtures(&dir, &registry))?;
+            println!("Store games installed: {installed}");
+        }
+        Some("stores") if args.len() == 4 => {
+            let stores = StoreLibrary::open(&root)?;
+            for entry in stores.entries() {
+                println!(
+                    "{}\t{}\t{}\tinstalled: {}\tcover: {}\tlaunch: {}",
+                    entry.id,
+                    entry.store.key(),
+                    entry.title,
+                    if entry.installed { "yes" } else { "no" },
+                    entry.cover.unwrap_or("generated"),
+                    entry.launch_kind,
+                );
+            }
+        }
         _ => return Err(usage().into()),
     }
     Ok(())
@@ -117,6 +149,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn usage() -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidInput,
-        "usage: gamestrike --library DIRECTORY import GAME.html|GAME.zip\n       gamestrike --library DIRECTORY list\n       gamestrike --library DIRECTORY rename GAME_UUID TITLE\n       gamestrike --library DIRECTORY reset-saves GAME_UUID\n       gamestrike --library DIRECTORY remove GAME_UUID [--keep-saves]\n       gamestrike --library DIRECTORY set-source GAME_UUID SOURCE|--clear\n       gamestrike --library DIRECTORY favorite GAME_UUID on|off\n       gamestrike --library DIRECTORY set-cover GAME_UUID IMAGE\n       gamestrike --library DIRECTORY undo-cover GAME_UUID\n       gamestrike --library DIRECTORY reset-cover GAME_UUID",
+        "usage: gamestrike --library DIRECTORY import GAME.html|GAME.zip\n       gamestrike --library DIRECTORY list\n       gamestrike --library DIRECTORY rename GAME_UUID TITLE\n       gamestrike --library DIRECTORY reset-saves GAME_UUID\n       gamestrike --library DIRECTORY remove GAME_UUID [--keep-saves]\n       gamestrike --library DIRECTORY set-source GAME_UUID SOURCE|--clear\n       gamestrike --library DIRECTORY favorite GAME_UUID on|off\n       gamestrike --library DIRECTORY set-cover GAME_UUID IMAGE\n       gamestrike --library DIRECTORY undo-cover GAME_UUID\n       gamestrike --library DIRECTORY reset-cover GAME_UUID\n       gamestrike --library DIRECTORY add-program PROGRAM [TITLE]\n       gamestrike --library DIRECTORY refresh-stores --fixtures DIRECTORY\n       gamestrike --library DIRECTORY stores",
     )
 }
