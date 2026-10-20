@@ -119,6 +119,10 @@ mod launcher_app {
         "launch",
         "about",
         "boot",
+        "boot-0.5",
+        "boot-2",
+        "boot-4.5",
+        "boot-5.5",
         "stores",
         "store-detail",
         "add-menu",
@@ -1040,6 +1044,7 @@ mod launcher_app {
         ),
         ("/scene.js", include_bytes!("../ui/scene.js"), JS),
         ("/chrome.js", include_bytes!("../ui/chrome.js"), JS),
+        ("/boot.js", include_bytes!("../ui/boot.js"), JS),
         ("/frame.js", include_bytes!("../ui/frame.js"), JS),
         ("/covers.js", include_bytes!("../ui/covers.js"), JS),
         (

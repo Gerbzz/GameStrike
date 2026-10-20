@@ -119,7 +119,6 @@ html[data-leaving] body { visibility: hidden; }
 .scene { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; z-index: 0; pointer-events: none; }
 .vignette { position: fixed; inset: 0; z-index: 0; pointer-events: none; background: radial-gradient(ellipse 85% 80% at 50% 48%, transparent 45%, rgb(0 0 0 / 55%) 80%, rgb(0 0 0 / 85%)); }
 .scene-front { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; z-index: 4; pointer-events: none; }
-body[data-view="boot"] .scene-front { opacity: 0; }
 /* With WebGL the frame, panels, emblem disc, and rivets are 3D chrome in the scene; the SVG frame and
    the CSS emblem glass are the fallback. */
 body[data-chrome="3d"] .frame-art, body[data-chrome="3d"] .emblem-glass, body[data-chrome="3d"] .emblem-shine { display: none; }
@@ -141,6 +140,34 @@ body[data-chrome="3d"] .frame-art, body[data-chrome="3d"] .emblem-glass, body[da
 @keyframes appear { from { opacity: 0; transform: translateY(10px) scale(.96); } }
 .boot.frozen * { animation-play-state: paused !important; animation-delay: calc(var(--seek, 2.8s) * -1) !important; }
 body[data-view="boot"] .stage { opacity: 0; }
+
+/* The WebGL startup (boot.js) draws everything but the wordmark: the overlay turns transparent,
+   and GAMESTRIKE slides in under the emblem with a light sweep, then leaves as the frame assembles.
+   Delays count from the startup's first frame; --seek holds any second for a capture. */
+body[data-boot="cinema"] .boot { background: transparent; }
+body[data-boot="cinema"] .boot > :not(.boot-title) { display: none; }
+body[data-boot="cinema"] .boot-title { position: absolute; left: 0; right: 0; top: 62%; margin: 0; align-self: auto; text-align: center; font-size: clamp(30px, 4.4vw, 66px); letter-spacing: .3em; text-indent: .3em; color: transparent; -webkit-text-stroke: 0;
+  background: linear-gradient(100deg, var(--accent-text) 0 40%, #fff7e6 50%, var(--accent-text) 60% 100%); background-size: 320% 100%; background-position: 100% 0; -webkit-background-clip: text; background-clip: text; text-shadow: none; filter: drop-shadow(0 0 calc(var(--px) * 18) var(--glow));
+  animation: gs-word-in .65s var(--ease) calc(3.25s - var(--seek, 0s)) both, gs-word-sweep .7s linear calc(3.5s - var(--seek, 0s)) both, gs-word-out .45s ease calc(4.3s - var(--seek, 0s)) forwards; }
+@keyframes gs-word-in { from { opacity: 0; transform: translateY(28px); letter-spacing: .6em; } }
+@keyframes gs-word-sweep { from { background-position: 100% 0; } to { background-position: 0% 0; } }
+@keyframes gs-word-out { to { opacity: 0; transform: translateY(-12px); } }
+body[data-boot="cinema"] .boot.done { transition: opacity .3s ease, visibility .3s; }
+/* The assembly (from 4.2 s): the frame is already there in 3D; the header slides in, the rows
+   follow one after another, the covers flip in row by row, and the bottom bar rises. --aseek
+   holds a moment of it for a capture. */
+body.assembling .stage { transition: none; }
+body.assembling .head-title { animation: gs-in-left .55s var(--blade) calc(.35s - var(--aseek, 0s)) both; }
+body.assembling .head-count, body.assembling .synthetic { animation: gs-fade .45s ease calc(.65s - var(--aseek, 0s)) both; }
+body.assembling .sidebar .row { animation: gs-in-left .45s var(--blade) calc(.22s + var(--i, 0) * .045s - var(--aseek, 0s)) both; }
+body.assembling .tile { animation: gs-flip .5s var(--blade) calc(.45s + var(--row, 0) * .13s - var(--aseek, 0s)) both; }
+body.assembling .now, body.assembling .prompts { animation: gs-in-up .5s var(--blade) calc(.55s - var(--aseek, 0s)) both; }
+body.assembling .emblem-logo { animation: gs-fade .2s ease calc(.8s - var(--aseek, 0s)) both; }
+@keyframes gs-in-left { from { opacity: 0; transform: translateX(calc(var(--px) * -70)); } }
+@keyframes gs-in-up { from { opacity: 0; transform: translateY(calc(var(--px) * 34)); } }
+@keyframes gs-fade { from { opacity: 0; } }
+@keyframes gs-flip { from { opacity: 0; transform: perspective(900px) rotateY(-95deg); } 55% { opacity: 1; } }
+body.boot-frozen *, body.boot-frozen *::before, body.boot-frozen *::after { animation-play-state: paused !important; }
 
 /* ---------- the stage and the frame ---------- */
 .stage { position: fixed; inset: 0; z-index: 1; perspective: var(--persp, 1200px); transition: opacity .6s ease; }

@@ -19,6 +19,9 @@
 //   "gamestrike:pause"   { paused }           stop rendering while a game runs
 //   "gamestrike:layout"                       the page's layout changed: rebuild the chrome
 //   "gamestrike:freeze"  { from, to, progress }  a still frame partway through a flight (captures)
+//   "gamestrike:boot"    { action: "play", start } | { action: "skip" } | { action: "freeze", t }
+//                        the startup (boot.js): play from a performance.now() time, jump to its
+//                        end, or hold second t for a capture
 // Without WebGL 2 it paints a still dome on a 2D canvas (and the page draws its SVG frame); with
 // reduced motion it draws one frame.
 import * as THREE from "./vendor/three/three.module.min.js";
@@ -27,6 +30,7 @@ import { RenderPass } from "./vendor/three/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "./vendor/three/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "./vendor/three/postprocessing/OutputPass.js";
 import { createChrome, createEnvironment } from "./chrome.js";
+import { BOOT, bootPose, createBoot } from "./boot.js";
 
 const canvas = document.getElementById("scene");
 const frontCanvas = document.getElementById("scene-front");
@@ -153,7 +157,7 @@ function domeMaterial() {
         float lines = max(lineMask(u, px), lineMask(v, px));
         float light = pow(max(dot(d, lightDir), 0.0), 3.0);
         float fog = exp(-max(dist - 18.0, 0.0) * 0.035);
-        vec3 color = voidColor * (0.7 + 0.6 * light) * min(1.0, intensity * 1.5);
+        vec3 color = voidColor * (0.7 + 0.6 * light) * min(1.0, intensity * 3.0);
         color += netColor * lines * (0.13 + 0.75 * light) * fog * intensity;
         color += glowColor * light * 0.06 * intensity;
         gl_FragColor = vec4(color, 1.0);
@@ -441,6 +445,14 @@ function startWebGL() {
   }
   body.dataset.chrome = "3d";
 
+  // The startup: its own objects in the world and in the rig; null start means not playing.
+  const boot = createBoot({ tint: LINEAR[variantName()].glow, envMap });
+  world.scene.add(boot.world);
+  world.rig.add(boot.rig);
+  let bootStart = null;
+  let bootHold = null;
+  let bootTime = BOOT.end;
+
   const station = (name) => VIEWS[name] || VIEWS.library;
   const pos = new THREE.Vector3(...station("boot").position);
   const goalPos = pos.clone();
@@ -462,6 +474,7 @@ function startWebGL() {
   const stage = document.getElementById("frame");
   const capturing = () => body.classList.contains("reduce-motion");
   const still = () => prefersReduced() || capturing() || frozen;
+  const booting = () => bootStart !== null && bootTime < BOOT.end;
 
   function applyVariant() {
     const name = variantName();
@@ -513,13 +526,16 @@ function startWebGL() {
       const materials = inFront && front ? front.materials : backTubeMaterials;
       const curve = new THREE.CatmullRomCurve3(points.map(([x, y, d]) => viewportPoint(x, y, d)));
       const energy = new THREE.Mesh(new THREE.TubeGeometry(curve, 120, radius * 0.22, 8, false), energyMaterial(index * 0.23));
+      energy.userData.extend = 8;
       energy.material.uniforms.tint.value.setRGB(...v.glow);
       energy.renderOrder = 1;
       const glass = new THREE.Mesh(new THREE.TubeGeometry(curve, 160, radius, 32, false), materials.glass);
+      glass.userData.extend = 32;
       glass.renderOrder = 2;
       target.add(energy, glass);
       if (inFront && front) {
         const halo = new THREE.Mesh(new THREE.TubeGeometry(curve, 80, radius * 1.7, 16, false), haloShellMaterial());
+        halo.userData.extend = 16;
         halo.material.uniforms.tint.value.setRGB(...v.glow);
         halo.renderOrder = 0;
         target.add(halo);
@@ -532,6 +548,7 @@ function startWebGL() {
         collar.position.copy(curve.getPointAt(t));
         collar.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), curve.getTangentAt(t));
         collar.renderOrder = 3;
+        collar.userData.at = t;
         target.add(collar);
       }
       ring.dispose();
@@ -569,6 +586,7 @@ function startWebGL() {
     document.documentElement.style.setProperty("--persp", `${cssPerspective().toFixed(1)}px`);
     buildTubes();
     buildChrome();
+    if (bootStart !== null || bootHold !== null) poseBoot(bootHold ?? (performance.now() - bootStart) / 1000);
     applyQuality();
     if (!running) renderFrame(0);
   }
@@ -615,6 +633,55 @@ function startWebGL() {
     c.holder.rotation.y = still() ? 0.04 : Math.sin(clock * 0.9) * 0.05;
   }
 
+  // Tubes grow from their far ends (0 to 1), collars appearing as the tube passes them.
+  function extendTubes(p) {
+    for (const group of [world.tubes, front?.tubes]) {
+      group?.children.forEach((mesh) => {
+        if (mesh.userData.extend) {
+          const index = mesh.geometry.index;
+          const per = mesh.userData.extend * 6;
+          mesh.geometry.setDrawRange(0, p >= 1 ? Infinity : Math.floor(((index ? index.count : 0) / per) * p) * per);
+          mesh.visible = p > 0;
+        } else if (mesh.userData.at !== undefined) {
+          mesh.visible = p >= mesh.userData.at;
+        }
+      });
+    }
+  }
+
+  // The startup at second t: the camera's path, the net, the frame assembling, the tubes, the
+  // emblem's flight from the core to its seat. Past the end, everything is at rest.
+  function poseBoot(t) {
+    bootTime = t;
+    const k = pixelSize();
+    if (t >= BOOT.end) {
+      boot.world.visible = false;
+      boot.rig.visible = false;
+      chrome.setAssembly(1, k);
+      extendTubes(1);
+      world.light.visible = true;
+      return false;
+    }
+    const pose = bootPose(t);
+    pos.copy(pose.position);
+    yaw = 0;
+    pitch = pose.pitch;
+    net = pose.net;
+    placeCamera(pos, yaw, pitch, { yaw: 0, pitch: 0, x: 0, y: 0 });
+    world.dome.material.uniforms.intensity.value = net;
+    chrome.setAssembly(pose.assembly, k, { hideEmblem: t < 5.0 });
+    extendTubes(Math.min(1, Math.max(0, (t - 4.45) / 0.9)));
+    world.light.visible = t > 4.6;
+    world.cradle.group.visible = false;
+    boot.rig.visible = true;
+    const seat = chrome.seat();
+    boot.update(t, {
+      start: { position: viewportPoint(0.5, 0.4, 7), radius: 0.85 },
+      seat: seat ? { position: seat.position.clone().add(chrome.group.position), radius: seat.radius } : { position: viewportPoint(0.09, 0.09, FRAME_DEPTH), radius: 0.5 },
+    });
+    return true;
+  }
+
   // The frame's interior turns translucent in the detail view, so the cradle and the dimmer dome show through.
   function interiorTarget() {
     if (view !== "detail" && view !== "saves") return 1;
@@ -628,6 +695,20 @@ function startWebGL() {
 
   function renderFrame(dt) {
     clock += dt;
+    if (bootHold !== null || bootStart !== null) {
+      const t = bootHold !== null ? bootHold : (performance.now() - bootStart) / 1000;
+      if (poseBoot(t)) {
+        const time = (group) => group?.traverse((mesh) => { if (mesh.material?.uniforms?.time) mesh.material.uniforms.time.value = clock; });
+        time(world.tubes);
+        time(front?.tubes);
+        render();
+        if (bootHold !== null) body.dataset.bootFrame = String(bootHold);
+        return;
+      }
+      bootStart = null;
+      if (bootHold !== null) body.dataset.bootFrame = String(bootHold);
+      bootHold = null;
+    }
     const ease = dt > 0 && !still() ? 1 - Math.exp(-dt * 2.4) : 1;
     pos.lerp(goalPos, ease);
     yaw += (goalYaw - yaw) * ease;
@@ -665,7 +746,7 @@ function startWebGL() {
 
   function setRunning() {
     body.classList.toggle("flat", prefersReduced());
-    const shouldRun = !paused && !document.hidden && !still();
+    const shouldRun = !paused && !document.hidden && (!still() || booting());
     if (shouldRun && !running) {
       running = true;
       last = performance.now();
@@ -737,9 +818,31 @@ function startWebGL() {
   window.addEventListener("resize", resize);
   window.addEventListener("gamestrike:view", (event) => fly(event.detail?.view, Boolean(event.detail?.instant)));
   window.addEventListener("gamestrike:pause", (event) => { paused = Boolean(event.detail?.paused); setRunning(); });
-  window.addEventListener("gamestrike:variant", () => { applyEnvironment(); applyVariant(); if (!running) renderFrame(0); });
+  window.addEventListener("gamestrike:variant", () => { applyEnvironment(); applyVariant(); boot.setTint(LINEAR[variantName()].glow); if (!running) renderFrame(0); });
   window.addEventListener("gamestrike:cradle", (event) => setCover(event.detail));
-  window.addEventListener("gamestrike:layout", () => { buildChrome(); if (!running && !frozen) renderFrame(0); });
+  window.addEventListener("gamestrike:layout", () => { buildChrome(); poseBoot(bootStart !== null ? (performance.now() - bootStart) / 1000 : bootHold ?? BOOT.end); if (!running && !frozen) renderFrame(0); });
+  function onBoot(detail) {
+    const action = detail?.action;
+    if (action === "play" && !prefersReduced()) {
+      bootStart = typeof detail.start === "number" ? detail.start : performance.now();
+      bootHold = null;
+      poseBoot(0);
+      setRunning();
+    } else if (action === "freeze") {
+      bootHold = Math.max(0, Math.min(BOOT.end, Number(detail.t) || 0));
+      bootStart = null;
+      frozen = true;
+      running = false;
+      renderFrame(0);
+    } else {
+      bootStart = null;
+      bootHold = null;
+      poseBoot(BOOT.end);
+      fly(view === "boot" ? "library" : view, true);
+      if (!running && !frozen) renderFrame(0);
+    }
+  }
+  window.addEventListener("gamestrike:boot", (event) => onBoot(event.detail));
   window.addEventListener("gamestrike:freeze", (event) => {
     // A still frame partway through a flight, for the capture of a camera move.
     const { from = "library", to = "detail", progress = 0.5 } = event.detail || {};
@@ -772,6 +875,8 @@ function startWebGL() {
   // Anything the page asked for before the scene was running.
   const pending = window.GameStrikeScenePending || {};
   if (pending.cradle) setCover(pending.cradle);
+  if (pending.boot) onBoot(pending.boot);
+  else poseBoot(BOOT.end);
   setRunning();
   if (pending.freeze) window.dispatchEvent(new CustomEvent("gamestrike:freeze", { detail: pending.freeze }));
 }

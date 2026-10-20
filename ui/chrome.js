@@ -242,11 +242,12 @@ export function createChrome({ envMap, palette = "orange" }) {
 
   // `from` is where a piece starts when the frame assembles in the startup (an offset in pixels and
   // a turn), `at` when it starts moving (0 to 1 of the assembly).
-  function add(object, { from = [0, 0, 0], turn = [0, 0, 0], at = 0, pop = false } = {}) {
+  function add(object, { from = [0, 0, 0], turn = [0, 0, 0], at = 0, pop = false, tag = "" } = {}) {
     parts.add(object);
-    pieces.push({ object, home: object.position.clone(), from: new THREE.Vector3(...from), turn: new THREE.Euler(...turn), at, pop });
+    pieces.push({ object, home: object.position.clone(), from: new THREE.Vector3(...from), turn: new THREE.Euler(...turn), at: at * 0.65, pop, tag });
     return object;
   }
+  let emblemSeat = null;
 
   // Rebuilds the chrome from frame.js's measurements. `view` is the window size in pixels and
   // `k` the world size of one pixel on the frame's plane.
@@ -309,7 +310,8 @@ export function createChrome({ envMap, palette = "orange" }) {
         notch.rotation.z = -((angle + 90) * Math.PI) / 180;
         emblem.add(notch);
       }
-      add(emblem, { from: [0, 0, 0], at: 0.1, pop: true });
+      add(emblem, { tag: "emblem" });
+      emblemSeat = { position: emblem.position.clone(), radius: r };
       orb.position.set(centre.x + r * 0.2, centre.y - r * 0.4, r * 1.6);
       orb.distance = r * 9;
     }
@@ -356,9 +358,11 @@ export function createChrome({ envMap, palette = "orange" }) {
 
   // The startup's assembly, 0 (scattered, hidden) to 1 (in place). Pieces slide in from their
   // offsets in order; rivets pop in last.
-  function setAssembly(t, k) {
+  // While the startup flies its own emblem in, the frame's emblem stays hidden (hideEmblem).
+  function setAssembly(t, k, { hideEmblem = false } = {}) {
     for (const piece of pieces) {
-      const local = clamp01((t - piece.at) / 0.35);
+      if (piece.tag === "emblem") { piece.object.visible = !hideEmblem; continue; }
+      const local = t >= 1 ? 1 : clamp01((t - piece.at) / 0.35);
       const p = piece.pop ? easeBack(local) : easeOut(local);
       const left = 1 - p;
       piece.object.visible = local > 0;
@@ -370,5 +374,7 @@ export function createChrome({ envMap, palette = "orange" }) {
   }
 
   setPalette(palette);
-  return { group, materials, build, setPalette, setEnvironment, setInterior, setAssembly };
+  // The emblem's centre (in the chrome group) and radius, for the startup's flight.
+  const seat = () => emblemSeat;
+  return { group, materials, build, setPalette, setEnvironment, setInterior, setAssembly, seat };
 }
