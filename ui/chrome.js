@@ -10,7 +10,7 @@ import * as THREE from "./vendor/three/three.module.min.js";
 // Colours per variant: hex values are sRGB (three.js converts them to linear light); `pipe` is
 // linear RGB, scaled above 1 for the light pipes so that they bloom.
 const PALETTES = {
-  orange: { pipe: [1.0, 0.22, 0.02], face: 0x1a0803, faceGlow: 0x0d0301, panel: 0x120502, panelGlow: 0x0a0200, edge: 0xff7a18, edgeGlow: 0xff5000, glass: 0x120502, glassGlow: 0xff5a10, ring: 0xff7a1c, ringGlow: 0xff4800, light: 0xffb36b, rim: 0xff7a1c, disc: 0x140602, discGlow: 0x9a2a00, interior: 0x090301 },
+  orange: { pipe: [1.0, 0.22, 0.02], face: 0x1a0803, faceGlow: 0x0d0301, panel: 0x120502, panelGlow: 0x0a0200, edge: 0xff7a18, edgeGlow: 0xff5000, glass: 0x120502, glassGlow: 0xff5a10, ring: 0xc8561a, ringGlow: 0xff4800, light: 0xffb36b, rim: 0xff7a1c, disc: 0x140602, discGlow: 0x9a2a00, interior: 0x090301 },
   green: { pipe: [0.2, 0.85, 0.04], face: 0x081203, faceGlow: 0x020801, panel: 0x050c02, panelGlow: 0x010600, edge: 0x7fe03a, edgeGlow: 0x3aaa00, glass: 0x050c02, glassGlow: 0x5aff10, ring: 0x8fe04a, ringGlow: 0x3aaa00, light: 0xc8ff9a, rim: 0x6fd12e, disc: 0x061404, discGlow: 0x2a7a00, interior: 0x030902 },
 };
 
@@ -82,8 +82,8 @@ function makeMaterials(envMap) {
     edge: physical({ color: 0xff7a18, emissive: 0xff5000, emissiveIntensity: 0.8, metalness: 0.2, roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.04, envMapIntensity: 1.2 }),
     glass: physical({ color: 0x120502, emissive: 0xff5a10, emissiveIntensity: 0.03, specularIntensity: 0.3, metalness: 0, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 0.8, transparent: true, opacity: 0.85, depthWrite: false }),
     head: physical({ color: 0x151110, metalness: 0.85, roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.4, side: THREE.DoubleSide }),
-    disc: physical({ color: 0x140602, emissive: 0x9a2a00, emissiveIntensity: 0.9, metalness: 0.0, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.2, side: THREE.DoubleSide }),
-    ring: physical({ color: 0xff7a1c, emissive: 0xff4800, emissiveIntensity: 0.45, metalness: 0.3, roughness: 0.24, clearcoat: 1, clearcoatRoughness: 0.04, envMapIntensity: 1.4, side: THREE.DoubleSide }),
+    disc: physical({ color: 0x140602, emissive: 0x9a2a00, emissiveIntensity: 0.9, metalness: 0.0, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.12, envMapIntensity: 0.55, side: THREE.DoubleSide }),
+    ring: physical({ color: 0xc8561a, emissive: 0xff4800, emissiveIntensity: 0.3, metalness: 0.3, roughness: 0.24, clearcoat: 1, clearcoatRoughness: 0.04, envMapIntensity: 1.4, side: THREE.DoubleSide }),
     interior: new THREE.MeshBasicMaterial({ color: 0x090301, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide }),
     well: new THREE.MeshBasicMaterial({ color: 0x050100, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide }),
     // Light pipes: colours above 1 so the bloom pass makes them glow.

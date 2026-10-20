@@ -178,7 +178,7 @@ function energyMaterial(phase) {
       void main() {
         float flow = fract(vUv.x * 2.0 - time * 0.12 + phase);
         float pulse = smoothstep(0.0, 0.02, flow) * (1.0 - smoothstep(0.02, 0.12, flow));
-        gl_FragColor = vec4(tint * (0.45 + pulse * 2.6), 0.6 + pulse);
+        gl_FragColor = vec4(tint * (1.1 + pulse * 2.6), 0.85 + pulse);
       }`,
   });
 }
@@ -375,12 +375,14 @@ function tubeGlassMaterial() {
         float facing = abs(dot(n, v));
         float rim = pow(1.0 - facing, 2.0);
         float lit = max(dot(n, normalize(vec3(-0.35, 0.9, 0.35))), 0.0);
-        vec3 body = tint * (0.26 + 0.85 * lit);
-        vec3 color = mix(body, tint * 1.5, rim) + tint * 0.14;
+        // Clear, slightly smoked glass: the glowing core shows through the middle, the walls
+        // light up toward the silhouette, and the studio leaves sharp highlights.
+        vec3 body = tint * (0.05 + 0.3 * lit);
+        vec3 color = mix(body, tint * 1.7, smoothstep(0.15, 0.95, rim));
         vec3 r = reflect(-v, n);
-        vec3 shine = studio(r) * (0.25 + 0.75 * rim);
-        color += mix(tint, vec3(1.0, 0.95, 0.85), 0.6) * shine;
-        float alpha = clamp(0.72 + rim * 0.28 + length(shine) * 0.3, 0.0, 1.0);
+        vec3 shine = studio(r) * (0.4 + 0.6 * rim);
+        color += mix(tint, vec3(1.0, 0.96, 0.88), 0.7) * shine;
+        float alpha = clamp(0.28 + rim * 0.62 + length(shine) * 0.45, 0.0, 1.0);
         gl_FragColor = vec4(color, alpha);
       }`,
   });
@@ -396,7 +398,8 @@ function tubeCollarMaterial() {
         vec3 n = normalize(vNormal); vec3 v = normalize(vView);
         float lit = max(dot(n, normalize(vec3(-0.35, 0.9, 0.35))), 0.0);
         vec3 r = reflect(-v, n);
-        vec3 color = vec3(0.03, 0.018, 0.012) + tint * 0.5 * lit + mix(tint, vec3(1.0), 0.5) * studio(r) * 0.9;
+        float rim = pow(1.0 - abs(dot(n, v)), 2.0);
+        vec3 color = tint * (0.12 + 0.6 * lit + 1.1 * rim) + mix(tint, vec3(1.0), 0.6) * studio(r);
         gl_FragColor = vec4(color, 1.0);
       }`,
   });
@@ -534,7 +537,7 @@ function startWebGL() {
       const target = inFront && front ? front.tubes : world.tubes;
       const materials = inFront && front ? front.materials : backTubeMaterials;
       const curve = new THREE.CatmullRomCurve3(points.map(([x, y, d]) => viewportPoint(x, y, d)));
-      const energy = new THREE.Mesh(new THREE.TubeGeometry(curve, 120, radius * 0.22, 8, false), energyMaterial(index * 0.23));
+      const energy = new THREE.Mesh(new THREE.TubeGeometry(curve, 120, radius * 0.3, 10, false), energyMaterial(index * 0.23));
       energy.userData.extend = 8;
       energy.material.uniforms.tint.value.setRGB(...v.glow);
       energy.renderOrder = 1;

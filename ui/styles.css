@@ -196,7 +196,7 @@ body[data-variant="green"] .emblem-logo.mark { display: block; }
 .filters { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; gap: calc(var(--px) * 7.5); padding: calc(var(--px) * 7.5) calc(var(--px) * 8) calc(var(--px) * 4) 0; }
 .filters::-webkit-scrollbar { display: none; }
 .row { --c: calc(var(--px) * 10); --rim: max(2px, calc(var(--px) * 2.6)); position: relative; flex: none; width: 100%; height: calc(var(--px) * 48); min-height: 30px; display: flex; align-items: center; gap: calc(var(--px) * 15); padding: 0 calc(var(--px) * 14) 0 calc(var(--px) * 17); border: 0; text-align: left; isolation: isolate;
-  font-family: var(--ui); font-weight: 600; font-size: max(12px, calc(var(--tx) * 17.5)); letter-spacing: .085em; text-transform: uppercase; color: var(--text);
+  font-family: var(--ui); font-weight: 600; font-size: max(12px, calc(var(--tx) * 17.5)); letter-spacing: .09em; text-transform: uppercase; color: var(--text);
   background: linear-gradient(180deg, var(--edge-hi) 0%, var(--row-edge) 22%, var(--edge-lo) 70%, #2a0f04 100%);
   clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
   transition: transform .25s var(--ease), filter .2s; }
