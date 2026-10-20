@@ -21,9 +21,11 @@ Hard rules: no local cargo or rustc (all Rust builds and tests run in GitHub Act
 - Commit `68868cb` (3D chrome), pushed; its Cross-platform run was cancelled in favour of `149ef57` (same code plus this note): Cross-platform checks https://github.com/Gerbzz/GameStrike/actions/runs/39488904943, Windows source checks https://github.com/Gerbzz/GameStrike/actions/runs/39488905136 (passed).
 - Commit `95a5bef` (WIP startup): `ui/boot.js` (particles, tendrils, core, flash, shockwave, emblem with the real PWDS logo, light sweep, flight to the seat), driven from `scene.js` (`gamestrike:boot` play / skip / freeze, `poseBoot(t)`, `extendTubes(p)`, `chrome.setAssembly`, `chrome.seat()`); page side in `app.js` (`startBoot`, `skipBoot`, `finishBoot({ assemble })`, `stagger()`, startup sounds on a bus that a skip fades out) and `styles.css` (wordmark, `body.assembling` slide and flip animations, `--seek` and `--aseek` for captures). Capture views `boot` (3.5 s), `boot-0.5`, `boot-2`, `boot-4.5`, `boot-5.5`. CI step "Record the startup (Linux, Xvfb)" runs `scripts/record-startup.sh` (ffmpeg; mp4, gif, stills in the Linux capture artifact).
 
+- CI for `8023ed3` (run 39490904364, green on all three) showed: the startup plays correctly in the Linux recording (`startup.mp4` / `startup.gif` in the Linux capture artifact), but on Windows and macOS the boot captures did not hold the page animations (rAF paused in hidden capture windows), the 3.5 s macOS capture lacked the logo, the Linux 5.5 s capture was black, and the flying emblem was hidden behind the covers. Fixed in `115d8ca` (emblem and flash on the front layer, timer-based holds, logo readiness, 5.5 s = library at rest). `bb38b94` (run 39491181344, green) brightened the tubes and thickened the outer rim.
+
 ## In progress
 
-- CI for `95a5bef`: check the boot captures and the Linux recording on all three systems, and the chrome captures from run 39488904943.
+- CI for `115d8ca` (Cross-platform run 39492482644): check boot-0.5 / boot-2 / boot (3.5) / boot-4.5 / boot-5.5 on all three systems and the Linux recording.
 
 ## Next steps
 
