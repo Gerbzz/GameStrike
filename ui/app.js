@@ -191,6 +191,8 @@
   })();
 
   // ---------- 3D scene ----------
+  // Requests the scene may have missed because it started later; scene.js reads them when it starts.
+  const scenePending = (window.GameStrikeScenePending = {});
   // scene.js hears where the camera should go, which cover the cradle holds, and pause requests.
   function setView(view, instant = false) {
     document.body.dataset.view = view;
@@ -204,7 +206,9 @@
     if (!game) return;
     const url = core.coverUrl(game);
     const canvas = window.GameStrikeCovers?.canvasFor(game, kickerFor(game), 352, 472);
-    window.dispatchEvent(new CustomEvent("gamestrike:cradle", { detail: { id: game.id, url, canvas } }));
+    // Kept as well as sent: on a slow start (macOS in CI) the scene can start after this.
+    scenePending.cradle = { id: game.id, url, canvas };
+    window.dispatchEvent(new CustomEvent("gamestrike:cradle", { detail: scenePending.cradle }));
     const card = document.querySelector(".cradle-card");
     if (card) card.replaceChildren(coverNode(game, 352, 472));
   }
@@ -1102,7 +1106,8 @@
     if (view === "moving") {
       // Halfway through the flight from the grid to the cradle, frozen for the screenshot.
       document.body.classList.add("mid-move");
-      window.dispatchEvent(new CustomEvent("gamestrike:freeze", { detail: { from: "library", to: "detail", progress: 0.5 } }));
+      scenePending.freeze = { from: "library", to: "detail", progress: 0.5 };
+      window.dispatchEvent(new CustomEvent("gamestrike:freeze", { detail: scenePending.freeze }));
       return;
     }
     // Captures show the camera at its station, not partway through a flight.

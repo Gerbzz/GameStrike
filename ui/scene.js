@@ -618,7 +618,11 @@ function startWebGL() {
   applyVariant();
   resize();
   fly(body.dataset.view || "boot", true);
+  // Anything the page asked for before the scene was running.
+  const pending = window.GameStrikeScenePending || {};
+  if (pending.cradle) setCover(pending.cradle);
   setRunning();
+  if (pending.freeze) window.dispatchEvent(new CustomEvent("gamestrike:freeze", { detail: pending.freeze }));
 }
 
 // ---------- the still dome, for machines without WebGL 2 ----------
