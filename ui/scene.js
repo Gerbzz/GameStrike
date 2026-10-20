@@ -446,9 +446,18 @@ function startWebGL() {
   body.dataset.chrome = "3d";
 
   // The startup: its own objects in the world and in the rig; null start means not playing.
-  const boot = createBoot({ tint: LINEAR[variantName()].glow, envMap });
+  // The emblem and the flash fly above the page (the front layer, when there is one), so the covers
+  // that flip in during the assembly never hide them; the particles and the core stay in the dome.
+  const bootEnv = front ? createEnvironment(front.renderer, LINEAR[variantName()].tube) : envMap;
+  const boot = createBoot({
+    tint: LINEAR[variantName()].glow,
+    envMap: bootEnv,
+    green: variantName() === "green",
+    onLogo: () => { body.dataset.bootLogo = "ready"; if (!running && (frozen || bootHold !== null)) renderFrame(0); },
+  });
+  boot.setTint(LINEAR[variantName()].glow, variantName() === "green");
   world.scene.add(boot.world);
-  world.rig.add(boot.rig);
+  (front ? front.rig : world.rig).add(boot.rig);
   let bootStart = null;
   let bootHold = null;
   let bootTime = BOOT.end;
@@ -571,6 +580,7 @@ function startWebGL() {
     composer.setPixelRatio(quality.pixelRatio);
     bloom.enabled = quality.bloom;
     bloom.resolution.set(innerWidth * quality.bloomScale, innerHeight * quality.bloomScale);
+    chrome.setLean(qualityLevel >= 2);
     if (front) {
       front.renderer.setPixelRatio(quality.pixelRatio);
       front.renderer.setSize(innerWidth, innerHeight, false);
@@ -818,7 +828,7 @@ function startWebGL() {
   window.addEventListener("resize", resize);
   window.addEventListener("gamestrike:view", (event) => fly(event.detail?.view, Boolean(event.detail?.instant)));
   window.addEventListener("gamestrike:pause", (event) => { paused = Boolean(event.detail?.paused); setRunning(); });
-  window.addEventListener("gamestrike:variant", () => { applyEnvironment(); applyVariant(); boot.setTint(LINEAR[variantName()].glow); if (!running) renderFrame(0); });
+  window.addEventListener("gamestrike:variant", () => { applyEnvironment(); applyVariant(); boot.setTint(LINEAR[variantName()].glow, variantName() === "green"); if (!running) renderFrame(0); });
   window.addEventListener("gamestrike:cradle", (event) => setCover(event.detail));
   window.addEventListener("gamestrike:layout", () => { buildChrome(); poseBoot(bootStart !== null ? (performance.now() - bootStart) / 1000 : bootHold ?? BOOT.end); if (!running && !frozen) renderFrame(0); });
   function onBoot(detail) {
@@ -829,10 +839,22 @@ function startWebGL() {
       poseBoot(0);
       setRunning();
     } else if (action === "freeze") {
-      bootHold = Math.max(0, Math.min(BOOT.end, Number(detail.t) || 0));
+      const t = Math.max(0, Number(detail.t) || 0);
       bootStart = null;
-      frozen = true;
       running = false;
+      if (t >= BOOT.end) {
+        // The end of the startup is the library at rest.
+        bootHold = null;
+        poseBoot(BOOT.end);
+        frozen = false;
+        fly("library", true);
+        frozen = true;
+        renderFrame(0);
+        body.dataset.bootFrame = String(detail.t);
+        return;
+      }
+      bootHold = t;
+      frozen = true;
       renderFrame(0);
     } else {
       bootStart = null;

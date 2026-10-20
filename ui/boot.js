@@ -194,7 +194,7 @@ function sweepMaterial() {
   });
 }
 
-export function createBoot({ tint, envMap }) {
+export function createBoot({ tint, envMap, green = false, onLogo = null }) {
   const world = new THREE.Group();
   world.position.copy(CORE);
   const rig = new THREE.Group();
@@ -282,7 +282,7 @@ export function createBoot({ tint, envMap }) {
   discGlow.colorSpace = THREE.SRGBColorSpace;
   const ringMat = new THREE.MeshPhysicalMaterial({ color: 0xff7a1c, emissive: 0xff4800, emissiveIntensity: 0.5, metalness: 0.3, roughness: 0.24, clearcoat: 1, clearcoatRoughness: 0.04, envMap, envMapIntensity: 1.4, side: THREE.DoubleSide });
   const discMat = new THREE.MeshPhysicalMaterial({ color: 0x140602, emissive: 0x9a2a00, emissiveIntensity: 1, emissiveMap: discGlow, specularIntensity: 0.3, metalness: 0, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.03, envMap, envMapIntensity: 1.0, side: THREE.DoubleSide });
-  const logo = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 0.625), new THREE.MeshBasicMaterial({ map: logoTexture("/pwds.svg", () => { logoReady = true; }), transparent: true, depthWrite: false, toneMapped: false }));
+  const logo = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 0.625), new THREE.MeshBasicMaterial({ map: logoTexture(green ? "/mark.svg" : "/pwds.svg", () => { logoReady = true; onLogo?.(); }), transparent: true, depthWrite: false, toneMapped: false }));
   logo.material.color.setRGB(1.6, 1.6, 1.6);
   logo.position.z = 0.04;
   const sweep = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.2), sweepMaterial());
@@ -333,7 +333,7 @@ export function createBoot({ tint, envMap }) {
 
     // The emblem: resolves out of the core, then flies to its seat and hands over to the chrome.
     const appear = smooth(BOOT.flash, BOOT.flash + 0.45, t);
-    const fly = easeInOut(smooth(BOOT.assemble, 5.0, t));
+    const fly = easeInOut(clamp01((t - BOOT.assemble) / 0.8));
     emblem.visible = appear > 0.001 && t < 5.0;
     const pop = Math.max(0.001, easeBack(appear));
     emblem.position.copy(start.position).lerp(seat.position, fly);
@@ -344,8 +344,13 @@ export function createBoot({ tint, envMap }) {
     return { active, emblemLanded: t >= 5.0 };
   }
 
-  function setTint(next) {
+  // The emblem carries the PWDS logo in orange and the GameStrike mark in green, as the frame does.
+  function setTint(next, isGreen = false) {
     color.setRGB(...next);
+    ringMat.color.setHex(isGreen ? 0x8fe04a : 0xff7a1c);
+    ringMat.emissive.setHex(isGreen ? 0x3aaa00 : 0xff4800);
+    discMat.color.setHex(isGreen ? 0x061404 : 0x140602);
+    discMat.emissive.setHex(isGreen ? 0x2a7a00 : 0x9a2a00);
     points.material.uniforms.tint.value.copy(color);
     for (const tendril of tendrils.children) tendril.material.uniforms.tint.value.copy(color);
     core.material.uniforms.tint.value.copy(color);

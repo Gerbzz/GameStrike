@@ -1385,8 +1385,10 @@
       signalScene({ action: "freeze", t: bootSecond });
       // The page's startup animations began when the page loaded; restart them, held, so that
       // their delays (which count from the startup's first frame, less --seek) place this second.
-      const hold = () => { for (const animation of document.getAnimations?.() || []) { animation.pause(); animation.currentTime = 0; } };
-      requestAnimationFrame(() => { hold(); requestAnimationFrame(hold); });
+      // Timers, not animation frames: a capture window may be hidden, and hidden webviews pause them.
+      const hold = () => { void document.body.offsetWidth; for (const animation of document.getAnimations?.() || []) { animation.pause(); animation.currentTime = 0; } };
+      hold();
+      for (const delay of [0, 40, 120]) setTimeout(hold, delay);
       if (bootSecond >= CINEMA.assemble / 1000) {
         state.booted = false;
         finishBoot({ assemble: true });
@@ -1459,7 +1461,11 @@
   function drawn() {
     if (document.fonts && document.fonts.status !== "loaded") return false;
     if (!document.body.dataset.scene) return false;
-    if (state.bootCapture !== undefined && document.body.dataset.scene === "webgl" && document.body.dataset.bootFrame !== String(state.bootCapture)) return false;
+    if (state.bootCapture !== undefined && document.body.dataset.scene === "webgl") {
+      if (document.body.dataset.bootFrame !== String(state.bootCapture)) return false;
+      // The emblem shows the logo from 3 s to 5 s; wait until its image has decoded.
+      if (state.bootCapture >= 3 && state.bootCapture < 5 && document.body.dataset.bootLogo !== "ready") return false;
+    }
     if (state.detailId && document.body.dataset.scene === "webgl" && (!document.body.dataset.cradle || document.body.dataset.cradle === "loading")) return false;
     if (state.booted && !el.grid.hidden) {
       const tiles = [...el.grid.children].slice(0, state.metrics.columns * 4);

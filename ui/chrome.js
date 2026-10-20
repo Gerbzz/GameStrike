@@ -374,7 +374,19 @@ export function createChrome({ envMap, palette = "orange" }) {
   }
 
   setPalette(palette);
+  // On slow machines (the scene's lower quality steps) the second, clear-coat gloss is dropped.
+  let lean = false;
+  function setLean(next) {
+    if (next === lean) return;
+    lean = next;
+    for (const material of Object.values(materials)) {
+      if (!material.isMeshPhysicalMaterial) continue;
+      material.userData.clearcoat ??= material.clearcoat;
+      material.clearcoat = lean ? 0 : material.userData.clearcoat;
+      material.needsUpdate = true;
+    }
+  }
   // The emblem's centre (in the chrome group) and radius, for the startup's flight.
   const seat = () => emblemSeat;
-  return { group, materials, build, setPalette, setEnvironment, setInterior, setAssembly, seat };
+  return { group, materials, build, setPalette, setEnvironment, setInterior, setAssembly, seat, setLean };
 }

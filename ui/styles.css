@@ -167,7 +167,7 @@ body.assembling .emblem-logo { animation: gs-fade .2s ease calc(.8s - var(--asee
 @keyframes gs-in-up { from { opacity: 0; transform: translateY(calc(var(--px) * 34)); } }
 @keyframes gs-fade { from { opacity: 0; } }
 @keyframes gs-flip { from { opacity: 0; transform: perspective(900px) rotateY(-95deg); } 55% { opacity: 1; } }
-body.boot-frozen *, body.boot-frozen *::before, body.boot-frozen *::after { animation-play-state: paused !important; }
+body.boot-frozen *, body.boot-frozen *::before, body.boot-frozen *::after { animation-play-state: paused !important; transition: none !important; }
 
 /* ---------- the stage and the frame ---------- */
 .stage { position: fixed; inset: 0; z-index: 1; perspective: var(--persp, 1200px); transition: opacity .6s ease; }
