@@ -262,7 +262,7 @@ export function createChrome({ envMap, palette = "orange" }) {
     const W = view.width * k;
 
     // The frame body, with the interior cut out. Its rims are the thick amber bevels.
-    add(mesh(slab(shapeFrom(m.outer, toLocal, [m.inner]), k, { depth: 30 * u, bevel: 13 * u, size: 11 * u, segments: 5 }), [materials.face, materials.edge]), { from: [0, 0, -60], turn: [0.05, 0, 0], at: 0 });
+    add(mesh(slab(shapeFrom(m.outer, toLocal, [m.inner]), k, { depth: 30 * u, bevel: 16 * u, size: 14 * u, segments: 6 }), [materials.face, materials.edge]), { from: [0, 0, -60], turn: [0.05, 0, 0], at: 0 });
     // The interior behind the panels: dark, so the dome shows only around the frame.
     const interior = mesh(new THREE.ShapeGeometry(shapeFrom(m.inner, toLocal)), materials.interior);
     interior.position.z = -46 * u * k;

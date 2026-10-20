@@ -32,7 +32,7 @@ export function bootPose(t) {
   const shake = t >= BOOT.flash ? Math.exp(-(t - BOOT.flash) * 7) * 0.05 : 0;
   position.x += Math.sin(t * 93) * shake;
   position.y += Math.cos(t * 71) * shake;
-  const flashGlow = t >= BOOT.flash ? Math.exp(-(t - BOOT.flash) * 4) * 0.7 : 0;
+  const flashGlow = t >= BOOT.flash ? Math.exp(-(t - BOOT.flash) * 5) * 0.35 : 0;
   const net = mix(smooth(1.3, BOOT.flash, t) * 0.7 + flashGlow, 1, home);
   return { position, pitch: mix(-1, 0, home), net, assembly: clamp01((t - BOOT.assemble) / (BOOT.end - 0.15 - BOOT.assemble)) };
 }

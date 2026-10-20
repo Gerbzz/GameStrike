@@ -375,8 +375,8 @@ function tubeGlassMaterial() {
         float facing = abs(dot(n, v));
         float rim = pow(1.0 - facing, 2.0);
         float lit = max(dot(n, normalize(vec3(-0.35, 0.9, 0.35))), 0.0);
-        vec3 body = tint * (0.16 + 0.75 * lit * lit);
-        vec3 color = mix(body, tint * 1.35, rim) + tint * 0.12;
+        vec3 body = tint * (0.26 + 0.85 * lit);
+        vec3 color = mix(body, tint * 1.5, rim) + tint * 0.14;
         vec3 r = reflect(-v, n);
         vec3 shine = studio(r) * (0.25 + 0.75 * rim);
         color += mix(tint, vec3(1.0, 0.95, 0.85), 0.6) * shine;
