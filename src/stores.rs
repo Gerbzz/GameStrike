@@ -11,7 +11,14 @@
 //! in `LIBRARY/stores/catalog.json`, and the player's own data (favorite, hidden, title, covers,
 //! plays) in `LIBRARY/stores/<game id>/`, which a rescan never deletes.
 
-use crate::{HostOs, Result, cover_png_from_file, invalid, new_file, regular_file};
+use crate::{
+    COVER_HEIGHT, COVER_WIDTH, HostOs, Result, cover_png_from_file, decode_cover_file, encode_cover,
+    invalid, new_file, regular_file,
+};
+use image::{
+    DynamicImage, RgbaImage,
+    imageops::{self, FilterType},
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -115,7 +122,117 @@ pub struct Found {
     pub launch: Launch,
     /// Box art in the store launcher's own local cache, if it has any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cover_source: Option<PathBuf>,
+    pub cover_source: Option<CoverSource>,
+}
+
+/// Where a store game's cover comes from in the store launcher's own local cache. An image is
+/// stored as a plain path, as catalogs written before wide art was supported have it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CoverSource {
+    /// Portrait box art (or a square logo), scaled to fit the cover.
+    Image(PathBuf),
+    /// No portrait art: Steam's wide hero image, cropped to portrait, with the game's logo on it.
+    HeroLogo { hero: PathBuf, logo: PathBuf },
+    /// No portrait or hero art: Steam's wide header, letterboxed over a blurred copy of itself.
+    Header { header: PathBuf },
+}
+
+impl CoverSource {
+    fn files(&self) -> Vec<&Path> {
+        match self {
+            CoverSource::Image(path) => vec![path.as_path()],
+            CoverSource::HeroLogo { hero, logo } => vec![hero.as_path(), logo.as_path()],
+            CoverSource::Header { header } => vec![header.as_path()],
+        }
+    }
+
+    /// Names how a composed cover is made; part of the cache key, so a new recipe re-renders it.
+    /// Plain images keep the key they had before composed covers existed.
+    fn recipe(&self) -> Option<&'static str> {
+        match self {
+            CoverSource::Image(_) => None,
+            CoverSource::HeroLogo { .. } => Some("hero-logo-1"),
+            CoverSource::Header { .. } => Some("header-1"),
+        }
+    }
+}
+
+/// Makes a store game's cover: a portrait image as it is, or a portrait composed from wide art.
+/// Every source image is untrusted and decoded under the same limits as any cover.
+fn store_cover_png(source: &CoverSource) -> Result<Vec<u8>> {
+    match source {
+        CoverSource::Image(path) => cover_png_from_file(path),
+        CoverSource::HeroLogo { hero, logo } => {
+            let hero = decode_cover_file(hero)?;
+            let logo = decode_cover_file(logo)?;
+            encode_cover(DynamicImage::ImageRgba8(hero_with_logo(&hero, &logo)))
+        }
+        CoverSource::Header { header } => {
+            let header = decode_cover_file(header)?;
+            encode_cover(DynamicImage::ImageRgba8(letterboxed(&header)))
+        }
+    }
+}
+
+/// Scales and crops an image to fill `width` × `height`, keeping its centre.
+fn fill(image: &DynamicImage, width: u32, height: u32) -> RgbaImage {
+    let (source_width, source_height) = (image.width().max(1), image.height().max(1));
+    let (crop_width, crop_height) = if source_width * height > source_height * width {
+        ((source_height * width / height).max(1), source_height)
+    } else {
+        (source_width, (source_width * height / width).max(1))
+    };
+    image
+        .crop_imm(
+            (source_width - crop_width) / 2,
+            (source_height - crop_height) / 2,
+            crop_width,
+            crop_height,
+        )
+        .resize_exact(width, height, FilterType::Triangle)
+        .to_rgba8()
+}
+
+/// Multiplies the colour channels of a pixel by `factor`.
+fn shade(pixel: &mut image::Rgba<u8>, factor: f32) {
+    for channel in pixel.0.iter_mut().take(3) {
+        *channel = (f32::from(*channel) * factor) as u8;
+    }
+}
+
+/// A portrait cover from Steam's wide hero art: the middle of the hero image fills the frame, its
+/// lower part darkens the way Steam shades it, and the game's logo sits in the lower third.
+fn hero_with_logo(hero: &DynamicImage, logo: &DynamicImage) -> RgbaImage {
+    let mut canvas = fill(hero, COVER_WIDTH, COVER_HEIGHT);
+    for (_, y, pixel) in canvas.enumerate_pixels_mut() {
+        let depth = (y as f32 / COVER_HEIGHT as f32 - 0.45).max(0.0) / 0.55;
+        shade(pixel, 1.0 - 0.6 * depth);
+    }
+    let logo = logo
+        .resize(COVER_WIDTH * 86 / 100, COVER_HEIGHT * 30 / 100, FilterType::Triangle)
+        .to_rgba8();
+    let x = (COVER_WIDTH - logo.width()) / 2;
+    let y = COVER_HEIGHT * 74 / 100 - logo.height() / 2;
+    imageops::overlay(&mut canvas, &logo, i64::from(x), i64::from(y));
+    canvas
+}
+
+/// A portrait cover from Steam's wide header: the header across the middle, over a blurred and
+/// darkened copy of itself (shrunk to a few pixels and scaled back up).
+fn letterboxed(header: &DynamicImage) -> RgbaImage {
+    let blur = header.resize_exact(6, 9, FilterType::Triangle).to_rgba8();
+    let mut canvas = imageops::resize(&blur, COVER_WIDTH, COVER_HEIGHT, FilterType::Triangle);
+    for pixel in canvas.pixels_mut() {
+        shade(pixel, 0.45);
+    }
+    let band = header
+        .resize(COVER_WIDTH, COVER_HEIGHT, FilterType::Triangle)
+        .to_rgba8();
+    let x = (COVER_WIDTH - band.width()) / 2;
+    let y = (COVER_HEIGHT - band.height()) / 2;
+    imageops::overlay(&mut canvas, &band, i64::from(x), i64::from(y));
+    canvas
 }
 
 // ---------- registry ----------
@@ -558,27 +675,86 @@ pub fn steam_app(library: &Path, manifest: &str) -> Option<(String, String, Path
     Some((appid, name, path))
 }
 
-/// Steam's own cached library art for an app: `appcache/librarycache/<appid>_library_600x900.jpg`,
-/// or the newer per-app folders (`<appid>/library_600x900.jpg`, possibly one level deeper).
-pub fn steam_cover(root: &Path, appid: &str) -> Option<PathBuf> {
+/// Steam's own cached library art for an app, from `appcache/librarycache`, best first:
+///
+/// 1. the portrait capsule in the per-app folder, `<appid>/library_600x900*.jpg` (also one folder
+///    deeper), then `<appid>/library_capsule.jpg`, which newer Steam clients write instead;
+/// 2. the older flat `<appid>_library_600x900.jpg`;
+/// 3. for apps without portrait art, the wide hero image with the logo on it
+///    (`library_hero.jpg` and `logo.png`, or the flat `<appid>_library_hero.jpg` and `<appid>_logo.png`);
+/// 4. the wide header (`library_header.jpg` or `header.jpg`, or the flat `<appid>_header.jpg`).
+///
+/// Without any of these the launcher draws a cover.
+pub fn steam_cover(root: &Path, appid: &str) -> Option<CoverSource> {
     let cache = root.join("appcache").join("librarycache");
-    let flat = cache.join(format!("{appid}_library_600x900.jpg"));
-    if regular_file(&flat) {
-        return Some(flat);
+    let files = app_cache_files(&cache.join(appid));
+    let named = |test: &dyn Fn(&str) -> bool| {
+        files
+            .iter()
+            .find(|(name, _)| test(name))
+            .map(|(_, path)| path.clone())
+    };
+    let flat = |name: &str| {
+        let path = cache.join(format!("{appid}_{name}"));
+        regular_file(&path).then_some(path)
+    };
+    let portrait = named(&|name| {
+        name.starts_with("library_600x900") && (name.ends_with(".jpg") || name.ends_with(".png"))
+    })
+    .or_else(|| named(&|name| name == "library_capsule.jpg" || name == "library_capsule.png"))
+    .or_else(|| flat("library_600x900.jpg"));
+    if let Some(path) = portrait {
+        return Some(CoverSource::Image(path));
     }
-    let folder = cache.join(appid);
-    let direct = folder.join("library_600x900.jpg");
-    if regular_file(&direct) {
-        return Some(direct);
+    let hero = named(&|name| name == "library_hero.jpg").or_else(|| flat("library_hero.jpg"));
+    let logo = named(&|name| name == "logo.png").or_else(|| flat("logo.png"));
+    if let (Some(hero), Some(logo)) = (hero, logo) {
+        return Some(CoverSource::HeroLogo { hero, logo });
     }
-    let mut nested: Vec<PathBuf> = fs::read_dir(&folder)
-        .ok()?
-        .flatten()
-        .map(|item| item.path().join("library_600x900.jpg"))
-        .filter(|path| regular_file(path))
+    named(&|name| name == "library_header.jpg" || name == "header.jpg")
+        .or_else(|| flat("header.jpg"))
+        .map(|header| CoverSource::Header { header })
+}
+
+/// Regular files in a Steam per-app cache folder and one level of subfolders below it, as
+/// (lower-case name, path): the folder's own files first, each level sorted by path. Bounded, and
+/// links are not followed.
+fn app_cache_files(folder: &Path) -> Vec<(String, PathBuf)> {
+    let list = |dir: &Path| -> Vec<(PathBuf, bool)> {
+        let mut items: Vec<(PathBuf, bool)> = fs::read_dir(dir)
+            .map(|items| {
+                items
+                    .flatten()
+                    .take(256)
+                    .filter_map(|item| {
+                        let kind = item.file_type().ok()?;
+                        (kind.is_file() || kind.is_dir()).then(|| (item.path(), kind.is_dir()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        items.sort();
+        items
+    };
+    let named = |path: PathBuf| {
+        let name = path.file_name()?.to_string_lossy().to_lowercase();
+        Some((name, path))
+    };
+    let top = list(folder);
+    let mut files: Vec<(String, PathBuf)> = top
+        .iter()
+        .filter(|(_, dir)| !dir)
+        .filter_map(|(path, _)| named(path.clone()))
         .collect();
-    nested.sort();
-    nested.into_iter().next()
+    for (sub, _) in top.iter().filter(|(_, dir)| *dir).take(16) {
+        files.extend(
+            list(sub)
+                .into_iter()
+                .filter(|(_, dir)| !dir)
+                .filter_map(|(path, _)| named(path)),
+        );
+    }
+    files
 }
 
 fn scan_steam(env: &ScanEnv) -> Vec<Found> {
@@ -1115,7 +1291,8 @@ pub fn xbox_game(full_name: &str, root: &Path) -> Option<Found> {
         .iter()
         .filter_map(|attribute| xml_attribute(&config, "ShellVisuals", attribute))
         .map(|relative| root.join(relative.replace('\\', "/")))
-        .find(|path| regular_file(path));
+        .find(|path| regular_file(path))
+        .map(CoverSource::Image);
     let family = format!("{name}_{publisher}");
     Some(Found {
         store: Store::Xbox,
@@ -1523,21 +1700,27 @@ impl StoreLibrary {
         })
     }
 
-    fn cache_store_cover(&self, id: Uuid, source: &Path) -> Result<()> {
-        let metadata = fs::metadata(source)?;
-        let modified = metadata
-            .modified()
-            .ok()
-            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-            .map_or(0, |time| time.as_millis());
-        let key = format!("{}|{}|{modified}", source.display(), metadata.len());
+    fn cache_store_cover(&self, id: Uuid, source: &CoverSource) -> Result<()> {
+        // The key names every source file with its size and time (and how the cover is made), so
+        // the cover is decoded again only when the store's art changes.
+        let mut parts: Vec<String> = source.recipe().map(str::to_owned).into_iter().collect();
+        for file in source.files() {
+            let metadata = fs::metadata(file)?;
+            let modified = metadata
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |time| time.as_millis());
+            parts.push(format!("{}|{}|{modified}", file.display(), metadata.len()));
+        }
+        let key = parts.join("|");
         let folder = self.game_dir(id);
         if read_bounded(&folder.join(STORE_COVER_KEY), 8192).is_ok_and(|known| known == key)
             && regular_file(&folder.join(STORE_COVER))
         {
             return Ok(());
         }
-        let png = cover_png_from_file(source)?;
+        let png = store_cover_png(source)?;
         fs::create_dir_all(&folder)?;
         write_file_atomic(&folder.join(STORE_COVER), &png)?;
         write_file_atomic(&folder.join(STORE_COVER_KEY), key.as_bytes())
@@ -2018,12 +2201,14 @@ mod tests {
             Some(second.join("steamapps/common/Portal").as_path())
         );
         assert_eq!(
-            found[0].cover_source.as_deref(),
-            Some(flat.join("440_library_600x900.jpg").as_path())
+            found[0].cover_source,
+            Some(CoverSource::Image(flat.join("440_library_600x900.jpg")))
         );
         assert_eq!(
-            found[1].cover_source.as_deref(),
-            Some(flat.join("620/abcdef/library_600x900.jpg").as_path()),
+            found[1].cover_source,
+            Some(CoverSource::Image(
+                flat.join("620/abcdef/library_600x900.jpg")
+            )),
             "the newer per-app cache layout"
         );
     }
@@ -2390,8 +2575,8 @@ mod tests {
             }
         );
         assert_eq!(
-            found[0].cover_source.as_deref(),
-            Some(game.join("Logo480.png").as_path())
+            found[0].cover_source,
+            Some(CoverSource::Image(game.join("Logo480.png")))
         );
         assert_eq!(
             xml_attribute("<A x=\"1\" ax=\"2\"/>", "A", "x").as_deref(),
@@ -2680,5 +2865,264 @@ mod tests {
         let env = ScanEnv::for_fixtures(dir.path(), &NoRegistry);
         assert_eq!(scan(Store::Steam, &env).len(), 1);
         assert_eq!(scan(Store::Epic, &env).len(), 1);
+    }
+
+    /// Writes empty placeholder files (the lookup only checks that they exist).
+    fn touch(cache: &Path, files: &[&str]) {
+        for file in files {
+            let path = cache.join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, b"jpg").unwrap();
+        }
+    }
+
+    #[test]
+    fn steam_cover_lookup_follows_every_cache_layout_in_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("Steam");
+        let cache = root.join("appcache/librarycache");
+        let image = |file: &str| Some(CoverSource::Image(cache.join(file)));
+        // Per-app portrait beats the capsule, the flat file, and wide art.
+        touch(
+            &cache,
+            &[
+                "1/library_600x900.jpg",
+                "1/library_capsule.jpg",
+                "1_library_600x900.jpg",
+                "1/library_hero.jpg",
+                "1/logo.png",
+            ],
+        );
+        assert_eq!(steam_cover(&root, "1"), image("1/library_600x900.jpg"));
+        // Any library_600x900 variant, the plain name first.
+        touch(&cache, &["2/library_600x900_2x.jpg"]);
+        assert_eq!(steam_cover(&root, "2"), image("2/library_600x900_2x.jpg"));
+        touch(&cache, &["2b/library_600x900_2x.jpg", "2b/library_600x900.jpg"]);
+        assert_eq!(steam_cover(&root, "2b"), image("2b/library_600x900.jpg"));
+        // One folder deeper still counts as the per-app portrait, ahead of the capsule.
+        touch(&cache, &["3/abc123/library_600x900.jpg", "3/library_capsule.jpg"]);
+        assert_eq!(
+            steam_cover(&root, "3"),
+            image("3/abc123/library_600x900.jpg")
+        );
+        // The newer client's layout: only a capsule, header, hero, logo, and a hashed file.
+        touch(
+            &cache,
+            &[
+                "4/library_capsule.jpg",
+                "4/library_header.jpg",
+                "4/library_hero.jpg",
+                "4/logo.png",
+                "4/0123456789abcdef0123456789abcdef01234567.jpg",
+            ],
+        );
+        assert_eq!(steam_cover(&root, "4"), image("4/library_capsule.jpg"));
+        // The older flat layout.
+        touch(&cache, &["5_library_600x900.jpg"]);
+        assert_eq!(steam_cover(&root, "5"), image("5_library_600x900.jpg"));
+        // No portrait: hero and logo, in the per-app or the flat layout.
+        touch(
+            &cache,
+            &["6/library_hero.jpg", "6/logo.png", "6/library_header.jpg"],
+        );
+        assert_eq!(
+            steam_cover(&root, "6"),
+            Some(CoverSource::HeroLogo {
+                hero: cache.join("6/library_hero.jpg"),
+                logo: cache.join("6/logo.png"),
+            })
+        );
+        touch(&cache, &["7_library_hero.jpg", "7_logo.png"]);
+        assert_eq!(
+            steam_cover(&root, "7"),
+            Some(CoverSource::HeroLogo {
+                hero: cache.join("7_library_hero.jpg"),
+                logo: cache.join("7_logo.png"),
+            })
+        );
+        // A hero without a logo, or a logo without a hero, falls back to the header.
+        touch(&cache, &["8/library_hero.jpg", "8/library_header.jpg"]);
+        assert_eq!(
+            steam_cover(&root, "8"),
+            Some(CoverSource::Header {
+                header: cache.join("8/library_header.jpg")
+            })
+        );
+        touch(&cache, &["9/logo.png", "9/header.jpg"]);
+        assert_eq!(
+            steam_cover(&root, "9"),
+            Some(CoverSource::Header {
+                header: cache.join("9/header.jpg")
+            })
+        );
+        touch(&cache, &["10_header.jpg"]);
+        assert_eq!(
+            steam_cover(&root, "10"),
+            Some(CoverSource::Header {
+                header: cache.join("10_header.jpg")
+            })
+        );
+        // Nothing usable: the launcher draws a cover.
+        touch(&cache, &["11/icon.jpg", "11/logo.png"]);
+        assert_eq!(steam_cover(&root, "11"), None);
+        assert_eq!(steam_cover(&root, "12"), None);
+    }
+
+    /// Encodes a synthetic image as PNG (the decoders go by content, not by file name).
+    fn write_image(path: &Path, pixels: image::RgbaImage) {
+        let mut bytes = Vec::new();
+        DynamicImage::ImageRgba8(pixels)
+            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, bytes).unwrap();
+    }
+
+    fn decoded(png: &[u8]) -> image::RgbaImage {
+        image::load_from_memory(png).unwrap().to_rgba8()
+    }
+
+    #[test]
+    fn wide_steam_art_is_composed_into_portrait_covers() {
+        let dir = tempfile::tempdir().unwrap();
+        let hero = dir.path().join("library_hero.jpg");
+        let logo = dir.path().join("logo.png");
+        let header = dir.path().join("library_header.jpg");
+        // A blue hero in Steam's 3.1:1 shape, a red logo on a transparent background, a green header.
+        write_image(
+            &hero,
+            image::RgbaImage::from_pixel(620, 200, image::Rgba([20, 60, 220, 255])),
+        );
+        write_image(
+            &logo,
+            image::RgbaImage::from_fn(200, 100, |x, y| {
+                let inside = (20..180).contains(&x) && (20..80).contains(&y);
+                image::Rgba(if inside {
+                    [230, 20, 20, 255]
+                } else {
+                    [0, 0, 0, 0]
+                })
+            }),
+        );
+        write_image(
+            &header,
+            image::RgbaImage::from_pixel(460, 215, image::Rgba([30, 200, 60, 255])),
+        );
+
+        let cover = decoded(
+            &store_cover_png(&CoverSource::HeroLogo {
+                hero: hero.clone(),
+                logo: logo.clone(),
+            })
+            .unwrap(),
+        );
+        assert_eq!(cover.dimensions(), (COVER_WIDTH, COVER_HEIGHT));
+        let top = cover.get_pixel(300, 60).0;
+        assert!(top[2] > 200 && top[0] < 40, "the hero fills the top: {top:?}");
+        let middle = cover.get_pixel(300, COVER_HEIGHT * 74 / 100).0;
+        assert!(
+            middle[0] > 200 && middle[2] < 60,
+            "the logo sits in the lower third: {middle:?}"
+        );
+        let edge = cover.get_pixel(10, COVER_HEIGHT - 10).0;
+        assert!(
+            edge[2] < 120 && edge[2] > 40,
+            "the hero darkens toward the bottom: {edge:?}"
+        );
+
+        let cover = decoded(&store_cover_png(&CoverSource::Header { header }).unwrap());
+        assert_eq!(cover.dimensions(), (COVER_WIDTH, COVER_HEIGHT));
+        let band = cover.get_pixel(300, COVER_HEIGHT / 2).0;
+        assert!(
+            band[1] > 180 && band[0] < 60,
+            "the header crosses the middle: {band:?}"
+        );
+        let above = cover.get_pixel(300, 40).0;
+        assert!(
+            above[1] < 110 && above[1] > 40 && above[0] < 40,
+            "a darkened copy fills the rest: {above:?}"
+        );
+
+        // A damaged source is refused like any cover.
+        fs::write(&logo, b"not an image").unwrap();
+        assert!(store_cover_png(&CoverSource::HeroLogo { hero, logo }).is_err());
+    }
+
+    #[test]
+    fn composed_steam_covers_are_cached_and_rebuilt_when_the_art_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = steam_fixture(dir.path(), &[("30", "Wide Art Only")]);
+        let cache = root.join("appcache/librarycache/30");
+        write_image(
+            &cache.join("library_hero.jpg"),
+            image::RgbaImage::from_pixel(310, 100, image::Rgba([20, 60, 220, 255])),
+        );
+        write_image(
+            &cache.join("logo.png"),
+            image::RgbaImage::from_pixel(64, 32, image::Rgba([230, 20, 20, 255])),
+        );
+        let library = StoreLibrary::open(dir.path()).unwrap();
+        let env = ScanEnv {
+            os: HostOs::Unix,
+            registry: &NoRegistry,
+            home: None,
+            program_data: None,
+            steam_root: Some(root.clone()),
+            all_platforms: false,
+        };
+        library.refresh(&env).unwrap();
+        let id = store_game_id(Store::Steam, "30");
+        assert_eq!(library.entries()[0].cover, Some("store"));
+        let file = library.cover_file(id).unwrap();
+        assert_eq!(
+            decoded(&fs::read(&file).unwrap()).dimensions(),
+            (COVER_WIDTH, COVER_HEIGHT)
+        );
+        let key = fs::read_to_string(library.game_dir(id).join(STORE_COVER_KEY)).unwrap();
+        assert!(key.starts_with("hero-logo-1|"), "{key}");
+        library.refresh(&env).unwrap();
+        assert_eq!(
+            fs::read_to_string(library.game_dir(id).join(STORE_COVER_KEY)).unwrap(),
+            key,
+            "unchanged art is not decoded again"
+        );
+        // A new logo changes the key, so the cover is rebuilt.
+        write_image(
+            &cache.join("logo.png"),
+            image::RgbaImage::from_fn(160, 80, |x, y| image::Rgba([x as u8, y as u8, 90, 255])),
+        );
+        library.refresh(&env).unwrap();
+        assert_ne!(
+            fs::read_to_string(library.game_dir(id).join(STORE_COVER_KEY)).unwrap(),
+            key
+        );
+    }
+
+    #[test]
+    fn catalogs_with_plain_cover_paths_still_load() {
+        let old = r#"{"store":"steam","store_id":"1","title":"Old","launch":{"kind":"uri","uri":"steam://rungameid/1"},"cover_source":"/cache/1_library_600x900.jpg"}"#;
+        let found: Found = serde_json::from_str(old).unwrap();
+        assert_eq!(
+            found.cover_source,
+            Some(CoverSource::Image(PathBuf::from(
+                "/cache/1_library_600x900.jpg"
+            )))
+        );
+        assert_eq!(serde_json::to_string(&found).unwrap(), old);
+        for source in [
+            CoverSource::HeroLogo {
+                hero: PathBuf::from("/c/h.jpg"),
+                logo: PathBuf::from("/c/l.png"),
+            },
+            CoverSource::Header {
+                header: PathBuf::from("/c/header.jpg"),
+            },
+        ] {
+            let text = serde_json::to_string(&source).unwrap();
+            assert_eq!(
+                serde_json::from_str::<CoverSource>(&text).unwrap(),
+                source
+            );
+        }
     }
 }

@@ -16,9 +16,9 @@ const write = (file, text) => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, text);
 };
-const cover = (file, hue) => {
+const cover = (file, hue, ...extra) => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  execFileSync(process.execPath, [coverScript, file, String(hue)]);
+  execFileSync(process.execPath, [coverScript, file, String(hue), ...extra.map(String)]);
 };
 const dir = (...parts) => {
   const folder = path.join(out, ...parts);
@@ -60,10 +60,35 @@ for (const [library, appid, name, hue] of steamGames) {
 \t"installdir"\t\t"${installdir}"
 }
 `);
-  // Steam's local library art, in both the flat and the per-app cache layouts.
+  // Steam's local library art, one cache layout per game (all generated images, saved under
+  // Steam's file names): the older flat portrait, the newer client's per-app folder with only a
+  // capsule and wide art, a portrait one folder deeper, wide hero art with a logo and no portrait,
+  // and a header alone. GameStrike composes portrait covers for the last two.
   const cache = path.join(steam, "appcache", "librarycache");
-  const target = Number(appid) % 2 ? path.join(cache, `${appid}_library_600x900.jpg`) : path.join(cache, appid, "abc123", "library_600x900.jpg");
-  cover(target, hue);
+  const app = path.join(cache, appid);
+  const wide = () => {
+    cover(path.join(app, "library_hero.jpg"), hue, 930, 300);
+    cover(path.join(app, "logo.png"), hue, 640, 220, "--logo");
+    cover(path.join(app, "library_header.jpg"), hue, 460, 215);
+  };
+  switch (appid) {
+    case "3100001":
+      cover(path.join(cache, `${appid}_library_600x900.jpg`), hue);
+      break;
+    case "3100002":
+      cover(path.join(app, "library_capsule.jpg"), hue);
+      wide();
+      write(path.join(app, "0123456789abcdef0123456789abcdef01234567.jpg"), "");
+      break;
+    case "3100003":
+      cover(path.join(app, "abc123", "library_600x900.jpg"), hue);
+      break;
+    case "3100004":
+      wide();
+      break;
+    default:
+      cover(path.join(app, "library_header.jpg"), hue, 460, 215);
+  }
 }
 // A redistributable Steam installs alongside games; the scanner skips it.
 write(path.join(steam, "steamapps", "appmanifest_228980.acf"), `"AppState" { "appid" "228980" "name" "Steamworks Common Redistributables" "StateFlags" "4" "installdir" "Steamworks Shared" }`);

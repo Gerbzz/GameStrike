@@ -683,6 +683,19 @@ pub const MAX_STORED_COVER_BYTES: u64 = 8 * 1024 * 1024;
 
 /// Decodes an untrusted cover image file; see [`cover_png_from_bytes`].
 pub fn cover_png_from_file(path: &Path) -> Result<Vec<u8>> {
+    encode_cover(decode_cover_file(path)?)
+}
+
+/// Decodes an untrusted PNG, JPEG, GIF, or WebP with memory-safe Rust decoders under strict
+/// limits (16 MiB file, 8192 px per side, 256 MiB of decoder memory), scales it to fit
+/// 600 × 900, and returns a freshly encoded PNG. Only the pixels survive.
+pub fn cover_png_from_bytes(bytes: &[u8]) -> Result<Vec<u8>> {
+    encode_cover(decode_cover(bytes)?)
+}
+
+/// Reads and decodes an untrusted image file (a regular file of at most 16 MiB) under the limits
+/// of [`cover_png_from_bytes`], without scaling it.
+pub(crate) fn decode_cover_file(path: &Path) -> Result<image::DynamicImage> {
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_file() {
         return Err(invalid("the cover must be a regular image file").into());
@@ -694,14 +707,28 @@ pub fn cover_png_from_file(path: &Path) -> Result<Vec<u8>> {
     File::open(path)?
         .take(MAX_COVER_SOURCE_BYTES + 1)
         .read_to_end(&mut bytes)?;
-    cover_png_from_bytes(&bytes)
+    decode_cover(&bytes)
 }
 
-/// Decodes an untrusted PNG, JPEG, GIF, or WebP with memory-safe Rust decoders under strict
-/// limits (16 MiB file, 8192 px per side, 256 MiB of decoder memory), scales it to fit
-/// 600 × 900, and returns a freshly encoded PNG. Only the pixels survive.
-pub fn cover_png_from_bytes(bytes: &[u8]) -> Result<Vec<u8>> {
-    use image::{ImageFormat, ImageReader, Limits, imageops::FilterType};
+/// Scales a decoded cover to fit 600 × 900 and encodes it as a fresh RGBA PNG.
+pub(crate) fn encode_cover(image: image::DynamicImage) -> Result<Vec<u8>> {
+    use image::{ImageFormat, imageops::FilterType};
+    let image = if image.width() > COVER_WIDTH || image.height() > COVER_HEIGHT {
+        image.resize(COVER_WIDTH, COVER_HEIGHT, FilterType::Triangle)
+    } else {
+        image
+    };
+    let image = image::DynamicImage::ImageRgba8(image.to_rgba8());
+    let mut png = Vec::new();
+    image
+        .write_to(&mut io::Cursor::new(&mut png), ImageFormat::Png)
+        .map_err(|_| invalid("the cover could not be saved"))?;
+    Ok(png)
+}
+
+/// Decodes untrusted image bytes under the limits of [`cover_png_from_bytes`], without scaling.
+fn decode_cover(bytes: &[u8]) -> Result<image::DynamicImage> {
+    use image::{ImageFormat, ImageReader, Limits};
     if bytes.len() as u64 > MAX_COVER_SOURCE_BYTES {
         return Err(invalid("the cover image is larger than 16 MiB").into());
     }
@@ -719,20 +746,9 @@ pub fn cover_png_from_bytes(bytes: &[u8]) -> Result<Vec<u8>> {
     limits.max_image_height = Some(MAX_COVER_SOURCE_SIDE);
     limits.max_alloc = Some(256 * 1024 * 1024);
     reader.limits(limits);
-    let image = reader
+    reader
         .decode()
-        .map_err(|_| invalid("the cover image is damaged or too large"))?;
-    let image = if image.width() > COVER_WIDTH || image.height() > COVER_HEIGHT {
-        image.resize(COVER_WIDTH, COVER_HEIGHT, FilterType::Triangle)
-    } else {
-        image
-    };
-    let image = image::DynamicImage::ImageRgba8(image.to_rgba8());
-    let mut png = Vec::new();
-    image
-        .write_to(&mut io::Cursor::new(&mut png), ImageFormat::Png)
-        .map_err(|_| invalid("the cover could not be saved"))?;
-    Ok(png)
+        .map_err(|_| invalid("the cover image is damaged or too large").into())
 }
 
 /// Trims, drops control characters, and limits sources to 32 characters.

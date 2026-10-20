@@ -98,7 +98,10 @@ $storeList | Set-Content -Encoding utf8 (Join-Path $probeRoot 'store-list.txt')
 foreach ($store in 'steam', 'epic', 'ea', 'xbox', 'gog', 'ubisoft', 'battlenet', 'custom') {
     if (-not ($storeList | Where-Object { $_ -like "*`t$store`t*" })) { throw "No synthetic $store game was found." }
 }
-if (-not ($storeList | Where-Object { $_ -like '*Synthetic Orbit Racer*' -and $_ -like '*cover: store*' })) { throw "Steam's cached art did not become the cover." }
+# One Steam game per cache layout: flat portrait, capsule only, nested portrait, hero and logo, header.
+foreach ($title in 'Synthetic Orbit Racer', 'Synthetic Frost Keep', 'Synthetic Ember Tactics', 'Synthetic Reef Divers', 'Synthetic Night Courier') {
+    if (-not ($storeList | Where-Object { $_ -like "*$title*" -and $_ -like '*cover: store*' })) { throw "Steam's cached art did not become the cover of $title." }
+}
 $env:GAMESTRIKE_CAPTURE_STORES = $stores
 
 function Capture-Launcher([string]$Library, [string]$Name, [string[]]$Extra) {

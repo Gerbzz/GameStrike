@@ -106,8 +106,11 @@ node "$repo/scripts/make-store-fixtures.cjs" "$stores"
 for store in steam epic ea xbox gog ubisoft battlenet custom; do
   grep -q "	$store	" "$out_dir/store-list.txt" || { echo "no synthetic $store game was found" >&2; exit 1; }
 done
-grep -F 'Synthetic Orbit Racer' "$out_dir/store-list.txt" | grep -q 'cover: store' \
-  || { echo "Steam's cached art did not become the cover" >&2; exit 1; }
+# One Steam game per cache layout: flat portrait, capsule only, nested portrait, hero and logo, header.
+for title in 'Synthetic Orbit Racer' 'Synthetic Frost Keep' 'Synthetic Ember Tactics' 'Synthetic Reef Divers' 'Synthetic Night Courier'; do
+  grep -F "$title" "$out_dir/store-list.txt" | grep -q 'cover: store' \
+    || { echo "Steam's cached art did not become the cover of $title" >&2; exit 1; }
+done
 export GAMESTRIKE_CAPTURE_STORES="$stores"
 
 # Reads the width and height from a PNG's IHDR chunk.
