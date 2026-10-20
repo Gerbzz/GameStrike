@@ -1075,7 +1075,8 @@
     }
     finishBoot();
     document.body.classList.add("reduce-motion");
-    if (view === "controller") document.body.dataset.input = "pad";
+    // Controller prompts are the default look; the focus view shows the keyboard prompts instead.
+    document.body.dataset.input = view === "focus" ? "keyboard" : "pad";
     state.filter = view === "favorites" ? "favorites" : "all";
     if (view === "filters") {
       const source = core.buildFilters(state.games).find((filter) => filter.key.startsWith("source:"));
@@ -1117,8 +1118,15 @@
 
   // Used only by --capture-view: true once a staged view has drawn (fonts, the covers in view,
   // and the 3D scene or its fallback), so the launcher never captures a half-drawn view.
+  let readySince = 0;
   function ready() {
     if (!state.capturing) return true;
+    if (!drawn()) { readySince = 0; return false; }
+    // Ready only once it has stayed drawn across two checks, so the last image has painted.
+    if (!readySince) readySince = performance.now();
+    return performance.now() - readySince >= 200;
+  }
+  function drawn() {
     if (document.fonts && document.fonts.status !== "loaded") return false;
     if (!document.body.dataset.scene) return false;
     if (state.detailId && document.body.dataset.scene === "webgl" && (!document.body.dataset.cradle || document.body.dataset.cradle === "loading")) return false;
@@ -1126,7 +1134,7 @@
       const tiles = [...el.grid.children].slice(0, state.metrics.columns * 4);
       for (const node of tiles) {
         const art = node.querySelector(".tile-art")?.firstChild;
-        if (!art || (art.tagName === "IMG" && !art.complete)) return false;
+        if (!art || (art.tagName === "IMG" && !(art.complete && art.naturalWidth > 0))) return false;
       }
     }
     return true;
