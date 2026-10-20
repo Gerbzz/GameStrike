@@ -1116,7 +1116,7 @@
     if (!state.capturing) return true;
     if (document.fonts && document.fonts.status !== "loaded") return false;
     if (!document.body.dataset.scene) return false;
-    if (state.detailId && document.body.dataset.scene === "webgl" && document.body.dataset.cradle !== "ready") return false;
+    if (state.detailId && document.body.dataset.scene === "webgl" && (!document.body.dataset.cradle || document.body.dataset.cradle === "loading")) return false;
     if (state.booted && !el.grid.hidden) {
       const tiles = [...el.grid.children].slice(0, state.metrics.columns * 4);
       for (const node of tiles) {

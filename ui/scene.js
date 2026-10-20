@@ -40,10 +40,14 @@ const VIEWS = {
   settings: { position: [-0.7, 0.25, -0.9], yaw: 5, pitch: -1, net: 0.7 },
   about: { position: [-0.4, 0.2, -1.2], yaw: 3, pitch: -0.5, net: 0.7 },
 };
+// Colours are written in sRGB, as sampled from the references. WebGL works in linear light and the
+// output pass converts back, so the 3D code uses LINEAR; the 2D fallback uses VARIANTS directly.
 const VARIANTS = {
-  orange: { net: [0.95, 0.36, 0.09], glow: [1.0, 0.5, 0.14], void: [0.02, 0.006, 0.002], tube: [1.0, 0.4, 0.07], light: [1.0, 0.68, 0.36] },
-  green: { net: [0.32, 0.85, 0.14], glow: [0.55, 1.0, 0.22], void: [0.004, 0.018, 0.004], tube: [0.36, 1.0, 0.12], light: [0.8, 1.0, 0.6] },
+  orange: { net: [1.0, 0.46, 0.14], glow: [1.0, 0.6, 0.2], void: [0.05, 0.016, 0.006], tube: [1.0, 0.47, 0.1], light: [1.0, 0.75, 0.45] },
+  green: { net: [0.45, 0.95, 0.25], glow: [0.65, 1.0, 0.3], void: [0.012, 0.045, 0.012], tube: [0.5, 1.0, 0.2], light: [0.85, 1.0, 0.65] },
 };
+const toLinear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+const LINEAR = Object.fromEntries(Object.entries(VARIANTS).map(([name, colors]) => [name, Object.fromEntries(Object.entries(colors).map(([key, rgb]) => [key, rgb.map(toLinear)]))]));
 const QUALITY = [
   { name: "high", pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5), bloom: true, bloomScale: 1 },
   { name: "medium", pixelRatio: 1, bloom: true, bloomScale: 0.75 },
@@ -101,9 +105,9 @@ function domeMaterial() {
       pole: { value: basis.p }, e1: { value: basis.e1 }, e2: { value: basis.e2 },
       rings: { value: net.rings }, meridians: { value: net.meridians }, warp: { value: net.warp },
       spin: { value: 0 },
-      netColor: { value: new THREE.Color(...VARIANTS.orange.net) },
-      glowColor: { value: new THREE.Color(...VARIANTS.orange.glow) },
-      voidColor: { value: new THREE.Color(...VARIANTS.orange.void) },
+      netColor: { value: new THREE.Color(...LINEAR.orange.net) },
+      glowColor: { value: new THREE.Color(...LINEAR.orange.glow) },
+      voidColor: { value: new THREE.Color(...LINEAR.orange.void) },
       lightDir: { value: new THREE.Vector3(-0.55, 0.45, -0.7).normalize() },
       intensity: { value: 1 },
     },
@@ -140,7 +144,7 @@ function domeMaterial() {
         float light = pow(max(dot(d, lightDir), 0.0), 3.0);
         float fog = exp(-max(dist - 18.0, 0.0) * 0.035);
         vec3 color = voidColor * (0.7 + 0.6 * light);
-        color += netColor * lines * (0.42 + 1.0 * light) * fog * intensity;
+        color += netColor * lines * (0.13 + 0.75 * light) * fog * intensity;
         color += glowColor * light * 0.06 * intensity;
         gl_FragColor = vec4(color, 1.0);
       }`,
@@ -153,7 +157,7 @@ function tubeMaterial() {
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
-    uniforms: { tint: { value: new THREE.Color(...VARIANTS.orange.tube) }, time: { value: 0 } },
+    uniforms: { tint: { value: new THREE.Color(...LINEAR.orange.tube) }, time: { value: 0 } },
     vertexShader: SHADED_VERTEX,
     fragmentShader: /* glsl */ `
       uniform vec3 tint; uniform float time; varying vec2 vUv; varying vec3 vNormal; varying vec3 vView;
@@ -166,10 +170,13 @@ function tubeMaterial() {
         // Joints: short bright collars along the tube.
         float joint = smoothstep(0.86, 0.9, fract(vUv.x * 7.0)) * (1.0 - smoothstep(0.96, 1.0, fract(vUv.x * 7.0)));
         // A dark glass core, a saturated lit rim, white highlights.
-        vec3 body = tint * 0.08;
-        vec3 color = mix(body, tint * 1.25, rim) + tint * joint * 0.9 + vec3(1.5, 1.35, 1.1) * (spec * 0.9 + streak * 0.7);
-        color += tint * 0.35 * pow(max(dot(n, normalize(vec3(-0.3, 0.9, 0.3))), 0.0), 4.0);
-        float alpha = clamp(0.78 + rim * 0.2 + spec * 0.3, 0.0, 1.0);
+        // Lit from above, like the reference's amber pipes: a glowing upper flank, a darker belly.
+        float top = pow(max(dot(n, normalize(vec3(-0.25, 0.95, 0.2))), 0.0), 2.0);
+        // Colours stay saturated: the rim and collars reach the tint, highlights are warm, not white.
+        vec3 body = tint * (0.1 + 0.42 * top);
+        vec3 color = mix(body, tint * 1.12, smoothstep(0.05, 0.9, rim)) + tint * joint * 0.6;
+        color += mix(tint, vec3(1.0), 0.45) * (spec * 0.95 + streak * 0.7);
+        float alpha = clamp(0.9 + rim * 0.1, 0.0, 1.0);
         gl_FragColor = vec4(color, alpha);
       }`,
   });
@@ -179,7 +186,7 @@ function energyMaterial(phase) {
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
-    uniforms: { tint: { value: new THREE.Color(...VARIANTS.orange.glow) }, time: { value: 0 }, phase: { value: phase } },
+    uniforms: { tint: { value: new THREE.Color(...LINEAR.orange.glow) }, time: { value: 0 }, phase: { value: phase } },
     vertexShader: SHADED_VERTEX,
     fragmentShader: /* glsl */ `
       uniform vec3 tint; uniform float time; uniform float phase; varying vec2 vUv;
@@ -196,7 +203,7 @@ function glassMaterial(strength = 1) {
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
-    uniforms: { tint: { value: new THREE.Color(...VARIANTS.orange.tube) }, strength: { value: strength } },
+    uniforms: { tint: { value: new THREE.Color(...LINEAR.orange.tube) }, strength: { value: strength } },
     vertexShader: SHADED_VERTEX,
     fragmentShader: /* glsl */ `
       uniform vec3 tint; uniform float strength; varying vec3 vNormal; varying vec3 vView;
@@ -234,9 +241,9 @@ function haloTexture() {
 // They wrap the frame: over the top right, down the left edge, around the bottom left, and a
 // hooked pipe into the right edge, as in the reference.
 const TUBES = [
-  [[[0.58, -0.14, 10.5], [0.66, 0.01, 10.3], [0.8, 0.035, 10.2], [0.95, 0.06, 10.2], [1.1, 0.16, 10.5]], 0.19],
-  [[[0.7, -0.16, 11], [0.77, 0.03, 10.8], [0.9, 0.06, 10.6], [1.0, 0.16, 10.5], [1.12, 0.3, 10.8]], 0.13],
-  [[[0.86, -0.14, 11], [0.9, 0.0, 10.8], [0.99, 0.04, 10.6], [1.12, 0.06, 10.8]], 0.1],
+  [[[0.56, -0.14, 10.5], [0.64, -0.005, 10.3], [0.8, 0.02, 10.2], [0.95, 0.04, 10.2], [1.1, 0.14, 10.5]], 0.2],
+  [[[0.68, -0.16, 11], [0.76, 0.012, 10.8], [0.9, 0.035, 10.6], [1.0, 0.12, 10.5], [1.12, 0.3, 10.8]], 0.14],
+  [[[0.84, -0.14, 11], [0.89, -0.01, 10.8], [0.99, 0.02, 10.6], [1.12, 0.04, 10.8]], 0.11],
   [[[-0.1, 0.3, 10.6], [0.0, 0.42, 10.2], [0.004, 0.6, 10.2], [-0.004, 0.76, 10.2], [-0.12, 0.9, 10.6]], 0.17],
   [[[-0.12, 1.08, 10.4], [0.02, 0.93, 10.2], [0.1, 0.92, 10.1], [0.16, 0.99, 10.2], [0.14, 1.15, 10.4]], 0.19],
   [[[1.12, 0.36, 10.8], [1.0, 0.42, 10.4], [0.993, 0.52, 10.3], [1.0, 0.64, 10.4], [1.12, 0.72, 10.8]], 0.15],
@@ -282,7 +289,7 @@ function buildCradle() {
   group.add(holder);
   const frameGeo = extrude(chamfer(cardW + 0.22, cardH + 0.22, 0.2), 0.08, 0.03);
   frameGeo.translate(0, 0, -0.06);
-  const edge = new THREE.MeshBasicMaterial({ color: new THREE.Color(...VARIANTS.orange.glow) });
+  const edge = new THREE.MeshBasicMaterial({ color: new THREE.Color(...LINEAR.orange.glow) });
   holder.add(new THREE.Mesh(frameGeo, edge));
   const coverMaterial = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.82, 0.82, 0.82) });
   const cover = new THREE.Mesh(new THREE.PlaneGeometry(cardW, cardH), coverMaterial);
@@ -329,7 +336,7 @@ function buildWorld() {
   // The rig follows the camera: the frame's tubes, the light behind the emblem, and the cradle.
   const rig = new THREE.Group();
   scene.add(rig);
-  const light = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTexture(), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, color: new THREE.Color(...VARIANTS.orange.light), opacity: 0.55 }));
+  const light = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTexture(), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, color: new THREE.Color(...LINEAR.orange.light), opacity: 0.55 }));
   rig.add(light);
   const tubes = new THREE.Group();
   rig.add(tubes);
@@ -374,7 +381,7 @@ function startWebGL() {
   const still = () => prefersReduced() || capturing() || frozen;
 
   function applyVariant() {
-    const v = VARIANTS[variantName()];
+    const v = LINEAR[variantName()];
     const u = world.dome.material.uniforms;
     u.netColor.value.setRGB(...v.net);
     u.glowColor.value.setRGB(...v.glow);
@@ -396,7 +403,7 @@ function startWebGL() {
   function buildTubes() {
     for (const mesh of world.tubes.children) mesh.geometry.dispose();
     world.tubes.clear();
-    const v = VARIANTS[variantName()];
+    const v = LINEAR[variantName()];
     TUBES.forEach(([points, radius], index) => {
       const curve = new THREE.CatmullRomCurve3(points.map(([x, y, d]) => viewportPoint(x, y, d)));
       const glass = new THREE.Mesh(new THREE.TubeGeometry(curve, 120, radius, 24, false), tubeMaterial());
@@ -537,15 +544,15 @@ function startWebGL() {
     setRunning();
   }
 
-  // The cover the cradle holds: the stored image, read through a plain same-origin <img> and
-  // copied to a canvas (no CORS request, which WebKit refuses for the launcher's custom scheme), or
-  // the generated box art when there is no image or it cannot be read.
+  // The cover the cradle holds. The generated box art goes in at once, so the card is never blank;
+  // the stored image then replaces it, read through a plain same-origin <img> and copied to a canvas
+  // (no CORS request, which WebKit refuses for the launcher's custom scheme). If the copy cannot be
+  // read back, the box art stays. body.dataset.cradle records which one is shown, for captures.
   let coverRequest = 0;
   function setCover(detail) {
     const material = world.cradle.coverMaterial;
     const request = ++coverRequest;
-    body.dataset.cradle = "loading";
-    const apply = (source) => {
+    const apply = (source, kind) => {
       if (request !== coverRequest) return;
       const texture = new THREE.CanvasTexture(source);
       texture.colorSpace = THREE.SRGBColorSpace;
@@ -553,11 +560,12 @@ function startWebGL() {
       material.map?.dispose();
       material.map = texture;
       material.needsUpdate = true;
-      body.dataset.cradle = "ready";
-      if (!running) renderFrame(0);
+      body.dataset.cradle = kind;
+      if (!running && !frozen) renderFrame(0);
     };
-    const fallback = () => { if (detail?.canvas) apply(detail.canvas); else body.dataset.cradle = "ready"; };
-    if (!detail?.url) { fallback(); return; }
+    if (detail?.canvas) apply(detail.canvas, detail.url ? "loading" : "generated");
+    if (!detail?.url) { body.dataset.cradle = detail?.canvas ? "generated" : "empty"; return; }
+    const settle = (reason) => { if (request === coverRequest) body.dataset.cradle = `generated (${reason})`; };
     const image = new Image();
     image.decoding = "async";
     image.onload = () => {
@@ -567,13 +575,13 @@ function startWebGL() {
         copy.height = Math.min(1536, image.naturalHeight || 450);
         const g = copy.getContext("2d");
         g.drawImage(image, 0, 0, copy.width, copy.height);
-        g.getImageData(0, 0, 1, 1); // throws if the image could not be read
-        apply(copy);
-      } catch (_) {
-        fallback();
+        copy.toDataURL(); // throws if the copy is not readable, which WebGL would refuse too
+        apply(copy, "image");
+      } catch (error) {
+        settle(error && error.name ? error.name : "unreadable");
       }
     };
-    image.onerror = fallback;
+    image.onerror = () => settle("load error");
     image.src = detail.url;
   }
 
