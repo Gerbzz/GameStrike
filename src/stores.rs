@@ -644,10 +644,7 @@ pub fn steam_libraries(root: &Path) -> Vec<PathBuf> {
     }
     let mut seen = BTreeSet::new();
     libraries.retain(|library| {
-        let key = fs::canonicalize(library)
-            .unwrap_or_else(|_| library.clone())
-            .to_string_lossy()
-            .to_lowercase();
+        let key = fs::canonicalize(library).unwrap_or_else(|_| library.clone());
         seen.insert(key)
     });
     libraries
