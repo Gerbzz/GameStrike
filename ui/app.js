@@ -1367,6 +1367,7 @@
     applyStyle(core.styleFor(view === "green" ? "collection-green" : "collection-orange"), false);
     const bootSecond = view === "boot" ? 3.5 : /^boot-\d+(\.\d+)?$/.test(view) ? Number(view.slice(5)) : null;
     if (bootSecond !== null) {
+      document.body.classList.remove("reduce-motion");
       clearTimeout(bootTimer);
       clearTimeout(assembleTimer);
       sound.stopBoot();

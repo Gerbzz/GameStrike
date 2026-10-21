@@ -390,7 +390,10 @@ body.flat[data-view="detail"] .info { transform: none; }
 
 /* ---------- accessibility ---------- */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
+  /* Explicit boot captures seek paused animations to a still pose; disabling them loses that
+     pose (for example, the wordmark appears before its reveal). Normal UI still has no motion. */
+  body:not(.boot-frozen), body:not(.boot-frozen) *, body:not(.boot-frozen)::before, body:not(.boot-frozen)::after,
+  body:not(.boot-frozen) *::before, body:not(.boot-frozen) *::after { animation: none !important; transition: none !important; }
 }
 body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after { animation: none !important; transition: none !important; }
 /* Without 3D motion (reduced motion or no WebGL) the frame and panels lie flat. */
