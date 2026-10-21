@@ -1474,7 +1474,9 @@
   function drawn() {
     if (document.fonts && document.fonts.status !== "loaded") return false;
     if (!document.body.dataset.scene) return false;
-    if (state.booted) {
+    // A late capture can return to an early boot frame after natural startup has finished.
+    // That view intentionally hides the library; every staged library/detail view must show it.
+    if (document.body.dataset.view !== "boot") {
       const stage = getComputedStyle(el.frame.parentElement);
       if (Number(stage.opacity) < 0.99 || stage.visibility === "hidden" || stage.display === "none") return false;
     }

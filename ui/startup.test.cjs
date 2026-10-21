@@ -71,6 +71,7 @@ test("holding a boot frame does not rewind the stage's opacity transition to its
 test("a completed boot capture is not ready while the DOM stage is invisible", () => {
   const p = page();
   p.state.booted = true;
+  p.body.dataset.view = "library";
   p.el.frame.stage.opacity = "0";
   assert.equal(p.context.drawn(), false);
   p.el.frame.stage.opacity = "1";
@@ -111,4 +112,13 @@ test("a boot capture uses the CSS fallback when the WebGL constructor exists but
   assert.equal(p.body.dataset.boot, undefined);
   assert.equal(p.window.GameStrikeScenePending?.boot, undefined);
   assert.equal(p.body.dataset.view, "boot");
+});
+
+test("an early boot capture staged after natural startup may intentionally hide the library stage", () => {
+  const p = page();
+  p.state.booted = true;
+  p.context.capture("boot");
+  p.body.dataset.bootFrame = "3.5";
+  p.el.frame.stage.opacity = "0";
+  assert.equal(p.context.drawn(), true);
 });
