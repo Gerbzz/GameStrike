@@ -1,9 +1,18 @@
 #![forbid(unsafe_code)]
-//! Tests-first contract scaffold. Processing and lifecycle operations deliberately
-//! return `AudioError::Unimplemented` until hosted behavioral RED is reviewed.
+//! Safe 48 kHz communication DSP with synthetic, injected host boundaries.
 //! This crate performs no device discovery, capture, driver installation, or OS changes.
+//! Endpoint proof establishes only the injected backend's synthetic connection.
 
+use std::collections::VecDeque;
 use std::fmt;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
+mod endpoint;
+mod lifecycle;
+mod signal;
+
+pub use signal::{downmix_stereo, process_communication};
 
 pub const SAMPLE_RATE_HZ: u32 = 48_000;
 pub const PRESET_TRANSITION_FRAMES: usize = 240;
@@ -40,31 +49,13 @@ pub enum VoicePreset {
     Robot,
 }
 
-#[derive(Debug, Default)]
-pub struct VoiceProcessor;
-
-impl VoiceProcessor {
-    pub fn new() -> Self { Self }
-
-    /// Normalized mono, fixed 48 kHz. An error must clear the entire output.
-    /// Preset changes use a 240-frame linear crossfade: target weight is
-    /// (transition_frame + 1) / 240, continuing across blocks in both directions.
-    /// The 80 Hz oscillator advances even during Bypass and gated live voice.
-    pub fn process(&mut self, _input: &[f32], _preset: VoicePreset,
-        _sample_rate: u32, _out: &mut [f32]) -> Result<(), AudioError> {
-        Err(AudioError::Unimplemented)
-    }
-
-    /// Clears oscillator and preset-transition history.
-    pub fn reset(&mut self) -> Result<(), AudioError> {
-        Err(AudioError::Unimplemented)
-    }
-}
-
-/// Half(L + R), with normalized input validation and fail-closed output.
-pub fn downmix_stereo(_interleaved: &[f32], _sample_rate: u32,
-    _out: &mut [f32]) -> Result<(), AudioError> {
-    Err(AudioError::Unimplemented)
+#[derive(Debug)]
+pub struct VoiceProcessor {
+    phase_frame: u16,
+    target: VoicePreset,
+    wet_weight: f32,
+    transition_start: f32,
+    transition_elapsed: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -96,17 +87,11 @@ pub struct CommPolicy {
     pub tx: TxState,
 }
 
-/// Only processed voice and owned clips belong on the communication bus.
-/// Both inputs must match output length; every failure clears output.
-pub fn process_communication(_processed_voice: &[f32], _clips: &[f32],
-    _gains: CommGains, _policy: CommPolicy, _out: &mut [f32]) -> Result<(), AudioError> {
-    Err(AudioError::Unimplemented)
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputDeviceId(pub String);
 
-/// Implementations belong to the host. Tests use a trace-only fake.
+/// Implementations belong to the host. The core provides no microphone backend.
+/// `release` must safely clean up an unsuccessful or partially completed open.
 pub trait MicInput {
     fn open(&mut self, device: &InputDeviceId) -> Result<(), AudioError>;
     fn release(&mut self);
@@ -136,36 +121,16 @@ pub struct SessionSnapshot {
 /// Invalid queued samples or render gains also release/flush/reset and latch fault.
 /// A faulted session cannot be revived by endpoint, voice, preset, or TX changes.
 pub struct Session<I: MicInput> {
-    _input: I,
-}
-
-impl<I: MicInput> Session<I> {
-    pub fn new(input: I, _capacity_frames: usize) -> Self { Self { _input: input } }
-    pub fn snapshot(&self) -> SessionSnapshot { SessionSnapshot::default() }
-    pub fn set_endpoint(&mut self, _endpoint: Option<VerifiedEndpoint>) -> Result<(), AudioError> {
-        Err(AudioError::Unimplemented)
-    }
-    pub fn enable_voice(&mut self, _device: &InputDeviceId) -> Result<(), AudioError> {
-        Err(AudioError::Unimplemented)
-    }
-    pub fn disable_voice(&mut self) -> Result<(), AudioError> { Err(AudioError::Unimplemented) }
-    pub fn mute_voice(&mut self) -> Result<(), AudioError> { Err(AudioError::Unimplemented) }
-    pub fn mute_tx(&mut self) -> Result<(), AudioError> { Err(AudioError::Unimplemented) }
-    pub fn resume_tx(&mut self) -> Result<(), AudioError> { Err(AudioError::Unimplemented) }
-    pub fn fault(&mut self) -> Result<(), AudioError> { Err(AudioError::Unimplemented) }
-    pub fn set_preset(&mut self, _preset: VoicePreset) -> Result<(), AudioError> {
-        Err(AudioError::Unimplemented)
-    }
-    pub fn enqueue_voice(&mut self, _mono: &[f32]) -> Result<(), AudioError> {
-        Err(AudioError::Unimplemented)
-    }
-    pub fn enqueue_clip(&mut self, _mono: &[f32]) -> Result<(), AudioError> {
-        Err(AudioError::Unimplemented)
-    }
-    pub fn render(&mut self, _gains: CommGains, _ptt_open: bool,
-        _out: &mut [f32]) -> Result<(), AudioError> {
-        Err(AudioError::Unimplemented)
-    }
+    input: I,
+    input_device: Option<InputDeviceId>,
+    endpoint: Option<VerifiedEndpoint>,
+    voice: VoiceState,
+    tx: TxState,
+    preset: VoicePreset,
+    processor: VoiceProcessor,
+    voice_queue: VecDeque<f32>,
+    clip_queue: VecDeque<f32>,
+    capacity_frames: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -197,6 +162,10 @@ pub struct BackendHandshake {
 pub enum DeviceSamples { F32(Vec<f32>), I16(Vec<i16>), I32(Vec<i32>) }
 
 /// The host implements this boundary; the core has no actual device backend.
+/// Handshake must open the requested stable pair and report the actual negotiated
+/// format. `close` must safely clean up unsuccessful or partially completed opens.
+/// Writes consume a whole block or return an error; physical output after a backend
+/// failure cannot be established by this synthetic contract.
 pub trait EndpointBackend {
     fn handshake(&mut self, requested: &EndpointPairId) -> Result<BackendHandshake, AudioError>;
     fn write(&mut self, format: NegotiatedFormat, samples: &DeviceSamples) -> Result<(), AudioError>;
@@ -208,11 +177,7 @@ pub trait EndpointBackend {
 #[derive(Clone, Debug)]
 pub struct VerifiedEndpoint {
     pair: EndpointPairId,
-}
-
-impl VerifiedEndpoint {
-    pub fn pair(&self) -> &EndpointPairId { &self.pair }
-    pub fn is_available(&self) -> bool { false }
+    live: Arc<AtomicBool>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -224,21 +189,11 @@ pub struct BridgeBlock {
     pub status: BridgeStatus,
 }
 
-pub struct EndpointBridge<B: EndpointBackend> { _backend: B }
-
-impl<B: EndpointBackend> EndpointBridge<B> {
-    pub fn new(backend: B, _capacity_frames: usize) -> Self { Self { _backend: backend } }
-    pub fn availability(&self) -> EndpointAvailability { EndpointAvailability::Unavailable }
-    pub fn queued_frames(&self) -> usize { 0 }
-    pub fn connect(&mut self, _pair: &EndpointPairId) -> Result<VerifiedEndpoint, AudioError> {
-        Err(AudioError::Unimplemented)
-    }
-    pub fn enqueue(&mut self, _mono: &[f32]) -> Result<(), AudioError> {
-        Err(AudioError::Unimplemented)
-    }
-    /// Writes the negotiated format. Underflow is silence; disconnect flushes queued data.
-    pub fn pump(&mut self, _frames: usize) -> Result<BridgeBlock, AudioError> {
-        Err(AudioError::Unimplemented)
-    }
-    pub fn disconnect(&mut self) -> Result<(), AudioError> { Err(AudioError::Unimplemented) }
+pub struct EndpointBridge<B: EndpointBackend> {
+    backend: B,
+    capacity_frames: usize,
+    queue: VecDeque<f32>,
+    format: Option<NegotiatedFormat>,
+    proof: Option<VerifiedEndpoint>,
+    backend_open: bool,
 }
