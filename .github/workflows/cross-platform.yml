@@ -82,7 +82,7 @@ jobs:
           node --check ui/chrome.js
           node --check ui/boot.js
       - name: Launcher logic tests
-        run: node --test ui/app.test.cjs ui/startup.test.cjs
+        run: node --test ui/app.test.cjs ui/startup.test.cjs ui/scene-lifecycle.test.cjs
 
       - name: Clippy
         id: clippy

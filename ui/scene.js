@@ -409,6 +409,7 @@ function tubeMaterials() {
 }
 
 function startWebGL() {
+  let active = true;
   let qualityLevel = 0;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: true });
   renderer.toneMapping = THREE.NoToneMapping;
@@ -456,7 +457,7 @@ function startWebGL() {
     tint: LINEAR[variantName()].glow,
     envMap: bootEnv,
     green: variantName() === "green",
-    onLogo: () => { body.dataset.bootLogo = "ready"; if (!running && (frozen || bootHold !== null)) renderFrame(0); },
+    onLogo: () => { if (!active) return; body.dataset.bootLogo = "ready"; if (!running && (frozen || bootHold !== null)) renderFrame(0); },
   });
   boot.setTint(LINEAR[variantName()].glow, variantName() === "green");
   world.scene.add(boot.world);
@@ -702,11 +703,13 @@ function startWebGL() {
   }
 
   function render() {
+    if (!active) return;
     composer.render();
     if (front) front.renderer.render(front.scene, camera);
   }
 
   function renderFrame(dt) {
+    if (!active) return;
     clock += dt;
     if (bootHold !== null || bootStart !== null) {
       const t = bootHold !== null ? bootHold : (performance.now() - bootStart) / 1000;
@@ -796,7 +799,7 @@ function startWebGL() {
     const material = world.cradle.coverMaterial;
     const request = ++coverRequest;
     const apply = (source, kind) => {
-      if (request !== coverRequest) return;
+      if (!active || request !== coverRequest) return;
       const texture = new THREE.CanvasTexture(source);
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.anisotropy = 4;
@@ -808,7 +811,7 @@ function startWebGL() {
     };
     if (detail?.canvas) apply(detail.canvas, detail.url ? "loading" : "generated");
     if (!detail?.url) { body.dataset.cradle = detail?.canvas ? "generated" : "empty"; return; }
-    const settle = (reason) => { if (request === coverRequest) body.dataset.cradle = `generated (${reason})`; };
+    const settle = (reason) => { if (active && request === coverRequest) body.dataset.cradle = `generated (${reason})`; };
     const image = new Image();
     image.decoding = "async";
     image.onload = () => {
@@ -828,12 +831,28 @@ function startWebGL() {
     image.src = detail.url;
   }
 
-  window.addEventListener("resize", resize);
-  window.addEventListener("gamestrike:view", (event) => fly(event.detail?.view, Boolean(event.detail?.instant)));
-  window.addEventListener("gamestrike:pause", (event) => { paused = Boolean(event.detail?.paused); setRunning(); });
-  window.addEventListener("gamestrike:variant", () => { applyEnvironment(); applyVariant(); boot.setTint(LINEAR[variantName()].glow, variantName() === "green"); if (!running) renderFrame(0); });
-  window.addEventListener("gamestrike:cradle", (event) => setCover(event.detail));
-  window.addEventListener("gamestrike:layout", () => { buildChrome(); poseBoot(bootStart !== null ? (performance.now() - bootStart) / 1000 : bootHold ?? BOOT.end); if (!running && !frozen) renderFrame(0); });
+  // A context loss permanently hands these canvases to the static scene. Remove every WebGL
+  // subscription so later resize, focus or palette events cannot revive the abandoned renderer.
+  const subscriptions = [];
+  function listen(target, type, listener) {
+    if (!target?.addEventListener) return;
+    target.addEventListener(type, listener);
+    subscriptions.push(() => target.removeEventListener(type, listener));
+  }
+  function loseContext(event) {
+    event.preventDefault();
+    if (!active) return;
+    active = false;
+    running = false;
+    for (const remove of subscriptions) remove();
+    startStatic("context lost");
+  }
+  listen(window, "resize", resize);
+  listen(window, "gamestrike:view", (event) => fly(event.detail?.view, Boolean(event.detail?.instant)));
+  listen(window, "gamestrike:pause", (event) => { paused = Boolean(event.detail?.paused); setRunning(); });
+  listen(window, "gamestrike:variant", () => { applyEnvironment(); applyVariant(); boot.setTint(LINEAR[variantName()].glow, variantName() === "green"); if (!running) renderFrame(0); });
+  listen(window, "gamestrike:cradle", (event) => setCover(event.detail));
+  listen(window, "gamestrike:layout", () => { buildChrome(); poseBoot(bootStart !== null ? (performance.now() - bootStart) / 1000 : bootHold ?? BOOT.end); if (!running && !frozen) renderFrame(0); });
   function onBoot(detail) {
     const action = detail?.action;
     if (action === "play" && !prefersReduced()) {
@@ -867,8 +886,8 @@ function startWebGL() {
       if (!running && !frozen) renderFrame(0);
     }
   }
-  window.addEventListener("gamestrike:boot", (event) => onBoot(event.detail));
-  window.addEventListener("gamestrike:freeze", (event) => {
+  listen(window, "gamestrike:boot", (event) => onBoot(event.detail));
+  listen(window, "gamestrike:freeze", (event) => {
     // A still frame partway through a flight, for the capture of a camera move.
     const { from = "library", to = "detail", progress = 0.5 } = event.detail || {};
     frozen = true;
@@ -890,9 +909,10 @@ function startWebGL() {
     chrome.setInterior(interior);
     render();
   });
-  document.addEventListener("visibilitychange", setRunning);
-  motionQuery?.addEventListener?.("change", () => { fly(view, true); setRunning(); });
-  canvas.addEventListener("webglcontextlost", (event) => { event.preventDefault(); running = false; startStatic("context lost"); }, { once: true });
+  listen(document, "visibilitychange", setRunning);
+  listen(motionQuery, "change", () => { fly(view, true); setRunning(); });
+  listen(canvas, "webglcontextlost", loseContext);
+  listen(frontCanvas, "webglcontextlost", loseContext);
 
   applyVariant();
   resize();
