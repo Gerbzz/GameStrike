@@ -10,10 +10,18 @@ set -euo pipefail
 
 bin_dir=${1:?usage: record-startup.sh BIN_DIR OUT_DIR}
 out_dir=${2:?usage: record-startup.sh BIN_DIR OUT_DIR}
-command -v ffmpeg >/dev/null || { echo "ffmpeg is not installed; no recording" >&2; exit 0; }
+command -v ffmpeg >/dev/null || { echo "ffmpeg is not installed; no recording" >&2; exit 1; }
 mkdir -p "$out_dir"
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+launcher=""
+cleanup() {
+  if [[ -n "$launcher" ]]; then
+    kill "$launcher" 2>/dev/null || true
+    wait "$launcher" 2>/dev/null || true
+  fi
+  rm -rf "$work"
+}
+trap cleanup EXIT
 library="$work/library"
 mkdir -p "$library" "$work/games"
 # Marks the library as synthetic test data; the launcher then shows a badge saying so.
@@ -25,16 +33,18 @@ done
 
 "$bin_dir/gamestrike-launcher" --library "$library" >"$out_dir/startup-launcher.log" 2>&1 &
 launcher=$!
-ffmpeg -loglevel error -y -f x11grab -framerate 25 -video_size 1250x800 -i "${DISPLAY:-:99}" -t 9 -pix_fmt yuv420p "$out_dir/startup.mp4" || true
+ffmpeg -loglevel error -y -f x11grab -framerate 25 -video_size 1250x800 -i "${DISPLAY:-:99}" -t 9 -pix_fmt yuv420p "$out_dir/startup.mp4"
 kill "$launcher" 2>/dev/null || true
 wait "$launcher" 2>/dev/null || true
+launcher=""
 if [[ -s "$out_dir/startup.mp4" ]]; then
   ffmpeg -loglevel error -y -i "$out_dir/startup.mp4" \
     -vf "fps=12,scale=625:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=160[p];[b][p]paletteuse=dither=bayer:bayer_scale=4" \
-    "$out_dir/startup.gif" || true
+    "$out_dir/startup.gif"
   # A few stills from the recording, about one per second.
-  ffmpeg -loglevel error -y -i "$out_dir/startup.mp4" -vf "fps=1" "$out_dir/startup-frame-%02d.png" || true
+  ffmpeg -loglevel error -y -i "$out_dir/startup.mp4" -vf "fps=1" "$out_dir/startup-frame-%02d.png"
   ls -l "$out_dir"/startup*
 else
   echo "no recording was made" >&2
+  exit 1
 fi
