@@ -6,7 +6,7 @@ const vm = require("node:vm");
 
 // Exercise the real scene's event subscriptions and pending image callback at the renderer boundary.
 function scene() {
-  const source = fs.readFileSync(path.join(process.env.GAMESTRIKE_UI || __dirname, "scene.js"), "utf8");
+  const source = fs.readFileSync(path.join(process.env.GAMESTRIKE_UI || __dirname, "scene.js"), "utf8").replace(/\r\n/g, "\n");
   const from = source.indexOf("  let coverRequest = 0;");
   const to = source.indexOf("\n  applyVariant();\n  resize();\n  fly(", from);
   assert.ok(from > 0 && to > from);
