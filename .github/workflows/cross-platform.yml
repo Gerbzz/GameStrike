@@ -78,8 +78,15 @@ jobs:
           node --check ui/style-gate.js
           node --check ui/frame.js
           node --check ui/covers.js
+          node --check ui/scene.js
+          node --check ui/chrome.js
+          node --check ui/boot.js
       - name: Launcher logic tests
-        run: node --test ui/app.test.cjs ui/launch.test.cjs
+        run: node --test ui/app.test.cjs ui/launch.test.cjs ui/startup.test.cjs ui/scene-lifecycle.test.cjs
+
+      - name: Startup recorder regression tests
+        if: runner.os == 'Linux'
+        run: bash scripts/record-startup.test.sh
 
       - name: Clippy
         id: clippy
@@ -110,6 +117,11 @@ jobs:
       - name: Launch and capture smoke test (Linux, Xvfb)
         if: runner.os == 'Linux'
         run: xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- bash scripts/hosted-library-capture.sh target/release "$RUNNER_TEMP/gamestrike-capture"
+      - name: Record the startup (Linux, Xvfb)
+        if: runner.os == 'Linux'
+        run: |
+          command -v ffmpeg >/dev/null || { sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg; }
+          xvfb-run -a -s "-screen 0 1250x800x24" dbus-run-session -- bash scripts/record-startup.sh target/release "$RUNNER_TEMP/gamestrike-capture"
       - name: Launch and capture smoke test (macOS)
         if: runner.os == 'macOS'
         run: bash scripts/hosted-library-capture.sh target/release "$RUNNER_TEMP/gamestrike-capture"

@@ -1,27 +1,39 @@
 // The Collection style's 3D world: the inside of a large dome whose wall carries an irregular,
 // glowing net (latitude and longitude around a pole that leans toward the light, bent by a smooth
-// warp), lit by a soft light near the emblem and fading into fog with distance. Glossy glass tubes
-// wrap around the frame, and the detail view seats the selected game's cover in a cradle. Bloom
-// lights the bright parts only. Rendered with the bundled three.js; decoration only.
+// warp), lit by a soft light near the emblem and fading into fog with distance. The frame itself is
+// 3D chrome (chrome.js): thick bevelled slabs, an emblem disc, and rivets, lit and reflecting a
+// small procedural environment. Big glossy amber tubes wrap around it; the ones that pass in front
+// of the frame are drawn on a second, transparent canvas above the page. The detail view seats the
+// selected game's cover in a cradle. Bloom lights the bright parts only. Rendered with the bundled
+// three.js; decoration only.
 //
 // The camera and the page's CSS 3D stage share one model: the CSS perspective is set from the
-// camera's field of view, so the frame (DOM), the tubes, and the cradle stay in step while the
-// camera drifts and flies between views and the net, much further away, shows real parallax.
+// camera's field of view, and one pixel of the page is one pixel of the frame's plane, so the DOM
+// (text, rows, covers), the chrome, the tubes, and the cradle stay in step while the camera drifts
+// and flies between views, and the net, much further away, shows real parallax.
 //
 // Events from app.js:
 //   "gamestrike:view"    { view, instant }    library, detail, saves, settings, about, boot
 //   "gamestrike:cradle"  { id, url, canvas }  the cover the cradle holds
 //   "gamestrike:variant" { variant }          orange or green
 //   "gamestrike:pause"   { paused }           stop rendering while a game runs
+//   "gamestrike:layout"                       the page's layout changed: rebuild the chrome
 //   "gamestrike:freeze"  { from, to, progress }  a still frame partway through a flight (captures)
-// Without WebGL 2 it paints a still dome on a 2D canvas; with reduced motion it draws one frame.
+//   "gamestrike:boot"    { action: "play", start } | { action: "skip" } | { action: "freeze", t }
+//                        the startup (boot.js): play from a performance.now() time, jump to its
+//                        end, or hold second t for a capture
+// Without WebGL 2 it paints a still dome on a 2D canvas (and the page draws its SVG frame); with
+// reduced motion it draws one frame.
 import * as THREE from "./vendor/three/three.module.min.js";
 import { EffectComposer } from "./vendor/three/postprocessing/EffectComposer.js";
 import { RenderPass } from "./vendor/three/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "./vendor/three/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "./vendor/three/postprocessing/OutputPass.js";
+import { createChrome, createEnvironment } from "./chrome.js";
+import { BOOT, bootPose, createBoot } from "./boot.js";
 
 const canvas = document.getElementById("scene");
+const frontCanvas = document.getElementById("scene-front");
 const body = document.body;
 const core = window.GameStrikeCore;
 const motionQuery = window.matchMedia?.("(prefers-reduced-motion: reduce)");
@@ -70,6 +82,8 @@ function setMode(mode, quality) {
 const variantName = () => (body.dataset.variant === "green" ? "green" : "orange");
 // The CSS perspective that matches the camera, in pixels.
 const cssPerspective = () => innerHeight / 2 / Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+// The world size of one page pixel on the frame's plane.
+const pixelSize = () => (2 * Math.tan(THREE.MathUtils.degToRad(FOV / 2)) * FRAME_DEPTH) / Math.max(1, innerHeight);
 
 // Unit vectors of the dome net's pole basis, shared with core.domeNet.
 function poleBasis(pole) {
@@ -143,7 +157,7 @@ function domeMaterial() {
         float lines = max(lineMask(u, px), lineMask(v, px));
         float light = pow(max(dot(d, lightDir), 0.0), 3.0);
         float fog = exp(-max(dist - 18.0, 0.0) * 0.035);
-        vec3 color = voidColor * (0.7 + 0.6 * light);
+        vec3 color = voidColor * (0.7 + 0.6 * light) * min(1.0, intensity * 3.0);
         color += netColor * lines * (0.13 + 0.75 * light) * fog * intensity;
         color += glowColor * light * 0.06 * intensity;
         gl_FragColor = vec4(color, 1.0);
@@ -151,36 +165,7 @@ function domeMaterial() {
   });
 }
 
-// Glossy glass tubes: dark translucent bodies, bright fresnel rims, a specular streak, and banding.
-function tubeMaterial() {
-  return new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-    uniforms: { tint: { value: new THREE.Color(...LINEAR.orange.tube) }, time: { value: 0 } },
-    vertexShader: SHADED_VERTEX,
-    fragmentShader: /* glsl */ `
-      uniform vec3 tint; uniform float time; varying vec2 vUv; varying vec3 vNormal; varying vec3 vView;
-      void main() {
-        vec3 n = normalize(vNormal); vec3 v = normalize(vView);
-        float facing = abs(dot(n, v));
-        float rim = pow(1.0 - facing, 2.2);
-        float spec = pow(max(dot(reflect(-v, n), normalize(vec3(-0.45, 0.8, 0.4))), 0.0), 42.0);
-        float streak = pow(max(dot(reflect(-v, n), normalize(vec3(0.5, -0.1, 0.86))), 0.0), 110.0);
-        // Joints: short bright collars along the tube.
-        float joint = smoothstep(0.86, 0.9, fract(vUv.x * 7.0)) * (1.0 - smoothstep(0.96, 1.0, fract(vUv.x * 7.0)));
-        // A dark glass core, a saturated lit rim, white highlights.
-        // Lit from above, like the reference's amber pipes: a glowing upper flank, a darker belly.
-        float top = pow(max(dot(n, normalize(vec3(-0.25, 0.95, 0.2))), 0.0), 2.0);
-        // Colours stay saturated: the rim and collars reach the tint, highlights are warm, not white.
-        vec3 body = tint * (0.1 + 0.42 * top);
-        vec3 color = mix(body, tint * 1.12, smoothstep(0.05, 0.9, rim)) + tint * joint * 0.6;
-        color += mix(tint, vec3(1.0), 0.45) * (spec * 0.95 + streak * 0.7);
-        float alpha = clamp(0.9 + rim * 0.1, 0.0, 1.0);
-        gl_FragColor = vec4(color, alpha);
-      }`,
-  });
-}
+// The light running through a tube's core.
 function energyMaterial(phase) {
   return new THREE.ShaderMaterial({
     transparent: true,
@@ -193,7 +178,25 @@ function energyMaterial(phase) {
       void main() {
         float flow = fract(vUv.x * 2.0 - time * 0.12 + phase);
         float pulse = smoothstep(0.0, 0.02, flow) * (1.0 - smoothstep(0.02, 0.12, flow));
-        gl_FragColor = vec4(tint * (0.35 + pulse * 2.6), 0.5 + pulse);
+        gl_FragColor = vec4(tint * (1.1 + pulse * 2.6), 0.85 + pulse);
+      }`,
+  });
+}
+// A soft halo around the front tubes, which the bloom pass does not reach.
+function haloShellMaterial() {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.BackSide,
+    uniforms: { tint: { value: new THREE.Color(...LINEAR.orange.glow) } },
+    vertexShader: SHADED_VERTEX,
+    fragmentShader: /* glsl */ `
+      uniform vec3 tint; varying vec3 vNormal; varying vec3 vView;
+      void main() {
+        float facing = abs(dot(normalize(vNormal), normalize(vView)));
+        float glow = pow(facing, 2.5) * 0.22;
+        gl_FragColor = vec4(tint * glow, glow);
       }`,
   });
 }
@@ -237,16 +240,19 @@ function haloTexture() {
   return texture;
 }
 
-// Tubes as [points in viewport fractions (x right, y down) with a depth in world units, radius].
-// They wrap the frame: over the top right, down the left edge, around the bottom left, and a
-// hooked pipe into the right edge, as in the reference.
+// Tubes: points in viewport fractions (x right, y down) with a depth in world units, a radius, and
+// whether they pass in front of the frame. Big amber pipes cross the frame's top right, its left
+// side, and its bottom left corner in front, as in the reference; others run behind it, showing
+// around its edges. Collars mark the joints.
 const TUBES = [
-  [[[0.56, -0.14, 10.5], [0.64, -0.005, 10.3], [0.8, 0.02, 10.2], [0.95, 0.04, 10.2], [1.1, 0.14, 10.5]], 0.27],
-  [[[0.68, -0.16, 11], [0.76, 0.012, 10.8], [0.9, 0.035, 10.6], [1.0, 0.12, 10.5], [1.12, 0.3, 10.8]], 0.19],
-  [[[0.84, -0.14, 11], [0.89, -0.01, 10.8], [0.99, 0.02, 10.6], [1.12, 0.04, 10.8]], 0.15],
-  [[[-0.1, 0.3, 10.6], [0.0, 0.42, 10.2], [0.004, 0.6, 10.2], [-0.004, 0.76, 10.2], [-0.12, 0.9, 10.6]], 0.23],
-  [[[-0.12, 1.08, 10.4], [0.02, 0.93, 10.2], [0.1, 0.92, 10.1], [0.16, 0.99, 10.2], [0.14, 1.15, 10.4]], 0.26],
-  [[[1.12, 0.36, 10.8], [1.0, 0.42, 10.4], [0.993, 0.52, 10.3], [1.0, 0.64, 10.4], [1.12, 0.72, 10.8]], 0.2],
+  { points: [[0.78, -0.16, 10.2], [0.845, -0.02, 9.85], [0.93, 0.035, 9.75], [1.0, 0.07, 9.8], [1.08, 0.16, 10.1]], radius: 0.25, front: true, collars: 4 },
+  { points: [[0.875, -0.16, 10.3], [0.915, -0.015, 9.95], [0.985, 0.02, 9.9], [1.08, 0.035, 10.1]], radius: 0.15, front: true, collars: 3 },
+  { points: [[-0.12, 0.31, 10.3], [-0.004, 0.39, 9.85], [0.008, 0.5, 9.75], [-0.004, 0.61, 9.85], [-0.12, 0.69, 10.3]], radius: 0.2, front: true, collars: 3 },
+  { points: [[-0.15, 0.62, 10.4], [-0.02, 0.73, 9.9], [0.018, 0.86, 9.75], [0.06, 0.97, 9.75], [0.085, 1.14, 10.1]], radius: 0.29, front: true, collars: 6 },
+  { points: [[-0.12, 0.86, 10.3], [-0.01, 0.93, 9.9], [0.025, 1.01, 9.9], [0.03, 1.14, 10.1]], radius: 0.17, front: true, collars: 3 },
+  { points: [[0.52, -0.18, 11], [0.6, -0.012, 10.7], [0.73, 0.004, 10.6], [0.84, -0.03, 10.7], [0.9, -0.2, 11]], radius: 0.19, front: false, collars: 4 },
+  { points: [[1.14, 0.33, 10.8], [1.0, 0.4, 10.4], [0.99, 0.52, 10.3], [1.0, 0.64, 10.4], [1.14, 0.72, 10.8]], radius: 0.21, front: false, collars: 3 },
+  { points: [[0.93, 1.16, 10.8], [0.975, 0.97, 10.4], [1.12, 0.9, 10.8]], radius: 0.18, front: false, collars: 2 },
 ];
 
 // The cradle: a card carrying the cover, held by a translucent mechanical arm with glassy plates,
@@ -267,7 +273,7 @@ function buildCradle() {
   const extrude = (shape, depth, bevel = 0.05) => new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2 });
 
   // The arm: one long bevelled beam crossing behind the cover from the lower left to the upper
-  // right and out of view, with a second, slimmer strut, as the reference cradle's arm does.
+  // right and out of view, with a second, slimmer strut.
   const beam = glass(new THREE.Mesh(extrude(chamfer(1.15, 11, 0.32), 0.55, 0.08), glassMaterial(0.85)));
   beam.position.set(0.6, 0.2, -1.5);
   beam.rotation.set(0, 0, -0.72);
@@ -333,7 +339,7 @@ function buildWorld() {
   const dome = new THREE.Mesh(new THREE.SphereGeometry(DOME.radius, 96, 64), domeMaterial());
   dome.position.copy(DOME.center);
   scene.add(dome);
-  // The rig follows the camera: the frame's tubes, the light behind the emblem, and the cradle.
+  // The rig follows the camera: the chrome, the tubes, the light behind the emblem, and the cradle.
   const rig = new THREE.Group();
   scene.add(rig);
   const light = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTexture(), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, color: new THREE.Color(...LINEAR.orange.light), opacity: 0.55 }));
@@ -345,7 +351,65 @@ function buildWorld() {
   return { scene, dome, rig, light, tubes, cradle };
 }
 
+// Glossy amber glass for the tubes, and dark metal for their collars: lit from the upper left like
+// the chrome, with a bright rim and the reflection of a painted studio (a strip light and a
+// softbox), so the tubes read as thick, polished pipes.
+const STUDIO = /* glsl */ `
+  vec3 studio(vec3 r) {
+    float strip = exp(-pow((r.y - 0.42) / 0.07, 2.0)) * smoothstep(-0.2, 0.6, r.z);
+    float box = pow(max(dot(r, normalize(vec3(-0.45, 0.6, 0.65))), 0.0), 40.0) * 3.0;
+    float sky = smoothstep(-0.1, 0.9, r.y) * 0.25;
+    return vec3(strip * 1.6 + box + sky);
+  }`;
+function tubeGlassMaterial() {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    uniforms: { tint: { value: new THREE.Color(...LINEAR.orange.tube) } },
+    vertexShader: SHADED_VERTEX,
+    fragmentShader: /* glsl */ `
+      uniform vec3 tint; varying vec3 vNormal; varying vec3 vView;
+      ${STUDIO}
+      void main() {
+        vec3 n = normalize(vNormal); vec3 v = normalize(vView);
+        float facing = abs(dot(n, v));
+        float rim = pow(1.0 - facing, 2.0);
+        float lit = max(dot(n, normalize(vec3(-0.35, 0.9, 0.35))), 0.0);
+        // Clear, slightly smoked glass: the glowing core shows through the middle, the walls
+        // light up toward the silhouette, and the studio leaves sharp highlights.
+        vec3 body = tint * (0.05 + 0.3 * lit);
+        vec3 color = mix(body, tint * 1.7, smoothstep(0.15, 0.95, rim));
+        vec3 r = reflect(-v, n);
+        vec3 shine = studio(r) * (0.4 + 0.6 * rim);
+        color += mix(tint, vec3(1.0, 0.96, 0.88), 0.7) * shine;
+        float alpha = clamp(0.28 + rim * 0.62 + length(shine) * 0.45, 0.0, 1.0);
+        gl_FragColor = vec4(color, alpha);
+      }`,
+  });
+}
+function tubeCollarMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: { tint: { value: new THREE.Color(...LINEAR.orange.tube) } },
+    vertexShader: SHADED_VERTEX,
+    fragmentShader: /* glsl */ `
+      uniform vec3 tint; varying vec3 vNormal; varying vec3 vView;
+      ${STUDIO}
+      void main() {
+        vec3 n = normalize(vNormal); vec3 v = normalize(vView);
+        float lit = max(dot(n, normalize(vec3(-0.35, 0.9, 0.35))), 0.0);
+        vec3 r = reflect(-v, n);
+        float rim = pow(1.0 - abs(dot(n, v)), 2.0);
+        vec3 color = tint * (0.12 + 0.6 * lit + 1.1 * rim) + mix(tint, vec3(1.0), 0.6) * studio(r);
+        gl_FragColor = vec4(color, 1.0);
+      }`,
+  });
+}
+function tubeMaterials() {
+  return { glass: tubeGlassMaterial(), collar: tubeCollarMaterial() };
+}
+
 function startWebGL() {
+  let active = true;
   let qualityLevel = 0;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: true });
   renderer.toneMapping = THREE.NoToneMapping;
@@ -354,10 +418,53 @@ function startWebGL() {
   world.scene.add(camera);
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(world.scene, camera));
-  // Only bright, lit parts pass the threshold: net lines near the light, tube highlights, the cradle's edge.
-  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.8, 0.45, 0.78);
+  // Only bright, lit parts pass the threshold: net lines near the light, tube and bevel highlights, the cradle's edge.
+  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.55, 0.4, 0.84);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
+
+  // The chrome and its environment.
+  let envMap = createEnvironment(renderer, LINEAR[variantName()].tube);
+  const chrome = createChrome({ envMap, palette: variantName() });
+  chrome.group.position.z = -FRAME_DEPTH;
+  world.rig.add(chrome.group);
+  const backTubeMaterials = tubeMaterials();
+
+  // The front layer: its own renderer, scene, and rig, kept in step with the main rig.
+  let front = null;
+  if (frontCanvas) {
+    try {
+      const frontRenderer = new THREE.WebGLRenderer({ canvas: frontCanvas, antialias: true, alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: true });
+      frontRenderer.setClearColor(0x000000, 0);
+      frontRenderer.toneMapping = THREE.NoToneMapping;
+      const frontScene = new THREE.Scene();
+      const rig = new THREE.Group();
+      frontScene.add(rig);
+      const tubes = new THREE.Group();
+      rig.add(tubes);
+      front = { renderer: frontRenderer, scene: frontScene, rig, tubes, materials: tubeMaterials() };
+    } catch (_) {
+      front = null;
+    }
+  }
+  body.dataset.chrome = "3d";
+
+  // The startup: its own objects in the world and in the rig; null start means not playing.
+  // The emblem and the flash fly above the page (the front layer, when there is one), so the covers
+  // that flip in during the assembly never hide them; the particles and the core stay in the dome.
+  const bootEnv = front ? createEnvironment(front.renderer, LINEAR[variantName()].tube) : envMap;
+  const boot = createBoot({
+    tint: LINEAR[variantName()].glow,
+    envMap: bootEnv,
+    green: variantName() === "green",
+    onLogo: () => { if (!active) return; body.dataset.bootLogo = "ready"; if (!running && (frozen || bootHold !== null)) renderFrame(0); },
+  });
+  boot.setTint(LINEAR[variantName()].glow, variantName() === "green");
+  world.scene.add(boot.world);
+  (front ? front.rig : world.rig).add(boot.rig);
+  let bootStart = null;
+  let bootHold = null;
+  let bootTime = BOOT.end;
 
   const station = (name) => VIEWS[name] || VIEWS.library;
   const pos = new THREE.Vector3(...station("boot").position);
@@ -376,22 +483,40 @@ function startWebGL() {
   let clock = 0;
   let frames = 0;
   let frameTime = 0;
+  let interior = 1;
   const stage = document.getElementById("frame");
   const capturing = () => body.classList.contains("reduce-motion");
   const still = () => prefersReduced() || capturing() || frozen;
+  const booting = () => bootStart !== null && bootTime < BOOT.end;
 
   function applyVariant() {
-    const v = LINEAR[variantName()];
+    const name = variantName();
+    const v = LINEAR[name];
     const u = world.dome.material.uniforms;
     u.netColor.value.setRGB(...v.net);
     u.glowColor.value.setRGB(...v.glow);
     u.voidColor.value.setRGB(...v.void);
     world.light.material.color.setRGB(...v.light);
-    for (const mesh of world.tubes.children) mesh.material.uniforms.tint.value.setRGB(...(mesh.userData.energy ? v.glow : v.tube));
     for (const mesh of world.cradle.plates) mesh.material.uniforms.tint.value.setRGB(...v.tube);
     for (const mesh of world.cradle.cables) mesh.material.uniforms.tint.value.setRGB(...v.glow);
     world.cradle.edge.color.setRGB(...v.glow).multiplyScalar(0.9);
     renderer.setClearColor(new THREE.Color(...v.void));
+    chrome.setPalette(name);
+    for (const set of [backTubeMaterials, front?.materials].filter(Boolean)) {
+      set.glass.uniforms.tint.value.setRGB(...v.tube);
+      set.collar.uniforms.tint.value.setRGB(...v.tube);
+    }
+    for (const group of [world.tubes, front?.tubes].filter(Boolean)) {
+      group.traverse((mesh) => { if (mesh.material?.uniforms?.tint) mesh.material.uniforms.tint.value.setRGB(...v.glow); });
+    }
+  }
+  // The environment carries the variant's colour; it is painted again when the variant changes.
+  function applyEnvironment() {
+    const tint = LINEAR[variantName()].tube;
+    const next = createEnvironment(renderer, tint);
+    chrome.setEnvironment(next);
+    envMap.dispose();
+    envMap = next;
   }
 
   // A point given in viewport fractions at a depth in front of the camera (camera space).
@@ -400,20 +525,46 @@ function startWebGL() {
     return new THREE.Vector3((x * 2 - 1) * half * camera.aspect, (1 - y * 2) * half, -depth);
   }
 
+  function disposeGroup(group) {
+    group.traverse((node) => { if (node.isMesh) { node.geometry.dispose(); if (node.material?.isShaderMaterial) node.material.dispose(); } });
+    group.clear();
+  }
+
   function buildTubes() {
-    for (const mesh of world.tubes.children) mesh.geometry.dispose();
-    world.tubes.clear();
+    disposeGroup(world.tubes);
+    if (front) disposeGroup(front.tubes);
     const v = LINEAR[variantName()];
-    TUBES.forEach(([points, radius], index) => {
+    TUBES.forEach(({ points, radius, front: inFront, collars }, index) => {
+      const target = inFront && front ? front.tubes : world.tubes;
+      const materials = inFront && front ? front.materials : backTubeMaterials;
       const curve = new THREE.CatmullRomCurve3(points.map(([x, y, d]) => viewportPoint(x, y, d)));
-      const glass = new THREE.Mesh(new THREE.TubeGeometry(curve, 120, radius, 24, false), tubeMaterial());
-      glass.material.uniforms.tint.value.setRGB(...v.tube);
-      glass.renderOrder = 2;
-      const energy = new THREE.Mesh(new THREE.TubeGeometry(curve, 120, radius * 0.18, 8, false), energyMaterial(index * 0.23));
+      const energy = new THREE.Mesh(new THREE.TubeGeometry(curve, 120, radius * 0.3, 10, false), energyMaterial(index * 0.23));
+      energy.userData.extend = 8;
       energy.material.uniforms.tint.value.setRGB(...v.glow);
-      energy.userData.energy = true;
       energy.renderOrder = 1;
-      world.tubes.add(energy, glass);
+      const glass = new THREE.Mesh(new THREE.TubeGeometry(curve, 160, radius, 32, false), materials.glass);
+      glass.userData.extend = 32;
+      glass.renderOrder = 2;
+      target.add(energy, glass);
+      if (inFront && front) {
+        const halo = new THREE.Mesh(new THREE.TubeGeometry(curve, 80, radius * 1.7, 16, false), haloShellMaterial());
+        halo.userData.extend = 16;
+        halo.material.uniforms.tint.value.setRGB(...v.glow);
+        halo.renderOrder = 0;
+        target.add(halo);
+      }
+      // Collars at the joints, square to the tube.
+      const ring = new THREE.TorusGeometry(radius * 1.04, radius * 0.16, 12, 40);
+      for (let i = 1; i <= collars; i += 1) {
+        const t = i / (collars + 1);
+        const collar = new THREE.Mesh(ring.clone(), materials.collar);
+        collar.position.copy(curve.getPointAt(t));
+        collar.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), curve.getTangentAt(t));
+        collar.renderOrder = 3;
+        collar.userData.at = t;
+        target.add(collar);
+      }
+      ring.dispose();
     });
     // The light sits behind the emblem, top left.
     world.light.position.copy(viewportPoint(0.09, 0.09, FRAME_DEPTH + 2));
@@ -423,12 +574,21 @@ function startWebGL() {
     world.cradle.base = THREE.MathUtils.clamp(camera.aspect / 1.78, 0.72, 1.05);
   }
 
+  function buildChrome() {
+    chrome.build(window.GameStrikeFrame?.measure(stage), { width: innerWidth, height: innerHeight }, pixelSize());
+  }
+
   function applyQuality() {
     const quality = QUALITY[qualityLevel];
     renderer.setPixelRatio(quality.pixelRatio);
     composer.setPixelRatio(quality.pixelRatio);
     bloom.enabled = quality.bloom;
     bloom.resolution.set(innerWidth * quality.bloomScale, innerHeight * quality.bloomScale);
+    chrome.setLean(qualityLevel >= 2);
+    if (front) {
+      front.renderer.setPixelRatio(quality.pixelRatio);
+      front.renderer.setSize(innerWidth, innerHeight, false);
+    }
     setMode("webgl", quality.name);
   }
 
@@ -439,6 +599,8 @@ function startWebGL() {
     camera.updateProjectionMatrix();
     document.documentElement.style.setProperty("--persp", `${cssPerspective().toFixed(1)}px`);
     buildTubes();
+    buildChrome();
+    if (bootStart !== null || bootHold !== null) poseBoot(bootHold ?? (performance.now() - bootStart) / 1000);
     applyQuality();
     if (!running) renderFrame(0);
   }
@@ -460,6 +622,10 @@ function startWebGL() {
     world.rig.rotateY(THREE.MathUtils.degToRad(wobble.yaw));
     world.rig.rotateX(THREE.MathUtils.degToRad(wobble.pitch));
     world.rig.translateZ(FRAME_DEPTH);
+    if (front) {
+      front.rig.position.copy(world.rig.position);
+      front.rig.quaternion.copy(world.rig.quaternion);
+    }
     if (stage && !body.classList.contains("flat")) {
       stage.style.transform = wobble.yaw || wobble.pitch ? `rotateY(${(-wobble.yaw).toFixed(3)}deg) rotateX(${wobble.pitch.toFixed(3)}deg)` : "";
     }
@@ -481,8 +647,84 @@ function startWebGL() {
     c.holder.rotation.y = still() ? 0.04 : Math.sin(clock * 0.9) * 0.05;
   }
 
+  // Tubes grow from their far ends (0 to 1), collars appearing as the tube passes them.
+  function extendTubes(p) {
+    for (const group of [world.tubes, front?.tubes]) {
+      group?.children.forEach((mesh) => {
+        if (mesh.userData.extend) {
+          const index = mesh.geometry.index;
+          const per = mesh.userData.extend * 6;
+          mesh.geometry.setDrawRange(0, p >= 1 ? Infinity : Math.floor(((index ? index.count : 0) / per) * p) * per);
+          mesh.visible = p > 0;
+        } else if (mesh.userData.at !== undefined) {
+          mesh.visible = p >= mesh.userData.at;
+        }
+      });
+    }
+  }
+
+  // The startup at second t: the camera's path, the net, the frame assembling, the tubes, the
+  // emblem's flight from the core to its seat. Past the end, everything is at rest.
+  function poseBoot(t) {
+    bootTime = t;
+    const k = pixelSize();
+    if (t >= BOOT.end) {
+      boot.world.visible = false;
+      boot.rig.visible = false;
+      chrome.setAssembly(1, k);
+      extendTubes(1);
+      world.light.visible = true;
+      return false;
+    }
+    const pose = bootPose(t);
+    pos.copy(pose.position);
+    yaw = 0;
+    pitch = pose.pitch;
+    net = pose.net;
+    placeCamera(pos, yaw, pitch, { yaw: 0, pitch: 0, x: 0, y: 0 });
+    world.dome.material.uniforms.intensity.value = net;
+    chrome.setAssembly(pose.assembly, k, { hideEmblem: t < 5.0 });
+    extendTubes(Math.min(1, Math.max(0, (t - 4.45) / 0.9)));
+    world.light.visible = t > 4.6;
+    world.cradle.group.visible = false;
+    boot.rig.visible = true;
+    const seat = chrome.seat();
+    boot.update(t, {
+      start: { position: viewportPoint(0.5, 0.4, 7), radius: 0.85 },
+      seat: seat ? { position: seat.position.clone().add(chrome.group.position), radius: seat.radius } : { position: viewportPoint(0.09, 0.09, FRAME_DEPTH), radius: 0.5 },
+    });
+    return true;
+  }
+
+  // The frame's interior turns translucent in the detail view, so the cradle and the dimmer dome show through.
+  function interiorTarget() {
+    if (view !== "detail" && view !== "saves") return 1;
+    return body.classList.contains("mid-move") ? 0.62 : 0.42;
+  }
+
+  function render() {
+    if (!active) return;
+    composer.render();
+    if (front) front.renderer.render(front.scene, camera);
+  }
+
   function renderFrame(dt) {
+    if (!active) return;
     clock += dt;
+    if (bootHold !== null || bootStart !== null) {
+      const t = bootHold !== null ? bootHold : (performance.now() - bootStart) / 1000;
+      if (poseBoot(t)) {
+        const time = (group) => group?.traverse((mesh) => { if (mesh.material?.uniforms?.time) mesh.material.uniforms.time.value = clock; });
+        time(world.tubes);
+        time(front?.tubes);
+        render();
+        if (bootHold !== null) body.dataset.bootFrame = String(bootHold);
+        return;
+      }
+      bootStart = null;
+      if (bootHold !== null) body.dataset.bootFrame = String(bootHold);
+      bootHold = null;
+    }
     const ease = dt > 0 && !still() ? 1 - Math.exp(-dt * 2.4) : 1;
     pos.lerp(goalPos, ease);
     yaw += (goalYaw - yaw) * ease;
@@ -492,10 +734,14 @@ function startWebGL() {
     const u = world.dome.material.uniforms;
     u.intensity.value = net;
     u.spin.value = still() ? 0 : clock * 0.006;
-    for (const mesh of world.tubes.children) mesh.material.uniforms.time.value = clock;
+    const time = (group) => group?.traverse((mesh) => { if (mesh.material?.uniforms?.time) mesh.material.uniforms.time.value = clock; });
+    time(world.tubes);
+    time(front?.tubes);
     for (const mesh of world.cradle.cables) mesh.material.uniforms.time.value = clock;
+    interior += (interiorTarget() - interior) * (dt > 0 && !still() ? 1 - Math.exp(-dt * 3) : 1);
+    chrome.setInterior(interior);
     updateCradle(dt, view === "detail" || view === "saves" ? 1 : 0);
-    composer.render(dt);
+    render();
   }
 
   function loop(now) {
@@ -516,7 +762,7 @@ function startWebGL() {
 
   function setRunning() {
     body.classList.toggle("flat", prefersReduced());
-    const shouldRun = !paused && !document.hidden && !still();
+    const shouldRun = !paused && !document.hidden && (!still() || booting());
     if (shouldRun && !running) {
       running = true;
       last = performance.now();
@@ -553,7 +799,7 @@ function startWebGL() {
     const material = world.cradle.coverMaterial;
     const request = ++coverRequest;
     const apply = (source, kind) => {
-      if (request !== coverRequest) return;
+      if (!active || request !== coverRequest) return;
       const texture = new THREE.CanvasTexture(source);
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.anisotropy = 4;
@@ -565,7 +811,7 @@ function startWebGL() {
     };
     if (detail?.canvas) apply(detail.canvas, detail.url ? "loading" : "generated");
     if (!detail?.url) { body.dataset.cradle = detail?.canvas ? "generated" : "empty"; return; }
-    const settle = (reason) => { if (request === coverRequest) body.dataset.cradle = `generated (${reason})`; };
+    const settle = (reason) => { if (active && request === coverRequest) body.dataset.cradle = `generated (${reason})`; };
     const image = new Image();
     image.decoding = "async";
     image.onload = () => {
@@ -585,13 +831,63 @@ function startWebGL() {
     image.src = detail.url;
   }
 
-  window.addEventListener("resize", resize);
-  window.addEventListener("gamestrike:view", (event) => fly(event.detail?.view, Boolean(event.detail?.instant)));
-  window.addEventListener("gamestrike:pause", (event) => { paused = Boolean(event.detail?.paused); setRunning(); });
-  window.addEventListener("gamestrike:variant", () => { applyVariant(); if (!running) renderFrame(0); });
-  window.addEventListener("gamestrike:cradle", (event) => setCover(event.detail));
-  window.addEventListener("gamestrike:layout", () => { if (!running && !frozen) renderFrame(0); });
-  window.addEventListener("gamestrike:freeze", (event) => {
+  // A context loss permanently hands these canvases to the static scene. Remove every WebGL
+  // subscription so later resize, focus or palette events cannot revive the abandoned renderer.
+  const subscriptions = [];
+  function listen(target, type, listener) {
+    if (!target?.addEventListener) return;
+    target.addEventListener(type, listener);
+    subscriptions.push(() => target.removeEventListener(type, listener));
+  }
+  function loseContext(event) {
+    event.preventDefault();
+    if (!active) return;
+    active = false;
+    running = false;
+    for (const remove of subscriptions) remove();
+    startStatic("context lost");
+  }
+  listen(window, "resize", resize);
+  listen(window, "gamestrike:view", (event) => fly(event.detail?.view, Boolean(event.detail?.instant)));
+  listen(window, "gamestrike:pause", (event) => { paused = Boolean(event.detail?.paused); setRunning(); });
+  listen(window, "gamestrike:variant", () => { applyEnvironment(); applyVariant(); boot.setTint(LINEAR[variantName()].glow, variantName() === "green"); if (!running) renderFrame(0); });
+  listen(window, "gamestrike:cradle", (event) => setCover(event.detail));
+  listen(window, "gamestrike:layout", () => { buildChrome(); poseBoot(bootStart !== null ? (performance.now() - bootStart) / 1000 : bootHold ?? BOOT.end); if (!running && !frozen) renderFrame(0); });
+  function onBoot(detail) {
+    const action = detail?.action;
+    if (action === "play" && !prefersReduced()) {
+      bootStart = typeof detail.start === "number" ? detail.start : performance.now();
+      bootHold = null;
+      poseBoot(0);
+      setRunning();
+    } else if (action === "freeze") {
+      const t = Math.max(0, Number(detail.t) || 0);
+      bootStart = null;
+      running = false;
+      if (t >= BOOT.end) {
+        // The end of the startup is the library at rest.
+        bootHold = null;
+        poseBoot(BOOT.end);
+        frozen = false;
+        fly("library", true);
+        frozen = true;
+        renderFrame(0);
+        body.dataset.bootFrame = String(detail.t);
+        return;
+      }
+      bootHold = t;
+      frozen = true;
+      renderFrame(0);
+    } else {
+      bootStart = null;
+      bootHold = null;
+      poseBoot(BOOT.end);
+      fly(view === "boot" ? "library" : view, true);
+      if (!running && !frozen) renderFrame(0);
+    }
+  }
+  listen(window, "gamestrike:boot", (event) => onBoot(event.detail));
+  listen(window, "gamestrike:freeze", (event) => {
     // A still frame partway through a flight, for the capture of a camera move.
     const { from = "library", to = "detail", progress = 0.5 } = event.detail || {};
     frozen = true;
@@ -609,11 +905,14 @@ function startWebGL() {
     placeCamera(pos, yaw, pitch, { yaw: 0, pitch: 0, x: 0, y: 0 });
     world.dome.material.uniforms.intensity.value = net;
     poseCradle(k, 0);
-    composer.render(0);
+    interior = 1 + (0.62 - 1) * k;
+    chrome.setInterior(interior);
+    render();
   });
-  document.addEventListener("visibilitychange", setRunning);
-  motionQuery?.addEventListener?.("change", () => { fly(view, true); setRunning(); });
-  canvas.addEventListener("webglcontextlost", (event) => { event.preventDefault(); running = false; startStatic("context lost"); }, { once: true });
+  listen(document, "visibilitychange", setRunning);
+  listen(motionQuery, "change", () => { fly(view, true); setRunning(); });
+  listen(canvas, "webglcontextlost", loseContext);
+  listen(frontCanvas, "webglcontextlost", loseContext);
 
   applyVariant();
   resize();
@@ -621,21 +920,34 @@ function startWebGL() {
   // Anything the page asked for before the scene was running.
   const pending = window.GameStrikeScenePending || {};
   if (pending.cradle) setCover(pending.cradle);
+  if (pending.boot) onBoot(pending.boot);
+  else poseBoot(BOOT.end);
   setRunning();
   if (pending.freeze) window.dispatchEvent(new CustomEvent("gamestrike:freeze", { detail: pending.freeze }));
 }
 
 // ---------- the still dome, for machines without WebGL 2 ----------
 // Projects core.domeNet's lines with the same camera and paints them with a soft glow, the tubes as
-// glossy strokes, and the light near the emblem. The UI lies flat over it.
+// glossy strokes (the ones in front of the frame on the front canvas), and the light near the
+// emblem. The page draws its SVG frame over it.
 function startStatic(reason) {
-  const fallback = document.createElement("canvas");
-  fallback.id = "scene";
-  fallback.className = "scene";
-  fallback.setAttribute("aria-hidden", "true");
-  document.getElementById("scene")?.replaceWith(fallback);
+  const fresh = (id, className) => {
+    const node = document.createElement("canvas");
+    node.id = id;
+    node.className = className;
+    node.setAttribute("aria-hidden", "true");
+    document.getElementById(id)?.replaceWith(node);
+    return node;
+  };
+  const fallback = fresh("scene", "scene");
+  const frontLayer = document.getElementById("scene-front") ? fresh("scene-front", "scene-front") : null;
   const g = fallback.getContext("2d");
+  const gf = frontLayer?.getContext("2d") || null;
   body.classList.add("flat");
+  delete body.dataset.chrome;
+  // The WebGL constructor can exist even when acquiring a real context fails. Restore the
+  // CSS startup's core and logo instead of leaving the transparent cinema overlay empty.
+  delete body.dataset.boot;
   const frame = document.getElementById("frame");
   if (frame) frame.style.transform = "";
   if (!g || !core) { setMode("none"); return; }
@@ -644,9 +956,12 @@ function startStatic(reason) {
     const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
     const width = innerWidth;
     const height = innerHeight;
-    fallback.width = Math.round(width * ratio);
-    fallback.height = Math.round(height * ratio);
-    g.setTransform(ratio, 0, 0, ratio, 0, 0);
+    for (const [node, ctx] of [[fallback, g], [frontLayer, gf]]) {
+      if (!node || !ctx) continue;
+      node.width = Math.round(width * ratio);
+      node.height = Math.round(height * ratio);
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    }
     const v = VARIANTS[variantName()];
     const rgb = (c, k = 1, a = 1) => `rgba(${Math.min(255, Math.round(c[0] * 255 * k))},${Math.min(255, Math.round(c[1] * 255 * k))},${Math.min(255, Math.round(c[2] * 255 * k))},${a})`;
     g.fillStyle = rgb(v.void, 1.6);
@@ -685,17 +1000,19 @@ function startStatic(reason) {
     halo.addColorStop(1, rgb(v.light, 1, 0));
     g.fillStyle = halo;
     g.fillRect(0, 0, width, height);
-    for (const [points, radius] of TUBES) {
+    for (const { points, radius, front } of TUBES) {
+      const ctx = front && gf ? gf : g;
       const pts = points.map(([x, y]) => [x * width, y * height]);
       const px = (radius / FRAME_DEPTH) * focal;
-      for (const [w, color] of [[px * 2, rgb(v.tube, 0.35, 0.55)], [px * 1.3, rgb(v.tube, 0.8, 0.45)], [px * 0.35, rgb(v.glow, 1.2, 0.9)]]) {
-        g.beginPath();
-        g.moveTo(...pts[0]);
-        for (let i = 1; i < pts.length - 1; i += 1) g.quadraticCurveTo(pts[i][0], pts[i][1], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2);
-        g.lineTo(...pts[pts.length - 1]);
-        g.strokeStyle = color;
-        g.lineWidth = w;
-        g.stroke();
+      for (const [w, color] of [[px * 2, rgb(v.tube, 0.35, 0.75)], [px * 1.5, rgb(v.tube, 0.85, 0.7)], [px * 0.6, rgb(v.glow, 1.1, 0.6)], [px * 0.2, "rgba(255,240,220,0.7)"]]) {
+        ctx.beginPath();
+        ctx.moveTo(...pts[0]);
+        for (let i = 1; i < pts.length - 1; i += 1) ctx.quadraticCurveTo(pts[i][0], pts[i][1], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2);
+        ctx.lineTo(...pts[pts.length - 1]);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = w;
+        ctx.lineCap = "round";
+        ctx.stroke();
       }
     }
   }

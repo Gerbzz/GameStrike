@@ -148,7 +148,7 @@ capture() {
 
 # The Collection style (the default page) in PWDS Orange, then each of its views.
 capture "$library" library
-for pair in focus:focus green:green controller:controller filters:filters search:search favorites:favorites long-title:long detail:detail saves:saves moving:moving settings:settings network-dialog:launch about:about boot:boot stores:stores store-detail:store-detail add-menu:add-menu store-settings:store-settings; do
+for pair in focus:focus green:green controller:controller filters:filters search:search favorites:favorites long-title:long detail:detail saves:saves moving:moving settings:settings network-dialog:launch about:about boot:boot boot-0.5:boot-0.5 boot-2:boot-2 boot-4.5:boot-4.5 boot-5.5:boot-5.5 stores:stores store-detail:store-detail add-menu:add-menu store-settings:store-settings; do
   capture "$library" "${pair%%:*}" --capture-view "${pair#*:}"
 done
 capture "$library" minimum --window-size 880 620

@@ -10,6 +10,8 @@
   const send = (message) => window.ipc.postMessage(JSON.stringify(message));
   const SORTS = [["recent", "Recent"], ["title-asc", "Title A–Z"], ["title-desc", "Title Z–A"], ["added", "Newest"]];
   const BOOT_MS = 3200;
+  // The WebGL startup (boot.js): the frame starts assembling at 4.2 s and is at rest at 5.5 s.
+  const CINEMA = { assemble: 4200, end: 5500 };
   const reduceMotion = () => Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) || document.body.classList.contains("reduce-motion");
 
   const stored = (key, fallback) => { try { return localStorage.getItem(key) ?? fallback; } catch (_) { return fallback; } };
@@ -68,7 +70,7 @@
       if (context.state === "suspended") context.resume().catch(() => {});
       return context;
     }
-    function voice(at, { from, to = from, length, volume = 0.05, type = "sawtooth", cutoff = 2400, q = 6 }) {
+    function voice(at, { from, to = from, length, volume = 0.05, type = "sawtooth", cutoff = 2400, q = 6, out = null }) {
       const ctx = context;
       const gain = ctx.createGain();
       const filter = ctx.createBiquadFilter();
@@ -89,9 +91,9 @@
         osc.start(at);
         osc.stop(at + length + 0.03);
       }
-      filter.connect(gain).connect(master);
+      filter.connect(gain).connect(out || master);
     }
-    function whoosh(at, length, from, to, volume) {
+    function whoosh(at, length, from, to, volume, out = null) {
       const ctx = context;
       const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * length), ctx.sampleRate);
       const data = buffer.getChannelData(0);
@@ -107,8 +109,108 @@
       gain.gain.setValueAtTime(0.0001, at);
       gain.gain.exponentialRampToValueAtTime(volume, at + length * 0.35);
       gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
-      source.connect(filter).connect(gain).connect(master);
+      source.connect(filter).connect(gain).connect(out || master);
       source.start(at);
+    }
+    // ---- the startup's sounds: a low swell, a shimmer as the core forms, the impact of the
+    // flash, mechanical clunks as the frame bolts together, and a pressure hiss as the tubes
+    // connect. Scheduled against the startup's own clock; a skip fades the bus out.
+    let bootBus = null;
+    function noise(at, length, { type = "bandpass", from = 800, to = from, q = 1, volume = 0.05, attack = 0.005, out }) {
+      const ctx = context;
+      const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * length), ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = type;
+      filter.Q.value = q;
+      filter.frequency.setValueAtTime(from, at);
+      filter.frequency.exponentialRampToValueAtTime(Math.max(40, to), at + length);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(volume, at + attack);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
+      source.connect(filter).connect(gain).connect(out);
+      source.start(at);
+    }
+    function swell(at, length, out) {
+      const ctx = context;
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.Q.value = 5;
+      filter.frequency.setValueAtTime(130, at);
+      filter.frequency.exponentialRampToValueAtTime(2600, at + length);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(0.055, at + length * 0.9);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + length + 0.2);
+      for (const [freq, detune, type] of [[55, -9, "sawtooth"], [55, 9, "sawtooth"], [82.41, 0, "sawtooth"], [110, 4, "triangle"]]) {
+        const osc = ctx.createOscillator();
+        osc.type = type;
+        osc.detune.value = detune;
+        osc.frequency.setValueAtTime(freq, at);
+        osc.frequency.exponentialRampToValueAtTime(freq * 1.5, at + length);
+        osc.connect(filter);
+        osc.start(at);
+        osc.stop(at + length + 0.3);
+      }
+      filter.connect(gain).connect(out);
+    }
+    function shimmer(at, length, out) {
+      const ctx = context;
+      [1318.5, 1760, 2093, 2637].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        const trem = ctx.createOscillator();
+        trem.frequency.value = 5 + i * 1.7;
+        const depth = ctx.createGain();
+        depth.gain.value = 0.006;
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, at);
+        gain.gain.exponentialRampToValueAtTime(0.012, at + length * 0.7);
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
+        trem.connect(depth).connect(gain.gain);
+        osc.connect(gain).connect(out);
+        osc.start(at + i * 0.12);
+        trem.start(at);
+        osc.stop(at + length + 0.05);
+        trem.stop(at + length + 0.05);
+      });
+    }
+    function bootSounds(start) {
+      try {
+        if (!ready()) return;
+        const schedule = () => {
+          if (context.state !== "running" || bootBus === false) return;
+          const elapsed = (performance.now() - start) / 1000;
+          if (elapsed > 2.5) return;
+          const t0 = context.currentTime - elapsed;
+          const at = (seconds) => Math.max(context.currentTime + 0.01, t0 + seconds);
+          bootBus = context.createGain();
+          bootBus.connect(master);
+          const out = bootBus;
+          swell(at(0.15), 2.85, out);
+          shimmer(at(1.2), 1.9, out);
+          noise(at(3.0), 0.9, { type: "lowpass", from: 2400, to: 160, q: 0.7, volume: 0.14, out });
+          voice(at(3.0), { from: 52, to: 30, length: 0.7, volume: 0.16, type: "sine", cutoff: 400, q: 1, out });
+          voice(at(3.02), { from: 1046.5, length: 0.55, volume: 0.03, type: "triangle", cutoff: 6000, out });
+          for (const time of [4.45, 4.62, 4.78, 4.92, 5.05]) {
+            noise(at(time), 0.09, { from: 420, to: 260, q: 2.2, volume: 0.08, out });
+            voice(at(time), { from: 96, to: 58, length: 0.13, volume: 0.1, type: "sine", cutoff: 500, q: 1, out });
+          }
+          for (const time of [5.12, 5.17, 5.22, 5.27]) noise(at(time), 0.035, { from: 2600, q: 3, volume: 0.035, out });
+          noise(at(4.85), 0.65, { from: 5200, to: 3200, q: 0.8, volume: 0.032, attack: 0.03, out });
+        };
+        if (context.state === "running") schedule();
+        else context.resume().then(schedule).catch(() => {});
+      } catch (_) { /* sound is decoration only */ }
+    }
+    function stopBoot() {
+      if (bootBus && context) bootBus.gain.setTargetAtTime(0.0001, context.currentTime, 0.04);
+      bootBus = false;
     }
     const SOUNDS = {
       move: (t) => voice(t, { from: 1320, to: 990, length: 0.05, volume: 0.025, type: "triangle", cutoff: 5200 }),
@@ -124,6 +226,7 @@
       error: (t) => { voice(t, { from: 220, length: 0.12, volume: 0.045, type: "square", cutoff: 900 }); voice(t + 0.13, { from: 196, length: 0.18, volume: 0.045, type: "square", cutoff: 700 }); },
     };
     function play(kind) {
+      if (kind === "boot") return;
       try {
         if (!ready()) return;
         (SOUNDS[kind] || SOUNDS.move)(context.currentTime + 0.005);
@@ -186,6 +289,8 @@
     document.addEventListener("visibilitychange", () => { if (started) hum(!document.hidden); });
     return {
       play,
+      bootSounds,
+      stopBoot,
       get enabled() { return enabled; },
       toggle() { enabled = !enabled; store("gamestrike-sounds", enabled ? "on" : "off"); if (enabled) play("select"); else hum(false); },
       // While a game runs the launcher stays quiet.
@@ -238,11 +343,40 @@
   }
 
   // ---------- startup ----------
+  // With WebGL the startup is the 3D sequence in boot.js; the page shows the wordmark, then at
+  // 4.2 s reveals the frame while its header, rows, covers, and bottom bar slide and flip in. Without
+  // WebGL it is the earlier CSS sequence; with reduced motion, a short fade.
   let bootTimer = null;
-  function finishBoot() {
+  let assembleTimer = null;
+  function signalScene(detail) {
+    window.GameStrikeScenePending = Object.assign(window.GameStrikeScenePending || {}, { boot: detail });
+    window.dispatchEvent(new CustomEvent("gamestrike:boot", { detail }));
+  }
+  // Staggers for the assembly: each row and each row of covers starts a little later.
+  function stagger() {
+    [...document.querySelectorAll(".sidebar .row")].forEach((row, index) => row.style.setProperty("--i", String(index)));
+    const columns = state.metrics.columns || 7;
+    [...el.grid.children].forEach((node, index) => node.style.setProperty("--row", String(Math.floor(index / columns))));
+  }
+  function endAssembly() {
+    clearTimeout(assembleTimer);
+    document.body.classList.remove("assembling");
+    delete document.body.dataset.boot;
+  }
+  function skipBoot() {
+    sound.stopBoot();
+    signalScene({ action: "skip" });
+    if (!state.booted) finishBoot();
+    endAssembly();
+  }
+  function finishBoot({ assemble = false } = {}) {
     if (state.booted) return;
     state.booted = true;
     clearTimeout(bootTimer);
+    if (assemble) {
+      document.body.classList.add("assembling");
+      stagger();
+    }
     el.boot.classList.add("done");
     setView(state.detailId ? "detail" : "library", state.capturing);
     drawFrame();
@@ -251,13 +385,26 @@
   function startBoot() {
     let switched = false;
     try { switched = sessionStorage.getItem("gamestrike-skip-boot") === "1"; sessionStorage.removeItem("gamestrike-skip-boot"); } catch (_) { /* plays the boot */ }
-    bootTimer = setTimeout(finishBoot, switched || reduceMotion() ? 0 : BOOT_MS);
+    const cinema = !switched && !reduceMotion() && Boolean(window.WebGL2RenderingContext);
+    if (cinema) {
+      document.body.dataset.boot = "cinema";
+      const start = performance.now();
+      signalScene({ action: "play", start });
+      sound.bootSounds(start);
+      bootTimer = setTimeout(() => finishBoot({ assemble: true }), CINEMA.assemble);
+      assembleTimer = setTimeout(endAssembly, CINEMA.end + 200);
+    } else {
+      signalScene({ action: "skip" });
+      bootTimer = setTimeout(finishBoot, switched || reduceMotion() ? 0 : BOOT_MS);
+      // Reduced motion: no flight and no assembly, only a short fade in.
+      if (!switched && reduceMotion()) document.getElementById("stage")?.animate?.([{ opacity: 0 }, { opacity: 1 }], { duration: 400, easing: "ease-out" });
+    }
     for (const type of ["keydown", "mousedown"]) {
       window.addEventListener(type, (event) => {
-        if (state.booted) return;
+        if (state.booted && !document.body.classList.contains("assembling")) return;
         event.preventDefault();
         event.stopImmediatePropagation();
-        finishBoot();
+        skipBoot();
       }, { capture: true });
     }
   }
@@ -380,6 +527,7 @@
     el.title.textContent = state.query ? `Search: ${state.query}` : state.filter === "all" ? "Game Collection" : filter?.label || "Game Collection";
     el.count.textContent = `${plural(state.visible.length, "game", "games")} · ${label(SORTS, state.sort)}${state.scanning ? " · Scanning stores" : ""}`;
     el.grid.replaceChildren(...state.visible.map((game, index) => tile(game, index)));
+    if (document.body.classList.contains("assembling")) stagger();
     const empty = !state.visible.length;
     el.empty.hidden = !empty || !state.loaded;
     el.grid.hidden = empty;
@@ -1102,7 +1250,7 @@
   function pollPad(now) {
     const pad = Array.from(navigator.getGamepads?.() || []).find(Boolean) || null;
     const actions = readPad(pad, now);
-    if (actions.length && !state.booted) { finishBoot(); requestAnimationFrame(pollPad); return; }
+    if (actions.length && (!state.booted || document.body.classList.contains("assembling"))) { skipBoot(); requestAnimationFrame(pollPad); return; }
     if (actions.length && !state.running && document.hasFocus()) {
       for (const action of actions) { document.body.dataset.input = "pad"; handleAction(action); }
     }
@@ -1222,15 +1370,55 @@
   function capture(view) {
     state.capturing = true;
     applyStyle(core.styleFor(view === "green" ? "collection-green" : "collection-orange"), false);
-    if (view === "boot") {
+    const bootSecond = view === "boot" ? 3.5 : /^boot-\d+(\.\d+)?$/.test(view) ? Number(view.slice(5)) : null;
+    if (bootSecond !== null) {
+      document.body.classList.remove("reduce-motion");
       clearTimeout(bootTimer);
-      el.boot.style.setProperty("--seek", "2.9s");
-      el.boot.classList.remove("done");
-      el.boot.classList.add("frozen");
-      setView("boot", true);
+      clearTimeout(assembleTimer);
+      sound.stopBoot();
+      // The interface may exist even when the scene could not acquire a GL context.
+      if (!window.WebGL2RenderingContext || ["static", "none"].includes(document.body.dataset.scene)) {
+        delete document.body.dataset.boot;
+        el.boot.style.setProperty("--seek", "2.9s");
+        el.boot.classList.remove("done");
+        el.boot.classList.add("frozen");
+        setView("boot", true);
+        return;
+      }
+      state.bootCapture = bootSecond;
+      document.body.dataset.boot = "cinema";
+      document.body.classList.add("boot-frozen");
+      document.documentElement.style.setProperty("--seek", `${bootSecond}s`);
+      document.documentElement.style.setProperty("--aseek", `${Math.max(0, bootSecond - CINEMA.assemble / 1000)}s`);
+      signalScene({ action: "freeze", t: bootSecond });
+      // The page's startup animations began when the page loaded; restart them, held, so that
+      // their delays (which count from the startup's first frame, less --seek) place this second.
+      // Timers, not animation frames: a capture window may be hidden, and hidden webviews pause them.
+      // Only seek our CSS startup animations. getAnimations() also returns transitions;
+      // rewinding the stage's opacity transition hides the library in WKWebView captures.
+      const hold = () => {
+        void document.body.offsetWidth;
+        for (const animation of document.getAnimations?.() || []) {
+          if (!animation.animationName?.startsWith("gs-")) continue;
+          animation.pause();
+          animation.currentTime = 0;
+        }
+      };
+      hold();
+      for (const delay of [0, 40, 120]) setTimeout(hold, delay);
+      if (bootSecond >= CINEMA.assemble / 1000) {
+        state.booted = false;
+        finishBoot({ assemble: true });
+        if (bootSecond >= CINEMA.end / 1000) endAssembly();
+      } else {
+        el.boot.classList.remove("done");
+        setView("boot", true);
+      }
       return;
     }
-    finishBoot();
+    // A fast machine reaches capture mode while the 3D boot is still playing. Finish the
+    // scene as well as the page, otherwise the screenshot contains its central emblem.
+    skipBoot();
     document.body.classList.add("reduce-motion");
     // Controller prompts are the default look; the focus view shows the keyboard prompts instead.
     document.body.dataset.input = view === "focus" ? "keyboard" : "pad";
@@ -1292,6 +1480,17 @@
   function drawn() {
     if (document.fonts && document.fonts.status !== "loaded") return false;
     if (!document.body.dataset.scene) return false;
+    // A late capture can return to an early boot frame after natural startup has finished.
+    // That view intentionally hides the library; every staged library/detail view must show it.
+    if (document.body.dataset.view !== "boot") {
+      const stage = getComputedStyle(el.frame.parentElement);
+      if (Number(stage.opacity) < 0.99 || stage.visibility === "hidden" || stage.display === "none") return false;
+    }
+    if (state.bootCapture !== undefined && document.body.dataset.scene === "webgl") {
+      if (document.body.dataset.bootFrame !== String(state.bootCapture)) return false;
+      // The emblem shows the logo from 3 s to 5 s; wait until its image has decoded.
+      if (state.bootCapture >= 3 && state.bootCapture < 5 && document.body.dataset.bootLogo !== "ready") return false;
+    }
     if (state.detailId && document.body.dataset.scene === "webgl" && (!document.body.dataset.cradle || document.body.dataset.cradle === "loading")) return false;
     if (state.booted && !el.grid.hidden) {
       const tiles = [...el.grid.children].slice(0, state.metrics.columns * 4);
