@@ -160,13 +160,12 @@ mod launcher_app {
 
     /// Asks the page whether a staged capture view has finished drawing (fonts, covers, and the 3D
     /// scene). A page without a `ready` check, such as classic.html, is always ready.
-    const CAPTURE_READY: &str = "(function () { try { var g = window.GameStrike; return !g || typeof g.ready !== 'function' || g.ready() === true; } catch (e) { return true; } })()";
+    const CAPTURE_READY: &str = "(function () { try { var g = window.GameStrike; return !!g && (typeof g.ready !== 'function' || g.ready() === true); } catch (e) { return false; } })()";
 
     /// Records which renderer drew the backdrop: WebGL and its quality, the static fallback, or none.
     const CAPTURE_RENDERER: &str = "[document.body.dataset.scene, document.body.dataset.quality, document.body.dataset.sceneReason, document.body.dataset.cradle && 'cradle: ' + document.body.dataset.cradle].filter(Boolean).join(' ') || 'not started'";
 
-    /// How many times a capture asks the page whether it is ready (250 ms apart) before taking the
-    /// picture anyway.
+    /// How many times a capture asks the page whether it is ready (250 ms apart) before failing.
     const CAPTURE_CHECKS: u32 = 40;
 
     /// The page the launcher opens. index.html itself switches to classic.html when the saved
@@ -315,16 +314,22 @@ mod launcher_app {
                         let ready = result.trim() == "true";
                         let proxy = proxy.clone();
                         thread::spawn(move || {
-                            if ready || attempt >= CAPTURE_CHECKS {
+                            if ready {
                                 let _ = proxy.send_event(UiEvent::CaptureNow);
+                            } else if attempt >= CAPTURE_CHECKS {
+                                let _ = proxy.send_event(UiEvent::CaptureComplete(Err(
+                                    "Staged launcher view never became ready".into(),
+                                )));
                             } else {
                                 thread::sleep(Duration::from_millis(250));
                                 let _ = proxy.send_event(UiEvent::CaptureCheck(attempt + 1));
                             }
                         });
                     });
-                    if checked.is_err() {
-                        let _ = background_proxy.send_event(UiEvent::CaptureNow);
+                    if let Err(error) = checked {
+                        let _ = background_proxy.send_event(UiEvent::CaptureComplete(Err(format!(
+                            "Could not check launcher readiness: {error}"
+                        ))));
                     }
                 }
                 Event::UserEvent(UiEvent::CaptureNow) => {

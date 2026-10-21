@@ -925,6 +925,9 @@ function startStatic(reason) {
   const gf = frontLayer?.getContext("2d") || null;
   body.classList.add("flat");
   delete body.dataset.chrome;
+  // The WebGL constructor can exist even when acquiring a real context fails. Restore the
+  // CSS startup's core and logo instead of leaving the transparent cinema overlay empty.
+  delete body.dataset.boot;
   const frame = document.getElementById("frame");
   if (frame) frame.style.transform = "";
   if (!g || !core) { setMode("none"); return; }

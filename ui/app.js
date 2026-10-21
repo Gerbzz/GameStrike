@@ -1386,7 +1386,16 @@
       // The page's startup animations began when the page loaded; restart them, held, so that
       // their delays (which count from the startup's first frame, less --seek) place this second.
       // Timers, not animation frames: a capture window may be hidden, and hidden webviews pause them.
-      const hold = () => { void document.body.offsetWidth; for (const animation of document.getAnimations?.() || []) { animation.pause(); animation.currentTime = 0; } };
+      // Only seek our CSS startup animations. getAnimations() also returns transitions;
+      // rewinding the stage's opacity transition hides the library in WKWebView captures.
+      const hold = () => {
+        void document.body.offsetWidth;
+        for (const animation of document.getAnimations?.() || []) {
+          if (!animation.animationName?.startsWith("gs-")) continue;
+          animation.pause();
+          animation.currentTime = 0;
+        }
+      };
       hold();
       for (const delay of [0, 40, 120]) setTimeout(hold, delay);
       if (bootSecond >= CINEMA.assemble / 1000) {
@@ -1399,7 +1408,9 @@
       }
       return;
     }
-    finishBoot();
+    // A fast machine reaches capture mode while the 3D boot is still playing. Finish the
+    // scene as well as the page, otherwise the screenshot contains its central emblem.
+    skipBoot();
     document.body.classList.add("reduce-motion");
     // Controller prompts are the default look; the focus view shows the keyboard prompts instead.
     document.body.dataset.input = view === "focus" ? "keyboard" : "pad";
@@ -1461,6 +1472,10 @@
   function drawn() {
     if (document.fonts && document.fonts.status !== "loaded") return false;
     if (!document.body.dataset.scene) return false;
+    if (state.booted) {
+      const stage = getComputedStyle(el.frame.parentElement);
+      if (Number(stage.opacity) < 0.99 || stage.visibility === "hidden" || stage.display === "none") return false;
+    }
     if (state.bootCapture !== undefined && document.body.dataset.scene === "webgl") {
       if (document.body.dataset.bootFrame !== String(state.bootCapture)) return false;
       // The emblem shows the logo from 3 s to 5 s; wait until its image has decoded.

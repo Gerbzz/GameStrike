@@ -43,3 +43,20 @@ Hard rules: no local cargo or rustc (all Rust builds and tests run in GitHub Act
 - Frame: dark glossy faces and glowing double edges now read like the goal; the goal's outer left rim is a bit thicker and brighter.
 - Tubes: top right is close; the bottom left tubes are darker than the goal's.
 - Emblem, header tab, rows, tiles, rings: close; rows and tiles could still be a touch heavier.
+
+## Codex takeover checkpoint - 2026-10-21
+
+Baseline: `d5c80ce2e45074631f39b1fd6bf83a81e8f4b226`, draft PR #14 over #13. Checkout was clean. No Git lock, cargo/rustc, GameStrike process, or Claude CLI worker was found; Claude desktop itself was open. No AGENTS.md found in the ancestors or PWDS-Strike tree. All other worktrees were preserved.
+
+Recovered real-PC failure: `../gamestrike-reference/review-images/chrome-d5c80ce-library.png` shows the real 13-game Steam library with no chrome/tubes and a large startup emblem over the covers. Cause: normal capture calls finishBoot() without skipping the 3D timeline, so fast machines capture at ~3.5 seconds while the scene still hides the chrome. This is a capture/startup lifecycle defect; natural startup in Chrome completes. Separate current-CI macOS blank-DOM evidence was supplied by the parent reviewer.
+
+Focused takeover changes (source verified; native acceptance remains pending):
+- app.js: non-boot captures skip the scene boot; only GS CSS animations are held, never opacity transitions; readiness rejects an invisible stage.
+- scene.js: context failure restores the CSS startup instead of retaining cinema-only CSS.
+- launcher.rs: missing/throwing readiness, evaluation errors and readiness timeout fail capture instead of silently taking a screenshot.
+- ui/startup.test.cjs: five behavioral regression tests, observed failing before their fixes.
+- Cross-platform workflow: check scene/chrome/boot syntax, run regression tests, fail on startup recording failure.
+
+Verified locally: `node --test ui/app.test.cjs ui/startup.test.cjs` = 30/30 pass; syntax for app/scene/chrome/boot passes; diff whitespace check passes. No local cargo/rustc invoked. Browser QA used the existing mock preview server on loopback (port 8766), Room PC Chrome at 1250x800: early library capture has full chrome/no central emblem, Steam filter changes 17 games to 5, boot-5.5 shows complete DOM and chrome. No console errors/warnings. Screenshots are outside the repo in `Documents/Codex/2026-10-20/task-2/gamestrike-fixed-library-chrome.jpg` and `gamestrike-fixed-boot-5.5-chrome.jpg`. These are Chrome synthetic-library evidence, NOT native WebView2 acceptance.
+
+Pending: parent reports a user approval request for artifact/runtime work; no binary was downloaded or executed here. Existing baseline binary is `ci-build-39492893114/gamestrike-launcher.exe`. No local operation was denied by auto-review. Source review is complete; the focused patch is being pushed to the existing draft branch for fresh CI. All five regression tests also fail against an isolated copy of d5c80ce2, confirming the negative controls. Fresh run results will be recorded in the parent handoff and PR description. Native current-UI/real-library launch acceptance remains behind the pending approval. Fresh Windows/macOS/Linux CI captures, early wordmark timing and final visual comparison are being checked independently. Keep this WIP note until those checks pass; preserve draft status, branch chain, security settings and all reference assets outside Git.
