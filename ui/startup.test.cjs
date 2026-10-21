@@ -103,3 +103,12 @@ test("an unavailable WebGL context restores the visible CSS startup", () => {
   assert.equal(body.dataset.boot, undefined);
   assert.equal(body.dataset.chrome, undefined);
 });
+
+test("a boot capture uses the CSS fallback when the WebGL constructor exists but context creation failed", () => {
+  const p = page();
+  p.body.dataset.scene = "static";
+  p.context.capture("boot");
+  assert.equal(p.body.dataset.boot, undefined);
+  assert.equal(p.window.GameStrikeScenePending?.boot, undefined);
+  assert.equal(p.body.dataset.view, "boot");
+});

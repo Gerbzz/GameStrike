@@ -1370,7 +1370,9 @@
       clearTimeout(bootTimer);
       clearTimeout(assembleTimer);
       sound.stopBoot();
-      if (!window.WebGL2RenderingContext) {
+      // The interface may exist even when the scene could not acquire a GL context.
+      if (!window.WebGL2RenderingContext || ["static", "none"].includes(document.body.dataset.scene)) {
+        delete document.body.dataset.boot;
         el.boot.style.setProperty("--seek", "2.9s");
         el.boot.classList.remove("done");
         el.boot.classList.add("frozen");
