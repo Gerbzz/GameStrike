@@ -79,7 +79,7 @@ jobs:
           node --check ui/frame.js
           node --check ui/covers.js
       - name: Launcher logic tests
-        run: node --test ui/app.test.cjs
+        run: node --test ui/app.test.cjs ui/launch.test.cjs
 
       - name: Clippy
         id: clippy

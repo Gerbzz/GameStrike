@@ -440,11 +440,16 @@
     else if (!game.files_ok) badges.append(badge("missing", "Files missing"));
     node.append(frame, art, badges);
     node.setAttribute("aria-label", `${game.title}. ${statusFor(game)}.${game.favorite ? " Favorite." : ""}`);
-    node.addEventListener("click", () => {
-      if (state.zone === "grid" && Number(node.dataset.index) === state.gridIndex) launch(game);
+    let launchOnDoubleClick = false;
+    node.addEventListener("click", (event) => {
+      // A double-click also emits two clicks. A selected tile already plays on the first one;
+      // an unselected tile selects first and plays once when the double-click completes.
+      if (event.detail > 1) return;
+      launchOnDoubleClick = !(state.zone === "grid" && Number(node.dataset.index) === state.gridIndex);
+      if (!launchOnDoubleClick) launch(game);
       else { state.zone = "grid"; state.gridIndex = Number(node.dataset.index); sound.play("move"); layoutFocus(true); }
     });
-    node.addEventListener("dblclick", () => launch(game, false));
+    node.addEventListener("dblclick", () => { if (launchOnDoubleClick) launch(game, false); });
     node.addEventListener("contextmenu", (event) => { event.preventDefault(); state.zone = "grid"; state.gridIndex = Number(node.dataset.index); openDetail(); });
     return node;
   }
