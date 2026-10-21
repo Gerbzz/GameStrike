@@ -13,6 +13,19 @@ permissions:
   contents: read
 
 jobs:
+  audio-core:
+    name: Synthetic audio core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Audio signal, lifecycle and endpoint contract tests
+        run: cargo test --manifest-path crates/gamestrike-audio-core/Cargo.toml --locked --offline --no-fail-fast
+      - name: Audio core formatting
+        run: cargo fmt --manifest-path crates/gamestrike-audio-core/Cargo.toml -- --check
+
   build-test:
     name: ${{ matrix.os }}
     strategy:
