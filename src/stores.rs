@@ -1588,11 +1588,24 @@ impl StoreLibrary {
         })
     }
 
+    fn load_catalog(&self) -> Result<Catalog> {
+        match read_bounded(&self.root.join("catalog.json"), MAX_CATALOG_BYTES) {
+            Ok(text) => Ok(serde_json::from_str(&text)?),
+            Err(error)
+                if error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                Ok(Catalog::default())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     fn catalog(&self) -> Catalog {
-        read_bounded(&self.root.join("catalog.json"), MAX_CATALOG_BYTES)
-            .ok()
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default()
+        // Display queries can be empty while the refresh error is reported by the launcher.
+        // Mutations must use the fallible loader so existing player data is never reset.
+        self.load_catalog().unwrap_or_default()
     }
 
     fn save_catalog(&self, catalog: &Catalog) -> Result<()> {
@@ -1605,7 +1618,7 @@ impl StoreLibrary {
             .lock
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        let mut catalog = self.catalog();
+        let mut catalog = self.load_catalog()?;
         let result = change(&mut catalog)?;
         self.save_catalog(&catalog)?;
         Ok(result)
@@ -1650,7 +1663,7 @@ impl StoreLibrary {
     /// player never favorited, renamed, played, hid, or gave them a cover). Store covers are
     /// decoded with the same limits as any cover and cached as PNG. Returns the installed count.
     pub fn refresh(&self, env: &ScanEnv) -> Result<usize> {
-        let disabled = self.catalog().disabled;
+        let disabled = self.load_catalog()?.disabled;
         let mut scanned: Vec<(Store, Vec<Found>)> = Vec::new();
         for store in Store::ALL {
             if store != Store::Custom && !disabled.contains(&store) {
@@ -1668,7 +1681,7 @@ impl StoreLibrary {
             }
         }
         let keep: BTreeSet<Uuid> = self
-            .catalog()
+            .load_catalog()?
             .games
             .iter()
             .filter(|entry| self.has_player_data(entry.id))

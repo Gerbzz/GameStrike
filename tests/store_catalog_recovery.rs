@@ -19,7 +19,11 @@ fn damaged_catalog_is_preserved(bytes: &[u8]) {
             _ => library.add_program(&program, None).is_err(),
         };
         assert!(failed, "{operation} must reject an unreadable catalog");
-        assert_eq!(fs::read(&catalog).unwrap(), bytes, "{operation} changed data");
+        assert_eq!(
+            fs::read(&catalog).unwrap(),
+            bytes,
+            "{operation} changed data"
+        );
     }
 }
 
@@ -80,7 +84,11 @@ fn case_distinct_steam_libraries_both_contribute_games() {
     }
     fs::write(
         root.join("steamapps/libraryfolders.vdf"),
-        format!("\"libraryfolders\" {{ \"1\" {{ \"path\" \"{}\" }} \"2\" {{ \"path\" \"{}\" }} }}", upper.display(), lower.display()),
+        format!(
+            "\"libraryfolders\" {{ \"1\" {{ \"path\" \"{}\" }} \"2\" {{ \"path\" \"{}\" }} }}",
+            upper.display(),
+            lower.display()
+        ),
     )
     .unwrap();
     assert_eq!(steam_libraries(&root).len(), 3);
