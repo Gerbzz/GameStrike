@@ -85,18 +85,50 @@ fn preset_change_blends_for_five_ms_then_reaches_wet_signal() {
     let mut wet = [0.0; 480];
     switched.process(&[1.0; 480], VoicePreset::Robot, SAMPLE_RATE_HZ, &mut blended).unwrap();
     reference.process(&[1.0; 480], VoicePreset::Robot, SAMPLE_RATE_HZ, &mut wet).unwrap();
-    assert!((blended[0] - 1.0).abs() < 0.015, "transition must begin near dry");
-    assert!(blended[..120].iter().map(|s| (s - 1.0).abs()).sum::<f32>() > 0.1,
-        "transition must actually blend rather than hold dry for five ms");
+    // Check every interior frame, so a one-frame or one-ms switch cannot pass.
     for i in 0..PRESET_TRANSITION_FRAMES {
-        assert!(blended[i] >= wet[i].min(1.0) - 0.000_01
-            && blended[i] <= wet[i].max(1.0) + 0.000_01);
+        let target_weight = (i + 1) as f32 / PRESET_TRANSITION_FRAMES as f32;
+        let expected = (1.0 - target_weight) + wet[i] * target_weight;
+        assert!((blended[i] - expected).abs() < 0.000_01,
+            "forward fade frame {i}: expected weight {target_weight}, got {}", blended[i]);
     }
     assert_close(&blended[PRESET_TRANSITION_FRAMES - 1..],
         &wet[PRESET_TRANSITION_FRAMES - 1..], 0.000_01);
     let mut back_to_dry = [0.0; 480];
+    let mut reverse_wet = [0.0; 480];
     switched.process(&[1.0; 480], VoicePreset::Bypass, SAMPLE_RATE_HZ, &mut back_to_dry).unwrap();
+    reference.process(&[1.0; 480], VoicePreset::Robot, SAMPLE_RATE_HZ, &mut reverse_wet).unwrap();
+    for i in 0..PRESET_TRANSITION_FRAMES {
+        let target_weight = (i + 1) as f32 / PRESET_TRANSITION_FRAMES as f32;
+        let expected = reverse_wet[i] * (1.0 - target_weight) + target_weight;
+        assert!((back_to_dry[i] - expected).abs() < 0.000_01,
+            "reverse fade frame {i}: expected weight {target_weight}, got {}", back_to_dry[i]);
+    }
     assert_close(&back_to_dry[PRESET_TRANSITION_FRAMES - 1..], &[1.0; 241], 0.000_01);
+}
+
+#[test]
+fn both_preset_fades_continue_across_irregular_block_boundaries() {
+    let mut whole = VoiceProcessor::new();
+    let mut split = VoiceProcessor::new();
+    whole.process(&[1.0; 960], VoicePreset::Bypass, SAMPLE_RATE_HZ, &mut [0.0; 960]).unwrap();
+    split.process(&[1.0; 960], VoicePreset::Bypass, SAMPLE_RATE_HZ, &mut [0.0; 960]).unwrap();
+    for (preset, sizes) in [
+        (VoicePreset::Robot, vec![1, 59, 61, 118, 1, 240]),
+        (VoicePreset::Bypass, vec![17, 103, 119, 1, 240]),
+    ] {
+        let mut expected = [0.0; 480];
+        whole.process(&[1.0; 480], preset, SAMPLE_RATE_HZ, &mut expected).unwrap();
+        let mut actual = [0.0; 480];
+        let mut start = 0;
+        for size in sizes {
+            let end = start + size;
+            split.process(&vec![1.0; size], preset, SAMPLE_RATE_HZ, &mut actual[start..end]).unwrap();
+            start = end;
+        }
+        assert_eq!(start, expected.len());
+        assert_close(&actual, &expected, 0.000_01);
+    }
 }
 
 #[test]

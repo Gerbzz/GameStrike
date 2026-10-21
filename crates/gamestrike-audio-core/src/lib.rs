@@ -47,6 +47,9 @@ impl VoiceProcessor {
     pub fn new() -> Self { Self }
 
     /// Normalized mono, fixed 48 kHz. An error must clear the entire output.
+    /// Preset changes use a 240-frame linear crossfade: target weight is
+    /// (transition_frame + 1) / 240, continuing across blocks in both directions.
+    /// The 80 Hz oscillator advances even during Bypass and gated live voice.
     pub fn process(&mut self, _input: &[f32], _preset: VoicePreset,
         _sample_rate: u32, _out: &mut [f32]) -> Result<(), AudioError> {
         Err(AudioError::Unimplemented)
@@ -126,6 +129,12 @@ pub struct SessionSnapshot {
     pub preset: VoicePreset,
 }
 
+/// Synthetic host lifecycle. Render consumes live voice even when PTT is closed,
+/// advances its DSP history, and discards its contribution without releasing input.
+/// Each render rechecks endpoint proof. Revocation faults on that render, clears
+/// output, releases input, flushes both queues, and clears effects to Bypass.
+/// Invalid queued samples or render gains also release/flush/reset and latch fault.
+/// A faulted session cannot be revived by endpoint, voice, preset, or TX changes.
 pub struct Session<I: MicInput> {
     _input: I,
 }
