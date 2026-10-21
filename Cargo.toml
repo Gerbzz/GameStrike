@@ -25,6 +25,8 @@ player = [
     "dep:block2",
 ]
 launcher = ["player"]
+# Rust-rendered desktop shell; independent of the optional HTML-game player/WebView runtime.
+native-ui = ["dep:eframe", "dep:egui-wgpu", "dep:rfd", "dep:windows-sys", "dep:gamestrike-audio-core"]
 # Platform-named aliases. `launcher-windows` and `player-windows` keep existing commands working.
 player-windows = ["player"]
 launcher-windows = ["launcher"]
@@ -42,6 +44,10 @@ zip = { version = "=3.0.0", default-features = false, features = ["deflate-flate
 percent-encoding = { version = "=2.3.2", optional = true }
 # Cover images are untrusted; they are decoded only by these memory-safe Rust decoders.
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+eframe = { version = "=0.36.2", default-features = false, features = ["wgpu", "accesskit", "default_fonts", "wayland", "x11"], optional = true }
+egui-wgpu = { version = "=0.36.2", optional = true }
+rfd = { version = "=0.17.2", optional = true }
+gamestrike-audio-core = { path = "crates/gamestrike-audio-core", optional = true }
 
 [target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
 # `mac-proxy` only compiles on macOS; it lets offline mode route WKWebView traffic to the sink-hole proxy.
@@ -83,3 +89,8 @@ required-features = ["player"]
 name = "gamestrike-launcher"
 path = "src/launcher.rs"
 required-features = ["launcher"]
+
+[[bin]]
+name = "gamestrike-desktop"
+path = "src/bin/desktop.rs"
+required-features = ["native-ui"]

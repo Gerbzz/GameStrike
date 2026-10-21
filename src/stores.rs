@@ -1743,7 +1743,13 @@ impl StoreLibrary {
     /// Store games for the launcher, without stores the player turned off. Games that are no longer
     /// installed are listed only if the player has made them their own.
     pub fn entries(&self) -> Vec<StoreEntry> {
-        let catalog = self.catalog();
+        self.try_entries().unwrap_or_default()
+    }
+
+    /// Fallible display query for native clients that retain the last good catalog on read errors.
+    /// Unlike `entries`, corrupt or unreadable persisted data is never presented as an empty scan.
+    pub fn try_entries(&self) -> Result<Vec<StoreEntry>> {
+        let catalog = self.load_catalog()?;
         let mut entries: Vec<StoreEntry> = catalog
             .games
             .iter()
@@ -1758,7 +1764,7 @@ impl StoreLibrary {
             }
         }
         entries.sort_by(|a, b| a.title.cmp(&b.title).then(a.id.cmp(&b.id)));
-        entries
+        Ok(entries)
     }
 
     fn entry(&self, id: Uuid, found: &Found, installed: bool, first_seen: u64) -> StoreEntry {
