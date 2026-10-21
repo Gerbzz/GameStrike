@@ -34,6 +34,15 @@ done
 "$bin_dir/gamestrike-launcher" --library "$library" >"$out_dir/startup-launcher.log" 2>&1 &
 launcher=$!
 ffmpeg -loglevel error -y -f x11grab -framerate 25 -video_size 1250x800 -i "${DISPLAY:-:99}" -t 9 -pix_fmt yuv420p "$out_dir/startup.mp4"
+# A desktop recording can exist even when the app has already crashed or exited cleanly.
+# Check before our intentional teardown so either unexpected exit fails the recording gate.
+if ! kill -0 "$launcher" 2>/dev/null; then
+  status=0
+  wait "$launcher" 2>/dev/null || status=$?
+  launcher=""
+  echo "launcher exited during recording (status $status)" >&2
+  exit 1
+fi
 kill "$launcher" 2>/dev/null || true
 wait "$launcher" 2>/dev/null || true
 launcher=""

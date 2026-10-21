@@ -80,3 +80,9 @@ Rendered verification used existing Playwright because the Browser plugin was un
 Fresh exact-head CI/capture verification for this follow-up must be recorded in the root HANDOFF.md and PR description. Native startup, skip/reduced-motion, actual library and Steam-launch acceptance remain incomplete after the authorized 8f630c7 executable was rejected by Windows Application Control. That rejection is not a pending permission request. No denied launch was retried, no security or trust metadata changed, and no Microsoft contact/sample upload or signing purchase occurred. Keep this WIP file until native acceptance is resolved.
 
 Windows CI caught a test-harness portability error at 192d702: checkout CRLFs prevented the multiline source boundary from matching. Reproduced with a separate CRLF copy (four failures), then normalized line endings in the harness. All 36 tests and all four CRLF-copy lifecycle cases pass after the correction; runtime source and browser screenshots are unchanged.
+
+## Independent review corrections - 2026-10-21
+
+Review found that a successful ffmpeg capture could hide an early launcher exit. The recorder now checks launcher health before intentional teardown. Its six fake-program regressions cover clean/failed early exit, encoder failure, empty output, conversion failure and success/cleanup. Both early-exit cases incorrectly passed before the fix; all six now pass. The Linux workflow runs the regression harness. No actual GameStrike executable ran locally.
+
+The dependency review identified three separate PR 13 corrections (duplicate mouse launch, catalog preservation on read errors, case-sensitive Steam paths). These are being corrected on an isolated checkout of the existing store-library draft branch before carrying that branch into PR 14. Current source/CI acceptance must be recorded after integration; Room-native acceptance remains unpassed after the OS denial. Keep the draft status and WIP file.

@@ -84,6 +84,10 @@ jobs:
       - name: Launcher logic tests
         run: node --test ui/app.test.cjs ui/startup.test.cjs ui/scene-lifecycle.test.cjs
 
+      - name: Startup recorder regression tests
+        if: runner.os == 'Linux'
+        run: bash scripts/record-startup.test.sh
+
       - name: Clippy
         id: clippy
         continue-on-error: true
