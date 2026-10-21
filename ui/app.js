@@ -34,6 +34,9 @@
     filters: [],
     importing: false,
     launching: false,
+    stores: [],
+    scanning: false,
+    refreshRequested: false,
     dialog: null,
     capturing: false,
     metrics: core.collectionMetrics(innerWidth, innerHeight),
@@ -261,8 +264,9 @@
 
   // ---------- helpers ----------
   const gameById = (id) => state.games.find((game) => game.id === id) || null;
+  const isStore = (game) => game?.kind === "store";
   const kindLabel = (game) => (game.source_kind === "zip" ? "ZIP archive" : "HTML file");
-  const kickerFor = (game) => core.cleanSource(game.source) || kindLabel(game);
+  const kickerFor = (game) => (isStore(game) ? core.storeName(game.store) : core.cleanSource(game.source) || kindLabel(game));
   const label = (list, key) => list.find(([k]) => k === key)?.[1] || "";
   const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
 
@@ -286,6 +290,18 @@
     tag: '<path d="M3.5 12.5V4.5h8l9 9-8 8z"/><circle cx="8" cy="8.5" r="1.5"/>',
     pad: '<path d="M7 8h10a4 4 0 0 1 4 4.5l-.6 3A2.6 2.6 0 0 1 16 17l-2-2h-4l-2 2a2.6 2.6 0 0 1-4.4-1.5l-.6-3A4 4 0 0 1 7 8z"/><path d="M8 11v3M6.5 12.5h3M15.5 12h.01M17.5 13.5h.01"/>',
     bolt: '<path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/>',
+    // Store rows. Original glyphs: vapour, a shield, a diamond, a bag, an orbit, a hexagon, an
+    // arrow, and a window. None imitates a store's logo.
+    "store-steam": '<path d="M7 20c-2-3 2-5 0-8s2-5 0-8M12 20c-2-3 2-5 0-8s2-5 0-8M17 20c-2-3 2-5 0-8s2-5 0-8"/>',
+    "store-epic": '<path d="M12 3 19.5 6v6c0 4.4-3.2 7.6-7.5 9-4.3-1.4-7.5-4.6-7.5-9V6z"/><path d="M12 8v8"/>',
+    "store-ea": '<path d="M12 3l9 9-9 9-9-9z"/><path d="M12 8l4 4-4 4-4-4z"/>',
+    "store-xbox": '<path d="M5 8h14l-1.2 12.5H6.2z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/>',
+    "store-gog": '<circle cx="12" cy="12" r="3.5"/><ellipse cx="12" cy="12" rx="9.5" ry="4" transform="rotate(-20 12 12)"/>',
+    "store-ubisoft": '<path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z"/><path d="M12 8.5l3 1.7v3.6l-3 1.7-3-1.7v-3.6z"/>',
+    "store-battlenet": '<path d="M5 19 16 8M9 5h10v10"/><path d="M4 15.5l4.5 4.5"/>',
+    "store-custom": '<path d="M4 5h16v14H4z"/><path d="M4 9h16M7.5 12.5l2 1.5-2 1.5M12 15.5h4"/>',
+    html: '<path d="M8.5 8 4.5 12l4 4M15.5 8l4 4-4 4M13.5 5.5l-3 13"/>',
+    hidden: '<path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="12" cy="12" r="2.5"/><path d="M4 20 20 4"/>',
   };
   const SOURCE_ICONS = ["globe", "tag", "pad", "bolt"];
   function iconFor(filter) {
@@ -332,7 +348,21 @@
       return button;
     });
     el.filters.replaceChildren(...nodes);
-    requestAnimationFrame(() => el.sidebar.classList.toggle("scrolls", el.filters.scrollHeight > el.filters.clientHeight + 2));
+    requestAnimationFrame(fitFilters);
+  }
+
+  // With many stores and sources the filter list scrolls: show the scroll marks and keep the chosen
+  // filter in view, again whenever the list changes size (window resizes, the frame's scale).
+  function fitFilters() {
+    el.sidebar.classList.toggle("scrolls", el.filters.scrollHeight > el.filters.clientHeight + 2);
+    // Only the list scrolls (scrollIntoView could also move the page while the sidebar is away).
+    const list = el.filters;
+    const current = list.querySelector('[aria-current="true"]');
+    if (!current) return;
+    const top = current.offsetParent === list ? current.offsetTop : current.offsetTop - list.offsetTop;
+    const bottom = top + current.offsetHeight;
+    if (top < list.scrollTop) list.scrollTop = Math.max(0, top - 8);
+    else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight + 8;
   }
 
   function setFilter(key) {
@@ -348,16 +378,16 @@
     state.visible = core.applyFilter(state.games, state.filter, state.query, state.sort);
     const filter = state.filters.find((entry) => entry.key === state.filter);
     el.title.textContent = state.query ? `Search: ${state.query}` : state.filter === "all" ? "Game Collection" : filter?.label || "Game Collection";
-    el.count.textContent = `${plural(state.visible.length, "game", "games")} · ${label(SORTS, state.sort)}`;
+    el.count.textContent = `${plural(state.visible.length, "game", "games")} · ${label(SORTS, state.sort)}${state.scanning ? " · Scanning stores" : ""}`;
     el.grid.replaceChildren(...state.visible.map((game, index) => tile(game, index)));
     const empty = !state.visible.length;
     el.empty.hidden = !empty || !state.loaded;
     el.grid.hidden = empty;
     if (empty) {
       const none = !state.games.length;
-      $("empty-title").textContent = none ? "Your library is empty" : state.query ? "No games match" : "Nothing here yet";
+      $("empty-title").textContent = none ? (state.scanning ? "Looking for your games" : "No games found yet") : state.query ? "No games match" : "Nothing here yet";
       $("empty-copy").textContent = none
-        ? "Add a game from an .html file or a .zip. GameStrike copies it into its own library; your download is never changed."
+        ? "GameStrike looks for games installed with Steam, Epic Games, the EA app, the Microsoft Store, GOG Galaxy, Ubisoft Connect, and Battle.net, and found none. Add an HTML game or a program, or refresh the store libraries."
         : state.query ? `No game title contains “${state.query}”.` : state.filter === "favorites" ? "Mark a game as a favorite in its details." : "Play a game and it will show up here.";
       $("empty-action").textContent = none ? "Add a game" : state.query ? "Clear search" : "Show all games";
       $("empty-action").dataset.action = none ? "add" : state.query ? "clear" : "all";
@@ -406,14 +436,20 @@
     badges.className = "tile-badges";
     if (game.favorite) badges.append(badge("fav", "★"));
     if (game.id === state.running) badges.append(badge("playing", "Playing"));
-    if (!game.files_ok) badges.append(badge("missing", "Files missing"));
+    if (isStore(game) && !game.installed) badges.append(badge("missing", "Not installed"));
+    else if (!game.files_ok) badges.append(badge("missing", "Files missing"));
     node.append(frame, art, badges);
     node.setAttribute("aria-label", `${game.title}. ${statusFor(game)}.${game.favorite ? " Favorite." : ""}`);
-    node.addEventListener("click", () => {
-      if (state.zone === "grid" && Number(node.dataset.index) === state.gridIndex) openDetail();
+    let launchOnDoubleClick = false;
+    node.addEventListener("click", (event) => {
+      // A double-click also emits two clicks. A selected tile already plays on the first one;
+      // an unselected tile selects first and plays once when the double-click completes.
+      if (event.detail > 1) return;
+      launchOnDoubleClick = !(state.zone === "grid" && Number(node.dataset.index) === state.gridIndex);
+      if (!launchOnDoubleClick) launch(game);
       else { state.zone = "grid"; state.gridIndex = Number(node.dataset.index); sound.play("move"); layoutFocus(true); }
     });
-    node.addEventListener("dblclick", () => launch(game, false));
+    node.addEventListener("dblclick", () => { if (launchOnDoubleClick) launch(game, false); });
     node.addEventListener("contextmenu", (event) => { event.preventDefault(); state.zone = "grid"; state.gridIndex = Number(node.dataset.index); openDetail(); });
     return node;
   }
@@ -446,11 +482,7 @@
   }
 
   function statusFor(game) {
-    if (!game) return "";
-    if (!game.files_ok) return "Files missing";
-    if (game.id === state.running) return "Playing now";
-    if (state.running) return "Another game is open";
-    return "Ready to play";
+    return core.gameStatus(game, state.running);
   }
 
   // The bottom bar: the selected game's title and its status, or the focused sidebar row.
@@ -474,7 +506,7 @@
     const plays = game.play_count ? ` · ${plural(game.play_count, "play", "plays")}` : "";
     el.nowStatus.textContent = `${statusFor(game)}${plays}`;
     status.classList.toggle("warn", !game.files_ok);
-    el.nowIcon.innerHTML = game.source_kind === "zip" ? ICONS.zip : ICONS.file;
+    el.nowIcon.innerHTML = isStore(game) ? ICONS[`store-${game.store}`] : game.source_kind === "zip" ? ICONS.zip : ICONS.file;
   }
 
   // Prompts for the current context; keys after keyboard input, ringed buttons after pad input.
@@ -484,21 +516,26 @@
       if (key) $(`key-${button}`).textContent = key;
       document.querySelector(`.prompt[data-button="${button}"]`).classList.toggle("off", !on);
     };
+    const game = focusedGame();
     if (state.detailId) {
       set("a", "Select", "Enter");
       set("b", "Back", "Esc");
-      set("x", "Network", "N", !state.running);
+      if (isStore(game)) set("x", "Folder", "O", Boolean(game?.install_path));
+      else set("x", "Network", "N", !state.running);
       set("y", "Favorite", "F");
+      set("menu", "Details", "I", false);
     } else if (state.zone === "sidebar") {
       set("a", "Select", "Enter");
       set("b", "Back", "Esc");
       set("x", "Games", "Tab", state.visible.length > 0);
       set("y", "Sort", "S", state.filter !== "recent");
+      set("menu", "Details", "I", false);
     } else {
-      set("a", "Select", "Enter", state.visible.length > 0);
+      set("a", "Launch", "Enter", Boolean(game) && (isStore(game) ? game.installed : game.files_ok));
       set("b", "Back", "Esc");
       set("x", "Filter", "Tab");
       set("y", "Sort", "S", state.filter !== "recent");
+      set("menu", "Details", "I", Boolean(game));
     }
   }
 
@@ -598,7 +635,7 @@
       else node.click();
       return;
     }
-    if (focusedGame()) openDetail();
+    if (focusedGame()) launch(focusedGame());
     else $("empty-action").click();
   }
 
@@ -658,13 +695,19 @@
     (on ? $("s-clear").disabled ? $("s-remove") : $("s-clear") : $("d-saves")).focus({ preventScroll: true });
   }
 
+  // A fact marked "path" keeps its real case (paths are case-sensitive on Linux and macOS) and
+  // spans both columns.
   function facts(list) {
-    return list.map(([name, value]) => {
+    return list.map(([name, value, kind]) => {
       const box = document.createElement("div");
       const dt = document.createElement("dt");
       dt.textContent = name;
       const dd = document.createElement("dd");
       dd.textContent = value;
+      if (kind === "path") {
+        box.className = "wide";
+        dd.className = "path";
+      }
       box.append(dt, dd);
       return box;
     });
@@ -678,7 +721,19 @@
     el.count.textContent = `${state.visible.findIndex((g) => g.id === game.id) + 1} of ${state.visible.length}`;
     $("detail-kicker").textContent = kickerFor(game);
     $("detail-title").textContent = game.title;
-    $("detail-facts").replaceChildren(...facts([
+    const store = isStore(game);
+    const custom = store && game.store === "custom";
+    for (const id of ["d-network", "d-source", "d-saves"]) $(id).hidden = store;
+    for (const id of ["d-folder", "d-hide"]) $(id).hidden = !store;
+    for (const id of ["d-args", "d-workdir", "d-remove-program"]) $(id).hidden = !custom;
+    $("detail-facts").replaceChildren(...facts(store ? [
+      ["Store", core.storeName(game.store)],
+      [custom ? "Program folder" : "Install folder", game.install_path || "Not found", game.install_path ? "path" : ""],
+      ["Plays", String(game.play_count || 0)],
+      ["Last played", core.formatWhen(game.last_played)],
+      ...(custom ? [["Arguments", (game.args || []).join(" ") || "None", game.args?.length ? "path" : ""], ["Working folder", game.working_dir || "The program's folder", game.working_dir ? "path" : ""]] : [["Starts with", game.launch_kind === "uri" ? core.storeName(game.store) : "Its program"]]),
+      ["Found", game.added_at ? core.formatWhen(game.added_at) : "Earlier"],
+    ] : [
       ["Source", core.cleanSource(game.source) || "Not set"],
       ["Imported as", kindLabel(game)],
       ["Plays", String(game.play_count || 0)],
@@ -688,13 +743,19 @@
     ]));
     const note = $("detail-note");
     note.classList.toggle("warn", !game.files_ok);
-    note.textContent = !game.files_ok ? "This game's files are missing. Remove it, then add the original file again."
+    const coverText = game.cover === "custom" ? "your image" : game.cover === "auto" ? "from the game's files" : game.cover === "store" ? `${core.storeName(game.store)}'s own cached art` : "drawn by GameStrike from the title";
+    note.textContent = store
+      ? (game.installed ? `Cover: ${coverText}. GameStrike counts its own launches; it does not track play time.` : `Not installed. Install it with ${core.storeName(game.store)}, then refresh the store libraries.`)
+      : !game.files_ok ? "This game's files are missing. Remove it, then add the original file again."
       : game.id === state.running ? "Playing now in its own window."
       : state.running ? "Another game is open. Close it to play this one."
-      : `Cover: ${game.cover === "custom" ? "your image" : game.cover === "auto" ? "from the game's files" : "drawn by GameStrike from the title"}. Controller and network needs are not checked.`;
+      : `Cover: ${coverText}. Controller and network needs are not checked.`;
     const busy = Boolean(state.running) || state.launching;
-    $("d-play").disabled = busy || !game.files_ok;
+    $("d-play").textContent = store ? "Play" : "Play offline";
+    $("d-play").disabled = store ? !game.installed : busy || !game.files_ok;
     $("d-network").disabled = busy || !game.files_ok;
+    $("d-folder").disabled = !game.install_path;
+    $("d-hide").textContent = game.hidden ? "Show in library" : "Hide game";
     $("d-favorite").textContent = game.favorite ? "★ Favorite" : "☆ Add to favorites";
     $("d-favorite").setAttribute("aria-pressed", String(Boolean(game.favorite)));
     $("d-undo-cover").disabled = !game.cover_undo;
@@ -718,8 +779,15 @@
     send({ type: "pick_and_import" });
   }
 
-  function launch(game, network) {
+  function launch(game, network = false) {
     if (!game) return;
+    if (isStore(game)) {
+      // Store games start through their own launcher (or the program the player chose).
+      if (!game.installed) { toast(`${game.title} is not installed. Install it with ${core.storeName(game.store)}, then refresh the store libraries.`, true); return; }
+      sound.play("launch");
+      send({ type: "launch_store_game", id: game.id });
+      return;
+    }
     if (state.running) { toast(game.id === state.running ? "This game is already open in its own window." : "Another game is open. Close it first.", true); return; }
     if (state.launching) return;
     if (!game.files_ok) { toast("This game's files are missing. Remove it, then add the original file again.", true); return; }
@@ -769,8 +837,11 @@
     settings: { node: $("settings-dialog"), first: "settings-style" },
     problems: { node: $("problems-dialog"), first: "problems-close" },
     about: { node: $("about-dialog"), first: "close-about" },
+    add: { node: $("add-dialog"), first: "add-program" },
+    stores: { node: $("stores-dialog"), first: "stores-refresh" },
+    args: { node: $("args-dialog"), first: "args-input" },
   };
-  const GAME_DIALOGS = ["network", "rename", "source", "reset", "remove"];
+  const GAME_DIALOGS = ["network", "rename", "source", "reset", "remove", "args"];
   let dialogGame = null;
   let returnFocus = null;
 
@@ -793,7 +864,16 @@
     if (name === "rename") { $("rename-input").value = game.title; $("rename-error").hidden = true; }
     if (name === "source") { $("source-input").value = game.source || ""; $("source-error").hidden = true; $("source-title").textContent = `Where is ${game.title} from?`; }
     if (name === "reset") $("reset-title").textContent = `Clear saves for ${game.title}?`;
-    if (name === "remove") { $("remove-title").textContent = `Remove ${game.title}?`; $("remove-keep").checked = true; }
+    if (name === "remove") {
+      $("remove-title").textContent = `Remove ${game.title}?`;
+      $("remove-keep").checked = true;
+      $("remove-keep-row").hidden = isStore(game);
+      $("remove-copy").textContent = isStore(game)
+        ? "GameStrike forgets this program and its cover and plays. The program itself is not touched."
+        : "GameStrike deletes its copy of the game files. Your original download is not touched.";
+    }
+    if (name === "args") { $("args-input").value = (game.args || []).map((arg) => (/\s/.test(arg) ? `"${arg}"` : arg)).join(" "); $("args-title").textContent = `Arguments for ${game.title}`; }
+    if (name === "stores") renderStoreSettings();
     if (name === "settings") {
       settingsText();
       $("settings-problems").hidden = !state.problems.length;
@@ -812,7 +892,7 @@
     sound.play("open");
     const first = $(dialogs[name].first);
     first.focus();
-    if (name === "rename" || name === "source") first.select();
+    if (name === "rename" || name === "source" || name === "args") first.select();
   }
 
   function closeDialog({ restore = true, silent = false } = {}) {
@@ -863,12 +943,58 @@
     const keep = $("remove-keep").checked;
     closeDialog({ silent: true });
     closeDetail({ restore: false, silent: true });
-    if (game) send({ type: "remove_game", id: game.id, keep_saves: keep });
+    if (game && isStore(game)) send({ type: "remove_program", id: game.id });
+    else if (game) send({ type: "remove_game", id: game.id, keep_saves: keep });
     layoutFocus(true);
   });
   $("settings-style").addEventListener("click", () => { sound.play("select"); applyStyle(core.nextStyle(state.style.key), true); settingsText(); });
   $("settings-sound").addEventListener("click", () => { sound.toggle(); settingsText(); });
   $("settings-problems").addEventListener("click", () => openDialog("problems"));
+  $("settings-stores").addEventListener("click", () => openDialog("stores"));
+  // Add game: an HTML game, a program, or a fresh look at the store libraries.
+  function refreshStores() {
+    state.refreshRequested = true;
+    sound.play("select");
+    send({ type: "refresh_stores" });
+  }
+  $("add-html").addEventListener("click", () => { closeDialog({ silent: true }); importGame(); });
+  $("add-program").addEventListener("click", () => { closeDialog({ silent: true }); sound.play("open"); send({ type: "add_program" }); });
+  $("add-refresh").addEventListener("click", () => { closeDialog({ silent: true }); refreshStores(); });
+  $("add-close").addEventListener("click", () => closeDialog());
+  $("stores-refresh").addEventListener("click", () => { closeDialog({ silent: true }); refreshStores(); });
+  $("stores-close").addEventListener("click", () => closeDialog());
+  // Settings: each store can be turned off (it is then not scanned or shown).
+  function renderStoreSettings() {
+    const list = $("stores-list");
+    list.replaceChildren(...state.stores.map((status) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "slab";
+      button.disabled = !status.supported;
+      const where = status.supported ? (status.enabled ? `${plural(status.games, "game", "games")}` : "Off") : "Windows only";
+      button.textContent = `${status.name}: ${status.enabled ? "On" : "Off"} · ${where}`;
+      button.setAttribute("aria-pressed", String(status.enabled));
+      button.addEventListener("click", () => {
+        status.enabled = !status.enabled;
+        sound.play("select");
+        send({ type: "set_store_enabled", store: status.key, enabled: status.enabled });
+        renderStoreSettings();
+        $("stores-list").querySelector(`[data-store="${status.key}"]`)?.focus();
+      });
+      button.dataset.store = status.key;
+      return button;
+    }));
+  }
+  $("args-cancel").addEventListener("click", () => closeDialog());
+  $("args-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const game = dialogGame;
+    const value = $("args-input").value;
+    if (!game || value.length > 600) { $("args-error").hidden = false; sound.play("error"); return; }
+    closeDialog({ silent: true });
+    sound.play("select");
+    send({ type: "set_program", id: game.id, args: value });
+  });
   $("settings-about").addEventListener("click", () => openDialog("about"));
   $("settings-close").addEventListener("click", () => closeDialog());
   $("problems-close").addEventListener("click", () => closeDialog());
@@ -889,12 +1015,23 @@
   $("d-rename").addEventListener("click", () => openDialog("rename"));
   $("d-saves").addEventListener("click", () => showSaves(true));
   $("d-close").addEventListener("click", () => closeDetail());
+  $("d-folder").addEventListener("click", () => { const game = detailGame(); if (game) send({ type: "open_install_folder", id: game.id }); });
+  $("d-hide").addEventListener("click", () => {
+    const game = detailGame();
+    if (!game) return;
+    sound.play("select");
+    send({ type: "set_hidden", id: game.id, hidden: !game.hidden });
+    if (!game.hidden) closeDetail();
+  });
+  $("d-args").addEventListener("click", () => openDialog("args"));
+  $("d-workdir").addEventListener("click", () => { const game = detailGame(); if (game) { sound.play("open"); send({ type: "pick_working_folder", id: game.id }); } });
+  $("d-remove-program").addEventListener("click", () => openDialog("remove"));
   $("s-clear").addEventListener("click", () => openDialog("reset"));
   $("s-remove").addEventListener("click", () => openDialog("remove"));
   $("s-back").addEventListener("click", () => showSaves(false));
 
   // Sidebar controls.
-  $("add-game").addEventListener("click", importGame);
+  $("add-game").addEventListener("click", () => openDialog("add"));
   $("settings").addEventListener("click", () => openDialog("settings"));
   $("power").addEventListener("click", () => { if (state.running) toast("Close the game first.", true); else send({ type: "quit" }); });
   el.search.addEventListener("input", () => setQuery(el.search.value));
@@ -905,7 +1042,7 @@
   });
   $("empty-action").addEventListener("click", () => {
     const action = $("empty-action").dataset.action;
-    if (action === "add") importGame();
+    if (action === "add") openDialog("add");
     else if (action === "clear") setQuery("");
     else setFilter("all");
   });
@@ -931,7 +1068,8 @@
       const arrows = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
       if (arrows[event.key]) { event.preventDefault(); moveWithin(el.detail, arrows[event.key]); return; }
       if (event.key.toLowerCase() === "f") { event.preventDefault(); toggleFavorite(detailGame()); }
-      if (event.key.toLowerCase() === "n") { event.preventDefault(); openDialog("network"); }
+      if (event.key.toLowerCase() === "n" && !isStore(detailGame())) { event.preventDefault(); openDialog("network"); }
+      if (event.key.toLowerCase() === "o" && isStore(detailGame())) { event.preventDefault(); $("d-folder").click(); }
       return;
     }
     const arrows = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down", Home: "home", End: "end" };
@@ -940,7 +1078,7 @@
       case "Enter": case " ": event.preventDefault(); activate(); break;
       case "Tab": event.preventDefault(); toggleZone(); break;
       case "i": case "I": case "ContextMenu": event.preventDefault(); if (state.zone === "grid") openDetail(); break;
-      case "n": case "N": event.preventDefault(); if (state.zone === "grid") openDialog("network"); break;
+      case "n": case "N": event.preventDefault(); if (state.zone === "grid" && !isStore(focusedGame())) openDialog("network"); break;
       case "f": case "F": event.preventDefault(); if (state.zone === "grid") toggleFavorite(focusedGame()); break;
       case "s": case "S": event.preventDefault(); cycleSort(); break;
       case "F2": event.preventDefault(); if (state.zone === "grid") openDialog("rename"); break;
@@ -983,7 +1121,7 @@
     if (state.detailId) {
       if (action === "b") back();
       else if (action === "a") document.activeElement?.click();
-      else if (action === "x") openDialog("network");
+      else if (action === "x") { if (isStore(detailGame())) $("d-folder").click(); else openDialog("network"); }
       else if (action === "y") toggleFavorite(detailGame());
       else if (["left", "right", "up", "down"].includes(action)) moveWithin(el.detail, action);
       return;
@@ -992,6 +1130,7 @@
     else if (action === "a") activate();
     else if (action === "x") toggleZone();
     else if (action === "y") cycleSort();
+    else if (action === "menu") { if (state.zone === "grid") openDetail(); }
     else if (action === "b") back();
   }
 
@@ -999,7 +1138,9 @@
   function receive(message) {
     switch (message.type) {
       case "library": {
-        state.games = Array.isArray(message.games) ? message.games : [];
+        state.games = core.mergeLibrary(message.games, message.store_games);
+        state.stores = Array.isArray(message.stores) ? message.stores : [];
+        state.scanning = message.scanning === true;
         state.problems = Array.isArray(message.problems) ? message.problems : [];
         $("synthetic").hidden = message.synthetic !== true;
         state.running = message.running || null;
@@ -1012,9 +1153,25 @@
           state.pendingFocus = null;
           if (index >= 0) { state.zone = "grid"; state.gridIndex = index; layoutFocus(true); }
         }
+        if (state.dialog === "stores") renderStoreSettings();
         drawFrame();
         break;
       }
+      case "stores_refreshed":
+        if (state.refreshRequested) toast(`Store libraries refreshed: ${plural(message.installed, "installed game", "installed games")} found.`);
+        state.refreshRequested = false;
+        break;
+      case "store_started":
+        toast(message.message);
+        break;
+      case "program_added":
+        state.query = "";
+        el.search.value = "";
+        state.filter = "all";
+        state.pendingFocus = message.id;
+        sound.play("select");
+        toast(message.message);
+        break;
       case "importing":
         toast(`Adding ${message.name}…`);
         break;
@@ -1077,7 +1234,7 @@
     document.body.classList.add("reduce-motion");
     // Controller prompts are the default look; the focus view shows the keyboard prompts instead.
     document.body.dataset.input = view === "focus" ? "keyboard" : "pad";
-    state.filter = view === "favorites" ? "favorites" : "all";
+    state.filter = view === "favorites" ? "favorites" : view === "stores" ? "store:steam" : "all";
     if (view === "filters") {
       const source = core.buildFilters(state.games).find((filter) => filter.key.startsWith("source:"));
       if (source) state.filter = source.key;
@@ -1091,6 +1248,10 @@
       let best = 0;
       state.visible.forEach((game, index) => { if (game.title.length > state.visible[best].title.length) best = index; });
       state.gridIndex = best;
+    } else if (view === "store-detail" || view === "stores") {
+      // A store game with the store's own cached art.
+      const covered = state.visible.findIndex((game) => isStore(game) && game.cover === "store");
+      state.gridIndex = Math.max(0, covered);
     } else if (view === "focus" || view === "controller" || view === "detail" || view === "saves" || view === "moving" || view === "launch") {
       // A cover away from the edge, preferring one with a stored image.
       const covered = state.visible.findIndex((game) => game.cover === "custom");
@@ -1099,7 +1260,9 @@
     layoutFocus(false);
     el.grid.children[state.gridIndex]?.scrollIntoView({ block: "nearest", inline: "nearest" });
     paintCovers();
-    if (view === "detail" || view === "saves" || view === "launch" || view === "moving") openDetail();
+    if (view === "detail" || view === "saves" || view === "launch" || view === "moving" || view === "store-detail") openDetail();
+    if (view === "add-menu") openDialog("add");
+    if (view === "store-settings") openDialog("stores");
     if (view === "saves") showSaves(true);
     if (view === "launch") openDialog("network");
     if (view === "settings") openDialog("settings");
@@ -1142,6 +1305,7 @@
 
   window.GameStrike = Object.freeze({ receive, capture, ready });
   window.addEventListener("resize", () => { applyMetrics(); requestAnimationFrame(() => { for (const art of el.grid.querySelectorAll(".tile-art")) art.replaceChildren(); paintCovers(); }); });
+  if (window.ResizeObserver) new ResizeObserver(fitFilters).observe(el.filters);
   // Covers and the frame use the bundled fonts; draw again once they have loaded.
   document.fonts?.ready?.then(() => { window.GameStrikeCovers?.clearCache(); for (const art of el.grid.querySelectorAll(".tile-art")) art.replaceChildren(); paintCovers(); drawFrame(); });
   applyMetrics();

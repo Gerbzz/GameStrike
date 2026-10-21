@@ -10,7 +10,10 @@ fn main() {
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 mod launcher_app {
-    use gamestrike::{ImportOutcome, Library, clear_engine_data};
+    use gamestrike::{
+        HostOs, ImportOutcome, Library, clear_engine_data,
+        stores::{ScanEnv, SnapshotRegistry, Store, StoreLibrary, split_arguments},
+    };
     use serde::Deserialize;
     use serde_json::{Value, json};
     use std::{
@@ -22,7 +25,10 @@ mod launcher_app {
         io::{BufRead, BufReader},
         path::{Path, PathBuf},
         process::{Child, Command, ExitStatus, Stdio},
-        sync::{Arc, Mutex},
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicBool, Ordering},
+        },
         thread,
         time::Duration,
     };
@@ -52,6 +58,17 @@ mod launcher_app {
         ResetCover { id: String },
         SetFavorite { id: String, favorite: bool },
         SetSource { id: String, source: String },
+        // Store libraries and custom programs. The page names games by ID only; what to start
+        // comes from GameStrike's own scan or from a program the player picked natively.
+        RefreshStores {},
+        LaunchStoreGame { id: String },
+        OpenInstallFolder { id: String },
+        AddProgram {},
+        SetProgram { id: String, args: String },
+        PickWorkingFolder { id: String },
+        RemoveProgram { id: String },
+        SetHidden { id: String, hidden: bool },
+        SetStoreEnabled { store: String, enabled: bool },
         Quit {},
     }
 
@@ -65,6 +82,8 @@ mod launcher_app {
         ImportResult(std::result::Result<ImportOutcome, String>),
         /// The one-time search for covers inside older games finished.
         AutoCoversReady,
+        /// A rescan of the store libraries finished, with the number of installed store games.
+        StoresRefreshed(std::result::Result<usize, String>),
         PlayerExited {
             id: Uuid,
             network: bool,
@@ -100,6 +119,10 @@ mod launcher_app {
         "launch",
         "about",
         "boot",
+        "stores",
+        "store-detail",
+        "add-menu",
+        "store-settings",
         "blades",
         "blades-long",
         "blades-launch",
@@ -160,13 +183,31 @@ mod launcher_app {
     enum Pick {
         Game,
         Image,
+        /// A program, shortcut, or app to add as a custom game.
+        Program,
+        /// A working folder for a custom program.
+        Folder,
     }
 
     pub fn run() -> Result<(), Box<dyn Error>> {
         let (root, mut capture_path, window_size, capture_view) = launch_options()?;
         let library = Arc::new(Library::open(&root)?);
         let root = fs::canonicalize(root)?;
+        let stores = Arc::new(StoreLibrary::open(&root)?);
+        let refreshing = Arc::new(AtomicBool::new(false));
+        // Synthetic store fixtures are read only for --capture-preview runs; normal runs read the
+        // store launchers' real records on this computer.
+        let store_fixtures = capture_path
+            .as_ref()
+            .and_then(|_| env::var_os("GAMESTRIKE_CAPTURE_STORES"))
+            .map(PathBuf::from);
         let event_loop = EventLoopBuilder::<UiEvent>::with_user_event().build();
+        start_store_refresh(
+            &stores,
+            &refreshing,
+            store_fixtures.clone(),
+            event_loop.create_proxy(),
+        );
         let window = WindowBuilder::new()
             .with_title("GameStrike")
             .with_inner_size(window_size)
@@ -224,7 +265,7 @@ mod launcher_app {
             *flow = ControlFlow::Wait;
             match event {
                 Event::UserEvent(UiEvent::Command(CommandMessage::Ready {})) => {
-                    send_library(&webview, &library, running);
+                    send_library(&webview, &library, &stores, &refreshing, running);
                     if capture_path.is_some() {
                         let proxy = background_proxy.clone();
                         thread::spawn(move || {
@@ -345,7 +386,7 @@ mod launcher_app {
                             json!({"type":"error", "operation":"import", "message":format!("Import rejected: {error}")}),
                         ),
                     }
-                    send_library(&webview, &library, running);
+                    send_library(&webview, &library, &stores, &refreshing, running);
                 }
                 Event::UserEvent(UiEvent::Command(CommandMessage::LaunchGame { id, network })) => {
                     if running.is_some() {
@@ -357,7 +398,7 @@ mod launcher_app {
                             running = Some(uuid);
                             let _ = library.record_play(uuid);
                             send(&webview, json!({"type":"player_started", "id":uuid, "network":network}));
-                            send_library(&webview, &library, running);
+                            send_library(&webview, &library, &stores, &refreshing, running);
                             watch_player(child, uuid, network, background_proxy.clone());
                         }
                         Err(error) => send(&webview, json!({"type":"error", "operation":"launch", "id":id, "message":error})),
@@ -369,18 +410,23 @@ mod launcher_app {
                     }
                     let (message, ok) = describe_exit(&report, network);
                     send(&webview, json!({"type":"player_exited", "id":id, "message":message, "ok":ok}));
-                    send_library(&webview, &library, running);
+                    send_library(&webview, &library, &stores, &refreshing, running);
                     window.set_focus();
                 }
                 Event::UserEvent(UiEvent::Command(CommandMessage::RenameGame { id, title })) => {
                     let result = parse_id(&id).and_then(|uuid| {
-                        library.rename(uuid, &title).map_err(|error| error.to_string())
+                        if library.has_game(uuid) {
+                            library.rename(uuid, &title).map(|game| game.title)
+                        } else {
+                            stores.rename(uuid, &title)
+                        }
+                        .map_err(|error| error.to_string())
                     });
                     match result {
-                        Ok(game) => send(&webview, json!({"type":"managed", "id":id, "message":format!("Renamed to {}.", game.title)})),
+                        Ok(title) => send(&webview, json!({"type":"managed", "id":id, "message":format!("Renamed to {title}.")})),
                         Err(error) => send(&webview, json!({"type":"error", "operation":"manage", "id":id, "message":format!("Could not rename: {error}")})),
                     }
-                    send_library(&webview, &library, running);
+                    send_library(&webview, &library, &stores, &refreshing, running);
                 }
                 Event::UserEvent(UiEvent::Command(CommandMessage::ResetSaves { id })) => {
                     let result = parse_id(&id).and_then(|uuid| {
@@ -396,7 +442,7 @@ mod launcher_app {
                         Ok(()) => send(&webview, json!({"type":"managed", "id":id, "message":"Saves cleared. The next launch starts fresh."})),
                         Err(error) => send(&webview, json!({"type":"error", "operation":"manage", "id":id, "message":format!("Could not clear saves: {error}")})),
                     }
-                    send_library(&webview, &library, running);
+                    send_library(&webview, &library, &stores, &refreshing, running);
                 }
                 Event::UserEvent(UiEvent::Command(CommandMessage::RemoveGame { id, keep_saves })) => {
                     let result = parse_id(&id).and_then(|uuid| {
@@ -416,7 +462,7 @@ mod launcher_app {
                         }})),
                         Err(error) => send(&webview, json!({"type":"error", "operation":"manage", "id":id, "message":format!("Could not remove: {error}")})),
                     }
-                    send_library(&webview, &library, running);
+                    send_library(&webview, &library, &stores, &refreshing, running);
                 }
                 Event::UserEvent(UiEvent::Command(CommandMessage::PickCover { id })) => {
                     if picking {
@@ -426,7 +472,8 @@ mod launcher_app {
                     picking = true;
                     // The page never supplies a path; the image is decoded with limits in Rust.
                     let result = match platform::pick_file(&window, Pick::Image) {
-                        Ok(Some(path)) => Some(library.set_cover(uuid, path).map_err(|error| error.to_string())),
+                        Ok(Some(path)) if library.has_game(uuid) => Some(library.set_cover(uuid, path).map_err(|error| error.to_string())),
+                        Ok(Some(path)) => Some(stores.set_cover(uuid, &path).map_err(|error| error.to_string())),
                         Ok(None) => None,
                         Err(error) => Some(Err(error)),
                     };
@@ -436,30 +483,43 @@ mod launcher_app {
                         Some(Err(error)) => send(&webview, json!({"type":"error", "operation":"cover", "id":id, "message":format!("Could not use that image: {error}")})),
                         None => send(&webview, json!({"type":"pick_cancelled"})),
                     }
-                    send_library(&webview, &library, running);
+                    send_library(&webview, &library, &stores, &refreshing, running);
                 }
                 Event::UserEvent(UiEvent::Command(CommandMessage::UndoCover { id })) => {
-                    let result = parse_id(&id).and_then(|uuid| library.undo_cover(uuid).map_err(|error| error.to_string()));
+                    let result = parse_id(&id).and_then(|uuid| {
+                        if library.has_game(uuid) { library.undo_cover(uuid) } else { stores.undo_cover(uuid) }
+                            .map_err(|error| error.to_string())
+                    });
                     match result {
                         Ok(()) => send(&webview, json!({"type":"managed", "id":id, "message":"Previous cover restored."})),
                         Err(error) => send(&webview, json!({"type":"error", "operation":"cover", "id":id, "message":format!("Could not undo: {error}")})),
                     }
-                    send_library(&webview, &library, running);
+                    send_library(&webview, &library, &stores, &refreshing, running);
                 }
                 Event::UserEvent(UiEvent::Command(CommandMessage::ResetCover { id })) => {
-                    let result = parse_id(&id).and_then(|uuid| library.reset_cover(uuid).map_err(|error| error.to_string()));
+                    let result = parse_id(&id).and_then(|uuid| {
+                        if library.has_game(uuid) { library.reset_cover(uuid) } else { stores.reset_cover(uuid) }
+                            .map_err(|error| error.to_string())
+                    });
                     match result {
                         Ok(()) => send(&webview, json!({"type":"managed", "id":id, "message":"Cover reset. Undo brings it back."})),
                         Err(error) => send(&webview, json!({"type":"error", "operation":"cover", "id":id, "message":format!("Could not reset the cover: {error}")})),
                     }
-                    send_library(&webview, &library, running);
+                    send_library(&webview, &library, &stores, &refreshing, running);
                 }
                 Event::UserEvent(UiEvent::Command(CommandMessage::SetFavorite { id, favorite })) => {
-                    let result = parse_id(&id).and_then(|uuid| library.set_favorite(uuid, favorite).map_err(|error| error.to_string()));
+                    let result = parse_id(&id).and_then(|uuid| {
+                        if library.has_game(uuid) {
+                            library.set_favorite(uuid, favorite).map(|_| ())
+                        } else {
+                            stores.set_favorite(uuid, favorite)
+                        }
+                        .map_err(|error| error.to_string())
+                    });
                     if let Err(error) = result {
                         send(&webview, json!({"type":"error", "operation":"manage", "id":id, "message":format!("Could not update favorites: {error}")}));
                     }
-                    send_library(&webview, &library, running);
+                    send_library(&webview, &library, &stores, &refreshing, running);
                 }
                 Event::UserEvent(UiEvent::Command(CommandMessage::SetSource { id, source })) => {
                     let result = parse_id(&id).and_then(|uuid| {
@@ -472,7 +532,7 @@ mod launcher_app {
                         }})),
                         Err(error) => send(&webview, json!({"type":"error", "operation":"manage", "id":id, "message":format!("Could not set the source: {error}")})),
                     }
-                    send_library(&webview, &library, running);
+                    send_library(&webview, &library, &stores, &refreshing, running);
                 }
                 Event::UserEvent(UiEvent::Command(CommandMessage::Quit {})) => {
                     if running.is_none() {
@@ -481,7 +541,137 @@ mod launcher_app {
                         send(&webview, json!({"type":"error", "operation":"quit", "message":"Close the game first."}));
                     }
                 }
-                Event::UserEvent(UiEvent::AutoCoversReady) => send_library(&webview, &library, running),
+                Event::UserEvent(UiEvent::AutoCoversReady) => send_library(&webview, &library, &stores, &refreshing, running),
+                Event::UserEvent(UiEvent::StoresRefreshed(result)) => {
+                    match result {
+                        Ok(installed) => send(&webview, json!({"type":"stores_refreshed", "installed":installed})),
+                        Err(error) => send(&webview, json!({"type":"error", "operation":"stores", "message":format!("Could not read the store libraries: {error}")})),
+                    }
+                    send_library(&webview, &library, &stores, &refreshing, running);
+                }
+                Event::UserEvent(UiEvent::Command(CommandMessage::RefreshStores {})) => {
+                    if start_store_refresh(&stores, &refreshing, store_fixtures.clone(), background_proxy.clone()) {
+                        send_library(&webview, &library, &stores, &refreshing, running);
+                    }
+                }
+                Event::UserEvent(UiEvent::Command(CommandMessage::LaunchStoreGame { id })) => {
+                    // Store games are apps the player installed; they start through their store's own
+                    // link or program. GameStrike counts the launch but does not track the game.
+                    let result = parse_id(&id).and_then(|uuid| {
+                        let (launch, store) = stores.launch_target(uuid).map_err(|error| error.to_string())?;
+                        platform::start(&launch)?;
+                        let _ = stores.record_play(uuid);
+                        Ok(store)
+                    });
+                    match result {
+                        Ok(store) => send(&webview, json!({"type":"store_started", "id":id, "message": if store == Store::Custom {
+                            "Starting the program.".to_owned()
+                        } else {
+                            format!("Starting through {}.", store.name())
+                        }})),
+                        Err(error) => send(&webview, json!({"type":"error", "operation":"launch", "id":id, "message":format!("Could not start the game: {error}")})),
+                    }
+                    send_library(&webview, &library, &stores, &refreshing, running);
+                }
+                Event::UserEvent(UiEvent::Command(CommandMessage::OpenInstallFolder { id })) => {
+                    let result = parse_id(&id)
+                        .and_then(|uuid| stores.install_folder(uuid).map_err(|error| error.to_string()))
+                        .and_then(|folder| platform::open_folder(&folder));
+                    if let Err(error) = result {
+                        send(&webview, json!({"type":"error", "operation":"manage", "id":id, "message":format!("Could not open the folder: {error}")}));
+                    }
+                }
+                Event::UserEvent(UiEvent::Command(CommandMessage::AddProgram {})) => {
+                    if picking {
+                        return;
+                    }
+                    picking = true;
+                    let picked = platform::pick_file(&window, Pick::Program);
+                    picking = false;
+                    match picked {
+                        Ok(Some(path)) => match stores.add_program(&path, None) {
+                            Ok(new_id) => send(&webview, json!({"type":"program_added", "id":new_id, "message":"Program added. Set its arguments or working folder in its details."})),
+                            Err(error) => send(&webview, json!({"type":"error", "operation":"manage", "message":format!("Could not add that program: {error}")})),
+                        },
+                        Ok(None) => send(&webview, json!({"type":"pick_cancelled"})),
+                        Err(error) => send(&webview, json!({"type":"error", "operation":"manage", "message":error})),
+                    }
+                    send_library(&webview, &library, &stores, &refreshing, running);
+                }
+                Event::UserEvent(UiEvent::Command(CommandMessage::SetProgram { id, args })) => {
+                    let result = parse_id(&id).and_then(|uuid| {
+                        if args.chars().count() > 600 {
+                            return Err("Use up to 600 characters of arguments.".to_owned());
+                        }
+                        stores.set_program(uuid, split_arguments(&args), None).map_err(|error| error.to_string())
+                    });
+                    match result {
+                        Ok(()) => send(&webview, json!({"type":"managed", "id":id, "message":"Arguments saved."})),
+                        Err(error) => send(&webview, json!({"type":"error", "operation":"manage", "id":id, "message":format!("Could not save the arguments: {error}")})),
+                    }
+                    send_library(&webview, &library, &stores, &refreshing, running);
+                }
+                Event::UserEvent(UiEvent::Command(CommandMessage::PickWorkingFolder { id })) => {
+                    if picking {
+                        return;
+                    }
+                    let Ok(uuid) = parse_id(&id) else { return };
+                    picking = true;
+                    let picked = platform::pick_file(&window, Pick::Folder);
+                    picking = false;
+                    let result = match picked {
+                        Ok(Some(folder)) => {
+                            let args = stores
+                                .entries()
+                                .into_iter()
+                                .find(|entry| entry.id == uuid)
+                                .map(|entry| entry.args)
+                                .unwrap_or_default();
+                            Some(stores.set_program(uuid, args, Some(folder)).map_err(|error| error.to_string()))
+                        }
+                        Ok(None) => None,
+                        Err(error) => Some(Err(error)),
+                    };
+                    match result {
+                        Some(Ok(())) => send(&webview, json!({"type":"managed", "id":id, "message":"Working folder set."})),
+                        Some(Err(error)) => send(&webview, json!({"type":"error", "operation":"manage", "id":id, "message":format!("Could not set the working folder: {error}")})),
+                        None => send(&webview, json!({"type":"pick_cancelled"})),
+                    }
+                    send_library(&webview, &library, &stores, &refreshing, running);
+                }
+                Event::UserEvent(UiEvent::Command(CommandMessage::RemoveProgram { id })) => {
+                    let result = parse_id(&id).and_then(|uuid| stores.remove_program(uuid).map_err(|error| error.to_string()));
+                    match result {
+                        Ok(()) => send(&webview, json!({"type":"removed", "id":id, "message":"Program removed from GameStrike. The program itself was not touched."})),
+                        Err(error) => send(&webview, json!({"type":"error", "operation":"manage", "id":id, "message":format!("Could not remove: {error}")})),
+                    }
+                    send_library(&webview, &library, &stores, &refreshing, running);
+                }
+                Event::UserEvent(UiEvent::Command(CommandMessage::SetHidden { id, hidden })) => {
+                    let result = parse_id(&id).and_then(|uuid| stores.set_hidden(uuid, hidden).map_err(|error| error.to_string()));
+                    match result {
+                        Ok(()) => send(&webview, json!({"type":"managed", "id":id, "message": if hidden {
+                            "Hidden. It is listed under Hidden in the sidebar."
+                        } else {
+                            "Shown in the library again."
+                        }})),
+                        Err(error) => send(&webview, json!({"type":"error", "operation":"manage", "id":id, "message":format!("Could not change it: {error}")})),
+                    }
+                    send_library(&webview, &library, &stores, &refreshing, running);
+                }
+                Event::UserEvent(UiEvent::Command(CommandMessage::SetStoreEnabled { store, enabled })) => {
+                    let result = Store::from_key(&store)
+                        .ok_or_else(|| "unknown store".to_owned())
+                        .and_then(|store| stores.set_store_enabled(store, enabled).map_err(|error| error.to_string()));
+                    match result {
+                        Ok(()) if enabled => {
+                            start_store_refresh(&stores, &refreshing, store_fixtures.clone(), background_proxy.clone());
+                        }
+                        Ok(()) => {}
+                        Err(error) => send(&webview, json!({"type":"error", "operation":"stores", "message":format!("Could not change the store setting: {error}")})),
+                    }
+                    send_library(&webview, &library, &stores, &refreshing, running);
+                }
                 Event::WindowEvent {
                     event: WindowEvent::CloseRequested,
                     ..
@@ -707,17 +897,92 @@ mod launcher_app {
 
     const BLOCKED_PREFIX: &str = "gamestrike-network-blocked=";
 
-    fn send_library(webview: &wry::WebView, library: &Library, running: Option<Uuid>) {
+    /// Sends the library: HTML games in "games" (the only kind the earlier styles on classic.html
+    /// show), store games and custom programs in "store_games", and each store's status.
+    fn send_library(
+        webview: &wry::WebView,
+        library: &Library,
+        stores: &StoreLibrary,
+        refreshing: &AtomicBool,
+        running: Option<Uuid>,
+    ) {
         match library.scan() {
             Ok(scan) => send(
                 webview,
-                json!({"type":"library", "games":scan.games, "problems":scan.problems, "running":running, "synthetic":library.is_synthetic_test_library()}),
+                json!({
+                    "type":"library",
+                    "games":scan.games,
+                    "problems":scan.problems,
+                    "running":running,
+                    "synthetic":library.is_synthetic_test_library(),
+                    "store_games":stores.entries(),
+                    "stores":stores.statuses(HostOs::current()),
+                    "scanning":refreshing.load(Ordering::SeqCst),
+                }),
             ),
             Err(error) => send(
                 webview,
                 json!({"type":"error", "operation":"library", "message":format!("Library could not be read: {error}")}),
             ),
         }
+    }
+
+    /// Rescans the store libraries in a background thread; the page hears when it is done.
+    /// Returns false if a rescan is already running.
+    fn start_store_refresh(
+        stores: &Arc<StoreLibrary>,
+        refreshing: &Arc<AtomicBool>,
+        fixtures: Option<PathBuf>,
+        proxy: EventLoopProxy<UiEvent>,
+    ) -> bool {
+        if refreshing.swap(true, Ordering::SeqCst) {
+            return false;
+        }
+        let stores = Arc::clone(stores);
+        let refreshing = Arc::clone(refreshing);
+        thread::spawn(move || {
+            let result = match &fixtures {
+                Some(dir) => SnapshotRegistry::load(&dir.join("registry.json"))
+                    .and_then(|registry| stores.refresh(&ScanEnv::for_fixtures(dir, &registry))),
+                None => {
+                    let registry = platform::registry();
+                    stores.refresh(&ScanEnv::for_this_computer(registry.as_ref()))
+                }
+            }
+            .map_err(|error| error.to_string());
+            refreshing.store(false, Ordering::SeqCst);
+            let _ = proxy.send_event(UiEvent::StoresRefreshed(result));
+        });
+        true
+    }
+
+    /// Starts a program GameStrike does not track. A thread reaps it when it exits.
+    fn spawn_detached(mut command: Command) -> std::result::Result<(), String> {
+        let mut child = command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| format!("it could not be started ({error})"))?;
+        thread::spawn(move || {
+            let _ = child.wait();
+        });
+        Ok(())
+    }
+
+    /// Starts a program directly, with its arguments as a list and its working folder (or its own
+    /// folder). Linux and macOS use this for programs; Windows also for non-shortcut programs.
+    fn start_program(
+        path: &Path,
+        args: &[String],
+        working_dir: Option<&Path>,
+    ) -> std::result::Result<(), String> {
+        let mut command = Command::new(path);
+        command.args(args);
+        if let Some(folder) = working_dir.or_else(|| path.parent()) {
+            command.current_dir(folder);
+        }
+        spawn_detached(command)
     }
 
     fn send(webview: &wry::WebView, payload: Value) {
@@ -935,7 +1200,7 @@ mod launcher_app {
     /// bounded size that GameStrike wrote.
     fn read_cover(library: &Library, name: &str) -> Option<Vec<u8>> {
         let id = Uuid::parse_str(name.strip_suffix(".png")?).ok()?;
-        let path = library.cover_file(id)?;
+        let path = library.display_cover_file(id)?;
         let metadata = fs::symlink_metadata(&path).ok()?;
         if !metadata.is_file() || metadata.len() > gamestrike::MAX_STORED_COVER_BYTES {
             return None;
@@ -950,6 +1215,216 @@ mod launcher_app {
     #[cfg(windows)]
     mod platform {
         use super::{Pick, UiEvent, save_png};
+        use gamestrike::stores::{Hive, Launch, Registry};
+        use std::{ffi::OsStr, os::windows::ffi::OsStrExt, path::Path};
+        use windows_sys::Win32::{
+            Foundation::{ERROR_NO_MORE_ITEMS, ERROR_SUCCESS},
+            System::Registry::{
+                HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY, REG_DWORD,
+                REG_EXPAND_SZ, REG_SZ, RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, RegQueryValueExW,
+            },
+            UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
+        };
+
+        /// Read-only access to the Windows registry for the store scanners.
+        pub(super) struct WindowsRegistry;
+
+        pub(super) fn registry() -> Box<dyn Registry> {
+            Box::new(WindowsRegistry)
+        }
+
+        struct OpenKey(HKEY);
+
+        impl Drop for OpenKey {
+            fn drop(&mut self) {
+                unsafe {
+                    RegCloseKey(self.0);
+                }
+            }
+        }
+
+        fn wide(text: &OsStr) -> Vec<u16> {
+            text.encode_wide().chain(std::iter::once(0)).collect()
+        }
+
+        fn open_key(hive: Hive, path: &str) -> Option<OpenKey> {
+            let root = match hive {
+                Hive::LocalMachine => HKEY_LOCAL_MACHINE,
+                Hive::CurrentUser => HKEY_CURRENT_USER,
+            };
+            let path = wide(OsStr::new(path));
+            let mut key: HKEY = std::ptr::null_mut();
+            let status = unsafe {
+                RegOpenKeyExW(root, path.as_ptr(), 0, KEY_READ | KEY_WOW64_64KEY, &mut key)
+            };
+            (status == ERROR_SUCCESS).then_some(OpenKey(key))
+        }
+
+        impl Registry for WindowsRegistry {
+            fn subkeys(&self, hive: Hive, path: &str) -> Vec<String> {
+                let Some(key) = open_key(hive, path) else {
+                    return Vec::new();
+                };
+                let mut names = Vec::new();
+                let mut buffer = [0u16; 256];
+                for index in 0..20_000u32 {
+                    let mut length = buffer.len() as u32;
+                    let status = unsafe {
+                        RegEnumKeyExW(
+                            key.0,
+                            index,
+                            buffer.as_mut_ptr(),
+                            &mut length,
+                            std::ptr::null(),
+                            std::ptr::null_mut(),
+                            std::ptr::null_mut(),
+                            std::ptr::null_mut(),
+                        )
+                    };
+                    if status == ERROR_NO_MORE_ITEMS {
+                        break;
+                    }
+                    if status == ERROR_SUCCESS {
+                        names.push(String::from_utf16_lossy(&buffer[..length as usize]));
+                    }
+                }
+                names
+            }
+
+            fn string(&self, hive: Hive, path: &str, name: &str) -> Option<String> {
+                let key = open_key(hive, path)?;
+                let name = wide(OsStr::new(name));
+                let mut kind = 0u32;
+                let mut size = 0u32;
+                let status = unsafe {
+                    RegQueryValueExW(
+                        key.0,
+                        name.as_ptr(),
+                        std::ptr::null(),
+                        &mut kind,
+                        std::ptr::null_mut(),
+                        &mut size,
+                    )
+                };
+                if status != ERROR_SUCCESS || size > 64 * 1024 {
+                    return None;
+                }
+                let mut data = vec![0u8; size as usize + 2];
+                let mut length = size;
+                let status = unsafe {
+                    RegQueryValueExW(
+                        key.0,
+                        name.as_ptr(),
+                        std::ptr::null(),
+                        &mut kind,
+                        data.as_mut_ptr(),
+                        &mut length,
+                    )
+                };
+                if status != ERROR_SUCCESS {
+                    return None;
+                }
+                data.truncate(length as usize);
+                match kind {
+                    REG_SZ | REG_EXPAND_SZ => {
+                        let units: Vec<u16> = data
+                            .as_chunks::<2>()
+                            .0
+                            .iter()
+                            .map(|pair| u16::from_le_bytes(*pair))
+                            .collect();
+                        let end = units
+                            .iter()
+                            .position(|unit| *unit == 0)
+                            .unwrap_or(units.len());
+                        Some(String::from_utf16_lossy(&units[..end]))
+                    }
+                    REG_DWORD if data.len() >= 4 => {
+                        Some(u32::from_le_bytes([data[0], data[1], data[2], data[3]]).to_string())
+                    }
+                    _ => None,
+                }
+            }
+        }
+
+        /// Opens a store link, a shortcut, or a folder the way Explorer would.
+        fn shell_open(target: &OsStr) -> std::result::Result<(), String> {
+            let operation = wide(OsStr::new("open"));
+            let file = wide(target);
+            let result = unsafe {
+                ShellExecuteW(
+                    std::ptr::null_mut(),
+                    operation.as_ptr(),
+                    file.as_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    SW_SHOWNORMAL,
+                )
+            };
+            let code = result as isize;
+            if code > 32 {
+                Ok(())
+            } else {
+                Err(format!("Windows could not open it (code {code})"))
+            }
+        }
+
+        /// Store links and shortcuts (.lnk, .url) open through the shell; programs start directly.
+        pub(super) fn start(launch: &Launch) -> std::result::Result<(), String> {
+            gamestrike::stores::check_launch(launch).map_err(|error| error.to_string())?;
+            match launch {
+                Launch::Uri { uri } => shell_open(OsStr::new(uri)),
+                Launch::Program {
+                    path,
+                    args,
+                    working_dir,
+                } => {
+                    let shortcut =
+                        path.extension()
+                            .and_then(|ext| ext.to_str())
+                            .is_some_and(|ext| {
+                                ext.eq_ignore_ascii_case("lnk") || ext.eq_ignore_ascii_case("url")
+                            });
+                    if shortcut {
+                        shell_open(path.as_os_str())
+                    } else {
+                        super::start_program(path, args, working_dir.as_deref())
+                    }
+                }
+            }
+        }
+
+        pub(super) fn open_folder(folder: &Path) -> std::result::Result<(), String> {
+            shell_open(folder.as_os_str())
+        }
+
+        fn pick_folder(window: &Window) -> std::result::Result<Option<PathBuf>, String> {
+            use windows::Win32::{
+                Foundation::HWND,
+                System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree},
+                UI::Shell::{FOS_PICKFOLDERS, FileOpenDialog, IFileOpenDialog, SIGDN_FILESYSPATH},
+            };
+            let failed = |error: windows::core::Error| format!("Folder picker failed ({error}).");
+            unsafe {
+                let dialog: IFileOpenDialog =
+                    CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)
+                        .map_err(failed)?;
+                let options = dialog.GetOptions().map_err(failed)?;
+                dialog
+                    .SetOptions(options | FOS_PICKFOLDERS)
+                    .map_err(failed)?;
+                if dialog.Show(Some(HWND(window.hwnd() as *mut _))).is_err() {
+                    return Ok(None);
+                }
+                let item = dialog.GetResult().map_err(failed)?;
+                let name = item.GetDisplayName(SIGDN_FILESYSPATH).map_err(failed)?;
+                let path = name.to_string();
+                CoTaskMemFree(Some(name.0 as *const core::ffi::c_void));
+                Ok(Some(PathBuf::from(
+                    path.map_err(|_| "the folder name is not valid".to_owned())?,
+                )))
+            }
+        }
         use std::{
             error::Error, ffi::OsString, mem::size_of, os::windows::ffi::OsStringExt, path::PathBuf,
         };
@@ -965,7 +1440,7 @@ mod launcher_app {
         };
         use windows_sys::Win32::UI::Controls::Dialogs::{
             CommDlgExtendedError, GetOpenFileNameW, OFN_EXPLORER, OFN_FILEMUSTEXIST,
-            OFN_NOCHANGEDIR, OFN_PATHMUSTEXIST, OPENFILENAMEW,
+            OFN_NOCHANGEDIR, OFN_NODEREFERENCELINKS, OFN_PATHMUSTEXIST, OPENFILENAMEW,
         };
         use wry::{WebViewBuilder, WebViewExtWindows};
 
@@ -1029,8 +1504,16 @@ mod launcher_app {
             window: &Window,
             pick: Pick,
         ) -> std::result::Result<Option<PathBuf>, String> {
+            if matches!(pick, Pick::Folder) {
+                return pick_folder(window);
+            }
             let mut selected = vec![0u16; 32_768];
             let (filter, title) = match pick {
+                Pick::Program => (
+                    "Programs and shortcuts (*.exe;*.lnk;*.url)\0*.exe;*.lnk;*.url\0\0",
+                    "Add a program or shortcut\0",
+                ),
+                Pick::Folder => ("\0\0", "\0"),
                 Pick::Game => (
                     "HTML games (*.html;*.htm;*.zip)\0*.html;*.htm;*.zip\0HTML files (*.html;*.htm)\0*.html;*.htm\0ZIP archives (*.zip)\0*.zip\0\0",
                     "Add a local HTML game\0",
@@ -1049,7 +1532,16 @@ mod launcher_app {
                 lpstrFile: selected.as_mut_ptr(),
                 nMaxFile: selected.len() as u32,
                 lpstrTitle: title.as_ptr(),
-                Flags: OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR,
+                // A picked shortcut stays a shortcut, so its own arguments and folder apply.
+                Flags: OFN_EXPLORER
+                    | OFN_FILEMUSTEXIST
+                    | OFN_PATHMUSTEXIST
+                    | OFN_NOCHANGEDIR
+                    | if matches!(pick, Pick::Program) {
+                        OFN_NODEREFERENCELINKS
+                    } else {
+                        0
+                    },
                 ..Default::default()
             };
             if unsafe { GetOpenFileNameW(&mut dialog) } == 0 {
@@ -1071,6 +1563,43 @@ mod launcher_app {
     #[cfg(target_os = "linux")]
     mod platform {
         use super::{Pick, UiEvent, save_png};
+        use gamestrike::stores::{Launch, NoRegistry, Registry};
+        use std::{path::Path, process::Command};
+
+        pub(super) fn registry() -> Box<dyn Registry> {
+            Box::new(NoRegistry)
+        }
+
+        /// Store links open with xdg-open, .desktop entries with gio, and programs directly.
+        pub(super) fn start(launch: &Launch) -> std::result::Result<(), String> {
+            gamestrike::stores::check_launch(launch).map_err(|error| error.to_string())?;
+            match launch {
+                Launch::Uri { uri } => {
+                    let mut command = Command::new("xdg-open");
+                    command.arg(uri);
+                    super::spawn_detached(command)
+                }
+                Launch::Program {
+                    path,
+                    args,
+                    working_dir,
+                } => {
+                    if path.extension().is_some_and(|ext| ext == "desktop") {
+                        let mut command = Command::new("gio");
+                        command.arg("launch").arg(path);
+                        super::spawn_detached(command)
+                    } else {
+                        super::start_program(path, args, working_dir.as_deref())
+                    }
+                }
+            }
+        }
+
+        pub(super) fn open_folder(folder: &Path) -> std::result::Result<(), String> {
+            let mut command = Command::new("xdg-open");
+            command.arg(folder);
+            super::spawn_detached(command)
+        }
         use gtk::prelude::{FileChooserExt, NativeDialogExt};
         use std::{error::Error, path::PathBuf};
         use tao::{event_loop::EventLoopProxy, platform::unix::WindowExtUnix, window::Window};
@@ -1116,7 +1645,25 @@ mod launcher_app {
             window: &Window,
             pick: Pick,
         ) -> std::result::Result<Option<PathBuf>, String> {
+            if matches!(pick, Pick::Folder) {
+                let dialog = gtk::FileChooserNative::new(
+                    Some("Choose a working folder"),
+                    Some(window.gtk_window()),
+                    gtk::FileChooserAction::SelectFolder,
+                    Some("Choose"),
+                    Some("Cancel"),
+                );
+                dialog.set_modal(true);
+                let picked = (dialog.run() == gtk::ResponseType::Accept)
+                    .then(|| dialog.filename())
+                    .flatten();
+                dialog.hide();
+                return Ok(picked);
+            }
             let (title, accept, name, patterns): (&str, &str, &str, &[&str]) = match pick {
+                Pick::Program | Pick::Folder => {
+                    ("Add a program", "Add", "Programs and launchers", &["*"])
+                }
                 Pick::Game => (
                     "Add a local HTML game",
                     "Add",
@@ -1158,6 +1705,47 @@ mod launcher_app {
     #[cfg(target_os = "macos")]
     mod platform {
         use super::{Pick, UiEvent, save_png};
+        use gamestrike::stores::{Launch, NoRegistry, Registry};
+        use std::{path::Path, process::Command};
+
+        pub(super) fn registry() -> Box<dyn Registry> {
+            Box::new(NoRegistry)
+        }
+
+        /// Store links and folders open with the open command, app bundles with open -a, and
+        /// programs directly.
+        pub(super) fn start(launch: &Launch) -> std::result::Result<(), String> {
+            gamestrike::stores::check_launch(launch).map_err(|error| error.to_string())?;
+            match launch {
+                Launch::Uri { uri } => {
+                    let mut command = Command::new("open");
+                    command.arg(uri);
+                    super::spawn_detached(command)
+                }
+                Launch::Program {
+                    path,
+                    args,
+                    working_dir,
+                } => {
+                    if path.is_dir() && path.extension().is_some_and(|ext| ext == "app") {
+                        let mut command = Command::new("open");
+                        command.arg("-a").arg(path);
+                        if !args.is_empty() {
+                            command.arg("--args").args(args);
+                        }
+                        super::spawn_detached(command)
+                    } else {
+                        super::start_program(path, args, working_dir.as_deref())
+                    }
+                }
+            }
+        }
+
+        pub(super) fn open_folder(folder: &Path) -> std::result::Result<(), String> {
+            let mut command = Command::new("open");
+            command.arg(folder);
+            super::spawn_detached(command)
+        }
         use block2::RcBlock;
         use objc2::MainThreadMarker;
         use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage, NSOpenPanel};
@@ -1223,12 +1811,15 @@ mod launcher_app {
         ) -> std::result::Result<Option<PathBuf>, String> {
             let mtm = MainThreadMarker::new().ok_or("the file picker needs the main thread")?;
             let panel = NSOpenPanel::openPanel(mtm);
-            panel.setCanChooseFiles(true);
-            panel.setCanChooseDirectories(false);
+            let folder = matches!(pick, Pick::Folder);
+            panel.setCanChooseFiles(!folder);
+            panel.setCanChooseDirectories(folder);
             panel.setAllowsMultipleSelection(false);
             panel.setMessage(Some(match pick {
                 Pick::Game => ns_string!("Add a local HTML game (.html, .htm, or .zip)"),
                 Pick::Image => ns_string!("Choose a cover image (PNG, JPEG, GIF, or WebP)"),
+                Pick::Program => ns_string!("Add an app or program"),
+                Pick::Folder => ns_string!("Choose a working folder"),
             }));
             if panel.runModal() != MODAL_RESPONSE_OK {
                 return Ok(None);
@@ -1347,6 +1938,33 @@ mod launcher_app {
         fn ipc_accepts_only_known_commands_from_the_ui_origin() {
             let ui = ui("/index.html");
             let id = Uuid::new_v4().to_string();
+            assert_eq!(
+                parse_command(
+                    &ui,
+                    &format!(r#"{{"type":"launch_store_game","id":"{id}"}}"#)
+                ),
+                Some(CommandMessage::LaunchStoreGame { id: id.clone() })
+            );
+            assert_eq!(
+                parse_command(
+                    &ui,
+                    r#"{"type":"set_store_enabled","store":"ea","enabled":false}"#
+                ),
+                Some(CommandMessage::SetStoreEnabled {
+                    store: "ea".to_owned(),
+                    enabled: false
+                })
+            );
+            // A store game is named by ID only; the page can never supply a link or a program.
+            for body in [
+                format!(
+                    r#"{{"type":"launch_store_game","id":"{id}","uri":"https://example.com"}}"#
+                ),
+                r#"{"type":"add_program","path":"C:\\Windows\\System32\\cmd.exe"}"#.to_owned(),
+                format!(r#"{{"type":"open_install_folder","id":"{id}","path":"C:\\"}}"#),
+            ] {
+                assert_eq!(parse_command(&ui, &body), None, "{body}");
+            }
             assert_eq!(
                 parse_command(
                     &ui,

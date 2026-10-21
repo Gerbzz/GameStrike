@@ -85,7 +85,8 @@
     let previous = {};
     let heldDirection = "";
     let nextRepeatAt = 0;
-    const BUTTONS = { a: 0, b: 1, x: 2, y: 3 };
+    // A, B, X, Y, and the menu (Start) button, which opens a game's details.
+    const BUTTONS = { a: 0, b: 1, x: 2, y: 3, menu: 9 };
 
     return function read(pad, now) {
       if (!pad) {
@@ -165,21 +166,53 @@
     return source.length >= 1 && [...source].length <= 32 ? source : null;
   }
 
-  const KIND_LABELS = { single_html: "HTML files", zip: "ZIP archives" };
+  // Stores in sidebar order, with the short names the sidebar shows. GameStrike draws its own
+  // icons for them; no store logos are used.
+  const STORES = Object.freeze([
+    ["steam", "Steam", "Steam"],
+    ["epic", "Epic", "Epic Games"],
+    ["ea", "EA", "EA app"],
+    ["xbox", "MS Store", "Microsoft Store"],
+    ["gog", "GOG", "GOG Galaxy"],
+    ["ubisoft", "Ubisoft", "Ubisoft Connect"],
+    ["battlenet", "Battle.net", "Battle.net"],
+    ["custom", "Custom", "Custom programs"],
+  ]);
+  const storeName = (key) => STORES.find(([k]) => k === key)?.[2] || "HTML game";
+  const storeLabel = (key) => STORES.find(([k]) => k === key)?.[1] || "HTML games";
+
+  // One list for the launcher: HTML games from the library scan, and store games and custom
+  // programs from the store catalog, with the same fields.
+  function mergeLibrary(htmlGames, storeGames) {
+    const html = (Array.isArray(htmlGames) ? htmlGames : []).map((game) => ({ ...game, kind: "html", store: "html", installed: game.files_ok !== false, hidden: false }));
+    const stores = (Array.isArray(storeGames) ? storeGames : []).map((game) => ({
+      ...game,
+      kind: "store",
+      source_kind: "store",
+      source: null,
+      files_ok: Boolean(game.installed),
+      save_bytes: 0,
+    }));
+    return [...html, ...stores];
+  }
 
   // Sidebar filters, built only from what the library really records: everything, recently
-  // played, favorites, how each game was imported, and the sources the player wrote down.
+  // played, favorites, each store that has games, HTML games, the sources the player wrote
+  // down for HTML games, and hidden games. Hidden games appear only under Hidden.
   function buildFilters(games) {
-    const list = Array.isArray(games) ? games : [];
+    const all = Array.isArray(games) ? games : [];
+    const list = all.filter((game) => !game.hidden);
     const filters = [
       { key: "all", label: "All games", icon: "all", count: list.length },
       { key: "recent", label: "Recently played", icon: "recent", count: list.filter((game) => game.last_played).length },
       { key: "favorites", label: "Favorites", icon: "star", count: list.filter((game) => game.favorite).length },
     ];
-    for (const [kind, label] of Object.entries(KIND_LABELS)) {
-      const count = list.filter((game) => game.source_kind === kind).length;
-      if (count) filters.push({ key: `kind:${kind}`, label, icon: kind === "zip" ? "zip" : "file", count, group: "Imported as" });
+    for (const [key, label] of STORES) {
+      const count = list.filter((game) => game.kind === "store" && game.store === key).length;
+      if (count) filters.push({ key: `store:${key}`, label, icon: `store-${key}`, count, group: "Stores" });
     }
+    const html = list.filter((game) => game.kind !== "store").length;
+    if (html) filters.push({ key: "html", label: "HTML games", icon: "html", count: html, group: "Stores" });
     const sources = new Map();
     for (const game of list) {
       const source = cleanSource(game.source);
@@ -192,16 +225,33 @@
     [...sources.entries()]
       .sort((a, b) => a[1].label.localeCompare(b[1].label, undefined, { sensitivity: "base", numeric: true }))
       .forEach(([key, entry]) => filters.push({ key: `source:${key}`, label: entry.label, icon: "tag", count: entry.count, group: "Sources" }));
+    const hidden = all.length - list.length;
+    if (hidden) filters.push({ key: "hidden", label: "Hidden", icon: "hidden", count: hidden });
     return filters;
   }
 
   function matchesFilter(game, key) {
+    if (key === "hidden") return Boolean(game.hidden);
+    if (game.hidden) return false;
     if (!key || key === "all") return true;
     if (key === "recent") return Boolean(game.last_played);
     if (key === "favorites") return Boolean(game.favorite);
+    if (key === "html") return game.kind !== "store";
+    if (key.startsWith("store:")) return game.kind === "store" && game.store === key.slice(6);
     if (key.startsWith("kind:")) return game.source_kind === key.slice(5);
     if (key.startsWith("source:")) return (cleanSource(game.source) || "").toLocaleLowerCase() === key.slice(7);
     return false;
+  }
+
+  // What the bottom bar says about a game: whether it can start, and where it comes from.
+  function gameStatus(game, running) {
+    if (!game) return "";
+    const where = game.kind === "store" ? storeName(game.store) : "HTML game";
+    if (game.kind === "store") return `${game.installed ? "Ready to play" : "Not installed"} · ${where}`;
+    if (game.files_ok === false) return `Files missing · ${where}`;
+    if (game.id === running) return "Playing now";
+    if (running) return "Another game is open";
+    return `Ready to play · ${where}`;
   }
 
   // The games shown in the grid: filter, then search, then sort. Recently played always shows
@@ -441,6 +491,7 @@
     filterAndSort, gridMove, shelfMove, tileLayout, createPadReader, cover, formatBytes, formatWhen, cleanTitle,
     cleanSource, buildFilters, matchesFilter, applyFilter, gridColumns, listMove, coverUrl, coverDesign, PALETTES,
     STYLES, styleFor, nextStyle, collectionMetrics, SCENES, coverArt, seededRandom, NET, domeNet,
+    STORES, storeName, storeLabel, mergeLibrary, gameStatus,
   });
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.GameStrikeCore = api;

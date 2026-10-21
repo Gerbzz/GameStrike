@@ -128,8 +128,11 @@
 
     const lines = el("g", { class: "fa-lines" }, svg);
     const inset = (points, k) => points.map(([x, y]) => [x + (x < W / 2 ? k : -k), y + (y < H / 2 ? k : -k)]);
-    edge(lines, outer, 2.8 * u + 0.8, { inner: inset(outer, 6 * u) });
-    edge(lines, inner, 2.4 * u + 0.6, { inner: insetPoints(ix0, iy0, ix1 - ix0, iy1 - iy0, ic, -5 * u) });
+    edge(lines, outer, 3.8 * u + 1, { inner: inset(outer, 7 * u) });
+    edge(lines, inner, 3.2 * u + 0.8, { inner: insetPoints(ix0, iy0, ix1 - ix0, iy1 - iy0, ic, -6 * u) });
+    // A glossy bevel: a bright lip just inside the outer edge and a dark one inside it.
+    el("path", { d: poly(inset(outer, 3.5 * u)), fill: "none", stroke: "url(#fa-gloss)", "stroke-width": 2.6 * u, opacity: 0.55 }, lines);
+    el("path", { d: poly(inset(outer, 11 * u)), fill: "none", stroke: "#000", "stroke-opacity": 0.45, "stroke-width": 2 * u }, lines);
     el("path", { d: poly(insetPoints(ix0, iy0, ix1 - ix0, iy1 - iy0, ic, 4 * u)), fill: "none", stroke: "var(--edge)", "stroke-opacity": 0.3, "stroke-width": 1 }, lines);
 
     // ---- sidebar: its own framed panel with bracket ears and rivets on the left edge ----
@@ -216,8 +219,10 @@
     rivet(bolts, W - 15 * u, iy1 - c * 0.5, rr);
     rivet(bolts, 14 * u, H - c * 0.75, rr * 0.9);
 
-    // Gloss streaks along the top-left edges.
-    el("path", { d: path([[c * 0.2, top + c * 1.9], [c * 0.62, top + c * 1.0], [c * 0.62, top + 3 * u], [W * 0.4, top + 3 * u]]), fill: "none", stroke: "url(#fa-gloss)", "stroke-width": 3.4 * u, opacity: 0.6 }, svg);
+    // Gloss streaks along the top-left edges and down the left side, like light on glass.
+    el("path", { d: path([[c * 0.2, top + c * 1.9], [c * 0.62, top + c * 1.0], [c * 0.62, top + 3 * u], [W * 0.45, top + 3 * u]]), fill: "none", stroke: "url(#fa-gloss)", "stroke-width": 5 * u, opacity: 0.8 }, svg);
+    el("path", { d: path([[5 * u, top + c * 2.2], [5 * u, H * 0.72]]), fill: "none", stroke: "#ffffff", "stroke-opacity": 0.22, "stroke-width": 3 * u, "stroke-linecap": "round" }, svg);
+    el("path", { d: path([[W * 0.5, H - 4 * u], [W - c * 1.2, H - 4 * u]]), fill: "none", stroke: "#ffffff", "stroke-opacity": 0.12, "stroke-width": 2.5 * u }, svg);
   }
 
   root.GameStrikeFrame = Object.freeze({ draw, chamferPoints, insetPoints, poly });

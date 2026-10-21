@@ -143,17 +143,60 @@ const library = [
 ];
 
 test("sidebar filters come only from what the library records", () => {
-  const filters = core.buildFilters(library);
+  const filters = core.buildFilters(core.mergeLibrary(library, []));
   assert.deepEqual(filters.map((f) => [f.key, f.count]), [
     ["all", 4], ["recent", 2], ["favorites", 1],
-    ["kind:single_html", 2], ["kind:zip", 2],
+    ["html", 4],
     ["source:itch.io", 2], ["source:newgrounds", 1],
   ]);
   assert.equal(filters.find((f) => f.key === "source:itch.io").label, "itch.io", "the first spelling is shown");
-  assert.ok(!filters.some((f) => /steam|epic|gog/i.test(f.label)), "no stores GameStrike does not support");
-  const htmlOnly = core.buildFilters([library[3]]);
-  assert.deepEqual(htmlOnly.map((f) => f.key), ["all", "recent", "favorites", "kind:single_html"], "empty groups are left out");
+  assert.ok(!filters.some((f) => f.group === "Stores" && f.key !== "html"), "no store rows without store games");
   assert.deepEqual(core.buildFilters(null).map((f) => f.count), [0, 0, 0]);
+});
+
+const storeGames = [
+  { id: "10000000-0000-4000-8000-000000000001", store: "steam", title: "Synthetic Orbit Racer", installed: true, favorite: true, hidden: false, last_played: 99 },
+  { id: "10000000-0000-4000-8000-000000000002", store: "steam", title: "Synthetic Frost Keep", installed: false, favorite: false, hidden: false },
+  { id: "10000000-0000-4000-8000-000000000003", store: "epic", title: "Synthetic Glass Canyon", installed: true, favorite: false, hidden: true },
+  { id: "10000000-0000-4000-8000-000000000004", store: "custom", title: "Synthetic Tool", installed: true, favorite: false, hidden: false },
+];
+
+test("store rows appear for stores with games, in sidebar order, and hidden games only under Hidden", () => {
+  const games = core.mergeLibrary(library, storeGames);
+  const filters = core.buildFilters(games);
+  assert.deepEqual(filters.map((f) => [f.key, f.label, f.count]), [
+    ["all", "All games", 7], ["recent", "Recently played", 3], ["favorites", "Favorites", 2],
+    ["store:steam", "Steam", 2], ["store:custom", "Custom", 1], ["html", "HTML games", 4],
+    ["source:itch.io", "itch.io", 2], ["source:newgrounds", "Newgrounds", 1],
+    ["hidden", "Hidden", 1],
+  ]);
+  const titles = (key) => core.applyFilter(games, key, "", "title-asc").map((g) => g.title);
+  assert.deepEqual(titles("store:steam"), ["Synthetic Frost Keep", "Synthetic Orbit Racer"]);
+  assert.deepEqual(titles("hidden"), ["Synthetic Glass Canyon"]);
+  assert.ok(!titles("all").includes("Synthetic Glass Canyon"), "hidden games stay out of All games");
+  assert.deepEqual(titles("html").length, 4);
+  const merged = games.find((g) => g.title === "Synthetic Frost Keep");
+  assert.equal(merged.kind, "store");
+  assert.equal(merged.files_ok, false);
+});
+
+test("the bottom bar says whether a game can start and where it comes from", () => {
+  const games = core.mergeLibrary(library, storeGames);
+  const by = (title) => games.find((g) => g.title === title);
+  assert.equal(core.gameStatus(by("Synthetic Orbit Racer")), "Ready to play · Steam");
+  assert.equal(core.gameStatus(by("Synthetic Frost Keep")), "Not installed · Steam");
+  assert.equal(core.gameStatus(by("Synthetic Tool")), "Ready to play · Custom programs");
+  assert.equal(core.gameStatus(by("Orbit Garden")), "Ready to play · HTML game");
+  assert.equal(core.gameStatus({ ...by("Orbit Garden"), files_ok: false }), "Files missing · HTML game");
+  assert.equal(core.gameStatus(by("Orbit Garden"), by("Orbit Garden").id), "Playing now");
+  assert.equal(core.storeLabel("xbox"), "MS Store");
+  assert.equal(core.storeName("xbox"), "Microsoft Store");
+});
+
+test("the controller's menu button is read once per press", () => {
+  const read = core.createPadReader();
+  assert.deepEqual(read(pad([9]), 0), ["menu"]);
+  assert.deepEqual(read(pad([9]), 16), []);
 });
 
 test("filters, search, and sort combine", () => {
@@ -161,7 +204,7 @@ test("filters, search, and sort combine", () => {
   assert.deepEqual(ids(core.applyFilter(library, "all", "", "title-asc")), ["Comet Courier", "Lantern Maze", "Orbit Garden", "Pixel Harbor"]);
   assert.deepEqual(ids(core.applyFilter(library, "recent", "", "title-asc")), ["Lantern Maze", "Orbit Garden"], "recently played is newest first");
   assert.deepEqual(ids(core.applyFilter(library, "favorites", "", "recent")), ["Orbit Garden"]);
-  assert.deepEqual(ids(core.applyFilter(library, "kind:zip", "", "title-asc")), ["Lantern Maze", "Pixel Harbor"]);
+  assert.deepEqual(ids(core.applyFilter(library, "kind:zip", "", "title-asc")), ["Lantern Maze", "Pixel Harbor"], "the earlier import-kind filter still works");
   assert.deepEqual(ids(core.applyFilter(library, "source:itch.io", "pix", "recent")), ["Pixel Harbor"]);
   assert.deepEqual(core.applyFilter(library, "source:steam", "", "recent"), []);
   assert.deepEqual(core.applyFilter(library, "nonsense", "", "recent"), []);
