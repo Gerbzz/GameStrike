@@ -141,27 +141,13 @@ function Capture-Launcher([string]$Library, [string]$Name, [string[]]$Extra) {
 
 # The Collection style (the default page) in PWDS Orange, then each of its views.
 Capture-Launcher $library 'library' @()
-foreach ($pair in @(@('focus', 'focus'), @('green', 'green'), @('controller', 'controller'), @('filters', 'filters'), @('search', 'search'), @('favorites', 'favorites'), @('long-title', 'long'), @('detail', 'detail'), @('saves', 'saves'), @('moving', 'moving'), @('settings', 'settings'), @('network-dialog', 'launch'), @('about', 'about'), @('boot', 'boot'), @('boot-0.5', 'boot-0.5'), @('boot-2', 'boot-2'), @('boot-4.5', 'boot-4.5'), @('boot-5.5', 'boot-5.5'), @('stores', 'stores'), @('store-detail', 'store-detail'), @('add-menu', 'add-menu'), @('store-settings', 'store-settings'))) {
+foreach ($pair in @(@('focus', 'focus'), @('controller', 'controller'), @('filters', 'filters'), @('search', 'search'), @('favorites', 'favorites'), @('long-title', 'long'), @('detail', 'detail'), @('saves', 'saves'), @('moving', 'moving'), @('settings', 'settings'), @('network-dialog', 'launch'), @('about', 'about'), @('boot', 'boot'), @('boot-0.5', 'boot-0.5'), @('boot-2', 'boot-2'), @('boot-4.5', 'boot-4.5'), @('boot-5.5', 'boot-5.5'), @('stores', 'stores'), @('store-detail', 'store-detail'), @('add-menu', 'add-menu'), @('store-settings', 'store-settings'))) {
     Capture-Launcher $library $pair[0] @('--capture-view', $pair[1])
 }
 Capture-Launcher $library 'minimum' @('--window-size', '880', '620')
 
-# The Blades, Original, and PWDS Orange styles, on a library built exactly like the one the
-# baseline run used (six games named "(Synthetic Test)", nothing else set), and captured right
-# after it is built, as the baseline was. These file names match the baseline run's, so the two
-# sets can be compared image by image.
+# Empty Collection: exclude synthetic store fixtures.
 Remove-Item Env:GAMESTRIKE_CAPTURE_STORES
-$legacy = Join-Path $probeRoot 'legacy-library'
-New-Item -ItemType Directory -Force -Path $legacy | Out-Null
-foreach ($title in 'Orbit Garden', 'Pixel Harbor', 'Lantern Maze', 'Comet Courier', 'Tiny Tactics', 'A Deliberately Long Title For Layout Checks In The Library') {
-    $file = Join-Path $fixtures "$title (Synthetic Test).html"
-    [IO.File]::WriteAllText($file, "<!doctype html><title>$title (Synthetic Test)</title><h1>$title (Synthetic Test)</h1><p>GameStrike synthetic test fixture.</p>")
-    & $cli --library $legacy import $file
-    if ($LASTEXITCODE -ne 0) { throw "Synthetic import failed: $title" }
-}
-foreach ($pair in @(@('legacy-blades', 'blades'), @('legacy-system', 'system'), @('legacy-manage', 'blades-manage'), @('legacy-original', 'original'), @('legacy-original-games', 'original-games'), @('legacy-pwds', 'pwds'), @('legacy-boot-blades', 'boot-blades'), @('legacy-boot-original', 'boot-original'), @('legacy-boot-pwds', 'boot-pwds'))) {
-    Capture-Launcher $legacy $pair[0] @('--capture-view', $pair[1])
-}
 $empty = Join-Path $probeRoot 'empty-library'
 New-Item -ItemType Directory -Force -Path $empty | Out-Null
 New-Item -ItemType File -Force -Path (Join-Path $empty 'SYNTHETIC-TEST-LIBRARY') | Out-Null

@@ -101,11 +101,9 @@ mod launcher_app {
     }
 
     /// A named UI state for `--capture-view`. Only names in this list reach the page script.
-    /// Views of the default Dome style (index.html) come first, then the earlier styles, which
-    /// live on classic.html (see `CLASSIC_VIEWS`).
+    /// Every view uses the current PWDS Collection on index.html.
     const CAPTURE_VIEWS: &[&str] = &[
         "library",
-        "green",
         "focus",
         "controller",
         "filters",
@@ -127,35 +125,6 @@ mod launcher_app {
         "store-detail",
         "add-menu",
         "store-settings",
-        "blades",
-        "blades-long",
-        "blades-launch",
-        "blades-manage",
-        "blades-about",
-        "system",
-        "original",
-        "original-games",
-        "pwds",
-        "boot-blades",
-        "boot-original",
-        "boot-pwds",
-    ];
-
-    /// Capture views that belong to the Blades, Original, and PWDS Orange styles. The launcher
-    /// opens classic.html directly for these, so the capture never depends on saved preferences.
-    const CLASSIC_VIEWS: &[&str] = &[
-        "blades",
-        "blades-long",
-        "blades-launch",
-        "blades-manage",
-        "blades-about",
-        "system",
-        "original",
-        "original-games",
-        "pwds",
-        "boot-blades",
-        "boot-original",
-        "boot-pwds",
     ];
 
     /// Asks the page whether a staged capture view has finished drawing (fonts, covers, and the 3D
@@ -168,14 +137,9 @@ mod launcher_app {
     /// How many times a capture asks the page whether it is ready (250 ms apart) before failing.
     const CAPTURE_CHECKS: u32 = 40;
 
-    /// The page the launcher opens. index.html itself switches to classic.html when the saved
-    /// style is one of the earlier ones.
-    fn start_url(view: CaptureView) -> &'static str {
-        if CLASSIC_VIEWS.contains(&view.0) {
-            "gamestrikeui://localhost/classic.html"
-        } else {
-            "gamestrikeui://localhost/index.html"
-        }
+    /// The current PWDS Collection is the only application dashboard.
+    fn start_url(_view: CaptureView) -> &'static str {
+        "gamestrikeui://localhost/index.html"
     }
 
     #[derive(Clone, Copy)]
@@ -1033,6 +997,7 @@ mod launcher_app {
             "text/html; charset=utf-8",
         ),
         ("/app.js", include_bytes!("../ui/app.js"), JS),
+        ("/ui-sounds.js", include_bytes!("../ui/ui-sounds.js"), JS),
         ("/core.js", include_bytes!("../ui/core.js"), JS),
         ("/style-gate.js", include_bytes!("../ui/style-gate.js"), JS),
         // The Blades, Original, and PWDS Orange styles.
@@ -1912,23 +1877,17 @@ mod launcher_app {
         }
 
         #[test]
-        fn earlier_styles_open_their_own_page_and_every_capture_view_is_known() {
-            assert_eq!(
-                start_url(CaptureView("library")),
-                "gamestrikeui://localhost/index.html"
-            );
-            for view in CLASSIC_VIEWS {
-                assert!(CAPTURE_VIEWS.contains(view), "{view}");
-                assert_eq!(
-                    start_url(CaptureView(view)),
-                    "gamestrikeui://localhost/classic.html"
-                );
+        fn collection_is_the_only_dashboard_entry_and_capture_views_are_unique() {
+            for view in CAPTURE_VIEWS {
+                assert_eq!(start_url(CaptureView(view)), "gamestrikeui://localhost/index.html");
+            }
+            for removed in ["green", "blades", "original", "pwds", "boot-blades", "boot-original", "boot-pwds"] {
+                assert!(!CAPTURE_VIEWS.contains(&removed), "{removed}");
             }
             let mut names = CAPTURE_VIEWS.to_vec();
             names.sort_unstable();
             names.dedup();
             assert_eq!(names.len(), CAPTURE_VIEWS.len(), "capture views are unique");
-            assert!(parse_capture_view(&OsString::from("../index")).is_err());
         }
 
         #[test]
@@ -2214,7 +2173,7 @@ mod launcher_app {
 
         #[test]
         fn capture_views_come_only_from_the_fixed_list() {
-            for good in ["detail", "moving", "boot-pwds", "original-games"] {
+            for good in ["detail", "moving", "boot", "library"] {
                 assert_eq!(parse_capture_view(&OsString::from(good)).unwrap().0, good);
             }
             for bad in [
@@ -2224,6 +2183,10 @@ mod launcher_app {
                 "collapsed",
                 "boot-xbox",
                 "classic.html",
+                "green",
+                "blades",
+                "boot-pwds",
+                "original-games",
             ] {
                 assert!(parse_capture_view(&OsString::from(bad)).is_err(), "{bad}");
             }

@@ -33,7 +33,7 @@ cargo build --locked --release --no-default-features --features native-ui --bin 
 ```
 
 These commands are instructions for a separately authorized runner, not a report of
-execution. The new workflow/build job is not yet wired or published.
+execution. The cross-platform workflow now declares hosted lock-resolution and Windows native build/test/capture jobs. Publication and actual run results must be recorded separately; wiring alone is not compilation evidence.
 
 Observed local checks: 15 pure PowerShell metadata contracts passed after a negative
 control exposed acceptance of a NaN pose; finite-number and boolean checks correct it.
@@ -79,3 +79,7 @@ establish acceptance on another machine or resolve application-control trust.
 - Official visible YouTube player integration remains a full-scope delivery item,
   deferred from this first native artifact. No audio extraction/hidden playback and
   no provider sign-in requirement for the core application.
+
+## Single-theme and navigation cue follow-up — 2026-10-22
+
+The fixed native PWDS orange design remains unchanged. The preserved browser preview now removes alternate-dashboard selection and migrates stale theme preferences to Collection; it is preview evidence only. Original short fixed-pitch navigation, confirm, back and error cues replace layered sweeps and ambient sound, with repeat limits, bounded volume and two transient voices. The pure Rust cue policy/PCM and its contract source mirror that direction, but a native audio-output adapter is not connected and no native cue playback is claimed. No console samples were copied.
