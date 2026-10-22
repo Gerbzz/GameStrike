@@ -17,7 +17,11 @@ Add a game from an <code>.html</code> file or a <code>.zip</code>, pick it from 
   <a href="#credits-and-license">Credits</a>
 </p>
 
-![GameStrike dashboard in the Lime theme: the My Games channel with the focused game tile large on the left and the other games receding in perspective, channel names stacked above, and A/X/Y/B button hints at the bottom](docs/screenshots/dashboard.png)
+![Native PWDS orange Games collection with 12 owned synthetic game covers and the Games navigation selected](docs/screenshots/native-pwds-library-bb37eba.png)
+
+**Selected native PWDS design — engineering candidate.** This actual `gamestrike-desktop` capture comes from [draft PR #15](https://github.com/Gerbzz/GameStrike/pull/15), using owned synthetic games in hosted Windows CI. Native Music playback remains unavailable.
+
+The screenshots document the native branch; the build commands below still build this default branch's existing launcher.
 
 > [!IMPORTANT]
 > **Early, unreleased software.** There is no installer or signed binary yet; you build it from source. Imported games are untrusted code. Offline mode blocks their network traffic, but the player is **not** an operating-system sandbox. Read [Limitations](#limitations) before running games you don't trust.
@@ -29,11 +33,6 @@ Everything in this section is implemented in this repository and covered by the 
 **Library**
 - Add a game through the Windows file picker: a single `.html`/`.htm` file, or a `.zip` with `index.html` at its root or inside one wrapper folder. GameStrike copies the files into its own library; your original download is never modified.
 - Re-adding the exact same file is recognized, and the game keeps its saves.
-- Browse a console dashboard in one of three **styles**, chosen in the *System* channel and remembered:
-  - **Blades** (default). Inspired by the Xbox 360 dashboard: channel names stack at the top left, with earlier ones fading above, and Up/Down switches channel (*Jump Back In*, *Add & Find*, *My Games*, *System*). The focused tile sits large on the left while the rest recede edge to edge in perspective, with glossy reflections, a curved floor, and an *N of M* counter. Five colors: Lime, Ocean, Sunset, Grape, Graphite.
-  - **Original.** Inspired by the original Xbox dashboard: a black-green void with glowing tubes, a pulsing green orb, and glossy pill menus. Up/Down moves through a menu; Left/Right changes menu.
-  - **PWDS Orange.** The Blades layout in PWDS orange, with the PWDS mark.
-- Each style has its own **startup animation**, skippable with any key, click, or controller button: green ribbons swirling into a flash (Blades), green goo and tubes forming an orb (Original), and orange beams igniting the PWDS logo, then *presents GameStrike* (PWDS Orange). Reduced-motion users skip straight to the dashboard.
 - Search, and sort by recently played, title, or date added, from the *Add & Find* channel.
 - Each game shows its source type, when it was added, when it was last played and how often, and how much data it has stored.
 - **Manage** a game: rename it, clear its saves, or remove it. A removal can keep the saves, so adding the same file again brings them back.
@@ -54,20 +53,15 @@ Everything in this section is implemented in this repository and covered by the 
 
 ## Screenshots
 
-All images come from the running Windows build of this branch, on 2026-10-17. Launcher views are from the final UI in this PR; the player capture is from the manual run at `c888e7e`. They are not mockups. Every game shown is a labeled **synthetic test fixture** created for testing; no third-party game appears.
+The active images show the selected PWDS orange native engineering candidate from [draft PR #15](https://github.com/Gerbzz/GameStrike/pull/15), source [`bb37eba`](https://github.com/Gerbzz/GameStrike/commit/bb37eba8f432d7ac5d067be77ac58b5a3255de90). They are unchanged framebuffer captures from [Windows native CI run 39857448253](https://github.com/Gerbzz/GameStrike/actions/runs/39857448253), [artifact 12459928415](https://github.com/Gerbzz/GameStrike/actions/runs/39857448253/artifacts/12459928415).
 
-- **Launcher views** were rendered by the real `gamestrike-launcher.exe` through WebView2 `CapturePreview` (the `--capture-preview` option). They show the window's content area at 1250 × 800 unless noted. Startup frames were paused at a fixed point in the real animation. Captures use default preferences and never change saved ones.
-- **The player** was captured from the screen during a manual run of the real app and cropped to the player window.
+**Games collection:** the image above is the 1672 × 941 `library-target.png` capture. All 12 games and their covers are owned synthetic fixtures; no real game library was read.
 
-| | |
-| --- | --- |
-| ![Network consent dialog with Go back and Allow network & play](docs/screenshots/network-dialog.png) **Network consent.** Offline is the default; network needs this extra step. | ![Manage dialog with Rename, Clear saves, Remove from library, Back](docs/screenshots/manage-dialog.png) **Manage** (Y on a controller). |
-| ![Empty library showing a single Add your first game tile](docs/screenshots/empty-library.png) **First launch** with an empty library. | ![About dialog with the PWDS publisher logo](docs/screenshots/about.png) **About**, with the publisher credit. |
-| ![Original style: a glowing green orb beside glossy green pill menus listing the games](docs/screenshots/style-original.png) **Original style.** | ![PWDS Orange style: the blades dashboard in orange with the PWDS logo in the corners](docs/screenshots/style-pwds.png) **PWDS Orange style.** |
-| ![Blades startup: the GameStrike mark and name on a white glow](docs/screenshots/boot-blades.png) **Blades startup**, final frame. | ![Original startup: a glowing green orb with GAMESTRIKE in spaced letters among green light tubes](docs/screenshots/boot-original.png) **Original startup**, final frame. |
-| ![PWDS startup: the orange PWDS logo inside a glowing orange ring on black](docs/screenshots/boot-pwds.png) **PWDS Orange startup**, at the logo. | ![System channel with Style, Color, Sounds, and About tiles](docs/screenshots/system-channel.png) **System channel**: style, color, sounds, About. | ![Dashboard at the 880 by 620 minimum window size](docs/screenshots/minimum-880x620.png) **Minimum window size**, 880 × 620. | ![Player window titled Save Counter (Synthetic Test), GameStrike, Offline, showing localStorage points 2 and IndexedDB opens 1](docs/screenshots/player-offline-save-counter.png) **A game in its own offline player window.** |
+**Startup:** the 1250 × 800 `boot-3.5.png` capture freezes the native startup at 3.5 seconds, with the PWDS emblem and orange ring.
 
-Screenshots of the earlier design are kept in [docs/history](docs/history).
+![Native PWDS startup at 3.5 seconds, showing the orange PWDS emblem and GameStrike wordmark](docs/screenshots/native-pwds-startup-bb37eba.png)
+
+These captures document native rendering. They do not establish local interactive or audio-device acceptance; native Music playback remains unavailable.
 
 ## Build and run
 
