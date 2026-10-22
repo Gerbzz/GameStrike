@@ -21,7 +21,9 @@ pub struct PreparedRead {
     count: usize,
 }
 impl PreparedRead {
-    pub fn frames(&self) -> usize { self.count }
+    pub fn frames(&self) -> usize {
+        self.count
+    }
 }
 
 pub fn stereo_ring(capacity: usize) -> Result<(Producer, Consumer), String> {
@@ -32,7 +34,11 @@ pub fn stereo_ring(capacity: usize) -> Result<(Producer, Consumer), String> {
         .map(|_| [AtomicU32::new(0), AtomicU32::new(0)])
         .collect::<Vec<_>>()
         .into_boxed_slice();
-    let ring = Arc::new(Ring { frames, written: AtomicU64::new(0), read: AtomicU64::new(0) });
+    let ring = Arc::new(Ring {
+        frames,
+        written: AtomicU64::new(0),
+        read: AtomicU64::new(0),
+    });
     Ok((Producer(ring.clone()), Consumer(ring)))
 }
 
@@ -42,8 +48,12 @@ impl Producer {
         let read = self.0.read.load(Ordering::Acquire);
         written.saturating_sub(read).min(self.0.frames.len() as u64) as usize
     }
-    pub fn written(&self) -> u64 { self.0.written.load(Ordering::Acquire) }
-    pub fn consumed(&self) -> u64 { self.0.read.load(Ordering::Acquire) }
+    pub fn written(&self) -> u64 {
+        self.0.written.load(Ordering::Acquire)
+    }
+    pub fn consumed(&self) -> u64 {
+        self.0.read.load(Ordering::Acquire)
+    }
 
     pub fn write(&mut self, frames: &[[f32; 2]]) -> Result<usize, String> {
         if frames.len() > MAX_RING_FRAMES {
@@ -53,8 +63,12 @@ impl Producer {
             return Err("Output PCM contains a nonfinite sample".into());
         }
         let written = self.0.written.load(Ordering::Relaxed);
-        let count = frames.len().min(self.0.frames.len().saturating_sub(self.queued()));
-        let end = written.checked_add(count as u64).ok_or("PCM frame counter is exhausted")?;
+        let count = frames
+            .len()
+            .min(self.0.frames.len().saturating_sub(self.queued()));
+        let end = written
+            .checked_add(count as u64)
+            .ok_or("PCM frame counter is exhausted")?;
         for (offset, frame) in frames.iter().take(count).enumerate() {
             let index = ((written + offset as u64) % self.0.frames.len() as u64) as usize;
             self.0.frames[index][0].store(frame[0].to_bits(), Ordering::Relaxed);
@@ -77,19 +91,33 @@ impl Consumer {
             target[0] = f32::from_bits(self.0.frames[index][0].load(Ordering::Relaxed));
             target[1] = f32::from_bits(self.0.frames[index][1].load(Ordering::Relaxed));
         }
-        PreparedRead { ring: self.0.clone(), start, count }
+        PreparedRead {
+            ring: self.0.clone(),
+            start,
+            count,
+        }
     }
 
     pub fn commit(&mut self, ticket: PreparedRead) -> bool {
         if !Arc::ptr_eq(&self.0, &ticket.ring)
             || self.0.read.load(Ordering::Relaxed) != ticket.start
-        { return false; }
-        let Some(end) = ticket.start.checked_add(ticket.count as u64) else { return false };
-        if end > self.0.written.load(Ordering::Acquire) { return false; }
+        {
+            return false;
+        }
+        let Some(end) = ticket.start.checked_add(ticket.count as u64) else {
+            return false;
+        };
+        if end > self.0.written.load(Ordering::Acquire) {
+            return false;
+        }
         self.0.read.store(end, Ordering::Release);
         true
     }
 
-    pub fn written(&self) -> u64 { self.0.written.load(Ordering::Acquire) }
-    pub fn consumed(&self) -> u64 { self.0.read.load(Ordering::Acquire) }
+    pub fn written(&self) -> u64 {
+        self.0.written.load(Ordering::Acquire)
+    }
+    pub fn consumed(&self) -> u64 {
+        self.0.read.load(Ordering::Acquire)
+    }
 }

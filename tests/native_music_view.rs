@@ -105,7 +105,8 @@ impl Harness {
     }
 
     fn activate(&mut self, snapshot: &MusicSnapshot, id: &str, enabled: bool) -> Frame {
-        self.ctx.memory_mut(|memory| memory.request_focus(Id::new(id)));
+        self.ctx
+            .memory_mut(|memory| memory.request_focus(Id::new(id)));
         let pressed = self.draw(snapshot, vec![key(Key::Enter, true)], enabled);
         let released = self.draw(snapshot, vec![key(Key::Enter, false)], enabled);
         assert!(released.commands.is_empty());
@@ -233,7 +234,10 @@ fn rendered_queue_order_comes_from_the_snapshot_and_never_implies_playback() {
     let frame = harness.draw(&snapshot(), vec![], true);
     assert_queue_labels(&frame, &["01  Zebra", "02  Moon", "03  Amber"]);
     assert!(
-        frame.labels.iter().any(|(label, _)| label == "PLAYBACK NOT CONNECTED")
+        frame
+            .labels
+            .iter()
+            .any(|(label, _)| label == "PLAYBACK NOT CONNECTED")
     );
     assert!(frame.commands.is_empty());
 }
@@ -324,7 +328,9 @@ fn tab_focus_reveals_offscreen_queue_and_playlist_rows_without_commands() {
     for playlists in [false, true] {
         let mut harness = Harness::default();
         let mut snapshot = snapshot();
-        snapshot.queue = (1..=30).map(|number| track(number, "Queue entry")).collect();
+        snapshot.queue = (1..=30)
+            .map(|number| track(number, "Queue entry"))
+            .collect();
         snapshot.playlists = (101..=130)
             .map(|number| Playlist {
                 id: Uuid::from_u128(number),

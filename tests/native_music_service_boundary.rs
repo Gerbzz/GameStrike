@@ -1,5 +1,5 @@
 use gamestrike::{
-    application::{AppCommand, DesktopHost, LauncherService, LaunchOutcome, LibraryBackend},
+    application::{AppCommand, DesktopHost, LaunchOutcome, LauncherService, LibraryBackend},
     music::{MusicCommand, playback::PlaybackCommand},
 };
 use std::{
@@ -53,24 +53,32 @@ fn only_successful_playlist_load_marks_committed_queue_replacement() {
             root.join("Owned.wav"),
         ])))
         .unwrap();
-    until(&mut service, |service| service.snapshot().music.queue.len() == 1);
+    until(&mut service, |service| {
+        service.snapshot().music.queue.len() == 1
+    });
     service
         .dispatch(AppCommand::Music(MusicCommand::SavePlaylist {
             name: "Saved".into(),
         }))
         .unwrap();
-    until(&mut service, |service| service.snapshot().music.playlists.len() == 1);
+    until(&mut service, |service| {
+        service.snapshot().music.playlists.len() == 1
+    });
     assert_eq!(service.music_replacement_revision(), 0);
     let playlist = service.snapshot().music.playlists[0].id;
     service
         .dispatch(AppCommand::Music(MusicCommand::LoadPlaylist(playlist)))
         .unwrap();
-    until(&mut service, |service| service.music_replacement_revision() == 1);
+    until(&mut service, |service| {
+        service.music_replacement_revision() == 1
+    });
     let committed = service.snapshot().music.clone();
     service
         .dispatch(AppCommand::Music(MusicCommand::LoadPlaylist(Uuid::nil())))
         .unwrap();
-    until(&mut service, |service| !service.snapshot().problems.is_empty());
+    until(&mut service, |service| {
+        !service.snapshot().problems.is_empty()
+    });
     assert_eq!(service.music_replacement_revision(), 1);
     assert_eq!(service.snapshot().music, committed);
     assert!(!root.join("Owned.wav").exists());

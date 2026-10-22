@@ -1,6 +1,8 @@
 //! Native queue management. This view emits intents and never opens or plays media.
 use super::{
-    ControlState, activation::activated, control,
+    ControlState,
+    activation::activated,
+    control,
     paint::{LIGHT, MUTED, TEXT},
 };
 use crate::{
@@ -143,9 +145,10 @@ impl MusicPanel {
                 FontId::monospace((12.0 * scale).max(10.0)),
                 MUTED,
             );
-            let queue_problem = snapshot.problem.as_deref().or_else(|| {
-                (!snapshot.available).then_some("Music queue storage is unavailable.")
-            });
+            let queue_problem = snapshot
+                .problem
+                .as_deref()
+                .or_else(|| (!snapshot.available).then_some("Music queue storage is unavailable."));
             let mut header_height = status.bottom() - inner.top() + (8.0 * scale).max(6.0);
             for problem in [queue_problem, self.playback.problem.as_deref()]
                 .into_iter()
@@ -360,11 +363,7 @@ impl MusicPanel {
                 "DOWN",
                 enabled && selected.is_some_and(|index| index + 1 < snapshot.queue.len()),
             ),
-            (
-                "pwds.music.remove",
-                "REMOVE",
-                enabled && selected.is_some(),
-            ),
+            ("pwds.music.remove", "REMOVE", enabled && selected.is_some()),
         ]
         .into_iter()
         .enumerate()
@@ -491,8 +490,7 @@ impl MusicPanel {
             "LOAD SELECTED",
             enabled && self.selected_playlist.is_some(),
             scale,
-        )
-            && let Some(id) = self.selected_playlist
+        ) && let Some(id) = self.selected_playlist
         {
             commands.push(AppCommand::Music(MusicCommand::LoadPlaylist(id)));
         }

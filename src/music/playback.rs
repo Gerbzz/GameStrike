@@ -124,7 +124,8 @@ impl AbortHandle {
     }
 
     pub(crate) fn is_authorized(&self, expected: Authorization) -> bool {
-        self.authorization().is_ok_and(|current| current == expected)
+        self.authorization()
+            .is_ok_and(|current| current == expected)
     }
 
     pub(crate) fn update_queue(
@@ -155,13 +156,17 @@ impl AbortHandle {
         }
         let mut revoked = false;
         authority.registered.retain(|registered| {
-            let Some(permit) = registered.permit.upgrade() else { return false };
+            let Some(permit) = registered.permit.upgrade() else {
+                return false;
+            };
             if permit.cancelled.load(Ordering::SeqCst) {
                 return false;
             }
-            if replace || !queue.iter().any(|track| {
-                track.id == registered.track.id && track.path == registered.track.path
-            }) {
+            if replace
+                || !queue.iter().any(|track| {
+                    track.id == registered.track.id && track.path == registered.track.path
+                })
+            {
                 permit.cancelled.store(true, Ordering::SeqCst);
                 permit.output.store(false, Ordering::SeqCst);
                 revoked = true;
@@ -190,9 +195,10 @@ impl AbortHandle {
         if self.0.closed.load(Ordering::SeqCst)
             || self.0.epoch.load(Ordering::SeqCst) != expected.epoch
             || authority.queue_revision != expected.queue_revision
-            || !authority.queue.iter().any(|allowed| {
-                allowed.id == track.id && allowed.path == track.path
-            })
+            || !authority
+                .queue
+                .iter()
+                .any(|allowed| allowed.id == track.id && allowed.path == track.path)
         {
             return Err("Music intent was superseded by newer control or queue state".into());
         }
@@ -513,7 +519,9 @@ impl PlaybackController {
 
     /// Bounded work per host tick. State changes require current acknowledged events.
     pub fn poll(&mut self) -> bool {
-        let Ok(authorization) = self.abort.authorization() else { return false };
+        let Ok(authorization) = self.abort.authorization() else {
+            return false;
+        };
         self.poll_authorized(authorization)
     }
 
@@ -522,7 +530,11 @@ impl PlaybackController {
             return false;
         }
         let before = self.snapshot.revision;
-        if self.active.as_ref().is_some_and(PlaybackLease::is_cancelled) {
+        if self
+            .active
+            .as_ref()
+            .is_some_and(PlaybackLease::is_cancelled)
+        {
             self.release_active();
             self.set_idle(PlaybackState::Stopped);
         }
@@ -565,7 +577,9 @@ impl PlaybackController {
         let Some(generation) = self.generation.checked_add(1) else {
             return self.fail("Music session counter is exhausted".into());
         };
-        let lease = self.abort.register(self.authorization, generation, &track)?;
+        let lease = self
+            .abort
+            .register(self.authorization, generation, &track)?;
         self.release_active();
         self.generation = generation;
         self.snapshot.selected = Some(id);
@@ -668,7 +682,9 @@ impl PlaybackController {
     }
 
     fn handle(&mut self, event: BackendEvent) {
-        let Some(lease) = self.active.as_ref() else { return };
+        let Some(lease) = self.active.as_ref() else {
+            return;
+        };
         if lease.is_cancelled() || lease.generation() != event.generation() {
             return;
         }
@@ -677,7 +693,8 @@ impl PlaybackController {
                 let _ = self.request_play();
             }
             BackendEvent::Started { operation, .. }
-                if self.snapshot.state == PlaybackState::Starting && lease.is_current(operation) =>
+                if self.snapshot.state == PlaybackState::Starting
+                    && lease.is_current(operation) =>
             {
                 self.snapshot.state = PlaybackState::Playing;
                 self.changed();
@@ -751,8 +768,13 @@ impl PlaybackController {
     }
 
     fn finish_ended(&mut self) {
-        let Some(generation) = self.pending_end else { return };
-        let Some(lease) = &self.active else { self.pending_end = None; return };
+        let Some(generation) = self.pending_end else {
+            return;
+        };
+        let Some(lease) = &self.active else {
+            self.pending_end = None;
+            return;
+        };
         if lease.generation() != generation || lease.is_cancelled() {
             self.pending_end = None;
             return;

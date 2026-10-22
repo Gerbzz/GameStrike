@@ -31,7 +31,11 @@ impl Gate {
     fn wait(&self) {
         self.entered.store(true, Ordering::Release);
         let released = self.released.lock().unwrap();
-        drop(self.changed.wait_while(released, |released| !*released).unwrap());
+        drop(
+            self.changed
+                .wait_while(released, |released| !*released)
+                .unwrap(),
+        );
     }
 }
 
@@ -67,9 +71,13 @@ impl PlaybackBackend for Backend {
         if let Some(gate) = gate {
             gate.wait();
         }
-        self.0.lock().unwrap().events.push_back(BackendEvent::Ready {
-            generation: lease.generation(),
-        });
+        self.0
+            .lock()
+            .unwrap()
+            .events
+            .push_back(BackendEvent::Ready {
+                generation: lease.generation(),
+            });
         Ok(())
     }
 
@@ -99,7 +107,9 @@ impl PlaybackBackend for Backend {
     fn release(&mut self, lease: &PlaybackLease) {
         let gate = {
             let mut state = self.0.lock().unwrap();
-            state.released.push((lease.generation(), lease.is_cancelled()));
+            state
+                .released
+                .push((lease.generation(), lease.is_cancelled()));
             state.release_gate.take()
         };
         if let Some(gate) = gate {
@@ -177,13 +187,18 @@ impl Fixture {
             if predicate(self) {
                 return;
             }
-            assert!(Instant::now() < deadline, "transport worker did not publish expected state");
+            assert!(
+                Instant::now() < deadline,
+                "transport worker did not publish expected state"
+            );
             let _ = self.wakes.recv_timeout(Duration::from_millis(20));
         }
     }
 
     fn play(&mut self, index: usize) -> PlaybackLease {
-        self.service.dispatch(PlaybackCommand::Play(self.tracks[index].id)).unwrap();
+        self.service
+            .dispatch(PlaybackCommand::Play(self.tracks[index].id))
+            .unwrap();
         self.until(|fixture| fixture.service.snapshot().state == PlaybackState::Playing);
         self.state.lock().unwrap().loads.last().unwrap().1.clone()
     }
@@ -193,7 +208,9 @@ impl Fixture {
         let release = ReleaseOnDrop(gate.clone());
         self.state.lock().unwrap().gate = Some(gate.clone());
         let count = self.state.lock().unwrap().loads.len();
-        self.service.dispatch(PlaybackCommand::Play(self.tracks[index].id)).unwrap();
+        self.service
+            .dispatch(PlaybackCommand::Play(self.tracks[index].id))
+            .unwrap();
         self.until(|fixture| fixture.state.lock().unwrap().loads.len() > count);
         let lease = self.state.lock().unwrap().loads.last().unwrap().1.clone();
         (lease, release)
@@ -206,7 +223,8 @@ impl Fixture {
             let result = service.dispatch(PlaybackCommand::Stop);
             let _ = done.send((service, result));
         });
-        let (service, result) = completed.recv_timeout(Duration::from_secs(3))
+        let (service, result) = completed
+            .recv_timeout(Duration::from_secs(3))
             .expect("Stop must not wait for backend progress");
         self.service = service;
         result.unwrap();
@@ -219,7 +237,11 @@ fn unavailable_service_has_no_worker_or_action_authority() {
     assert!(!service.snapshot().available);
     assert_eq!(service.snapshot().state, PlaybackState::Unavailable);
     assert!(service.dispatch(PlaybackCommand::Stop).is_err());
-    assert!(service.dispatch(PlaybackCommand::Play(Uuid::nil())).is_err());
+    assert!(
+        service
+            .dispatch(PlaybackCommand::Play(Uuid::nil()))
+            .is_err()
+    );
     service.poll_events();
     assert_eq!(service.snapshot().state, PlaybackState::Unavailable);
 }
@@ -229,12 +251,18 @@ fn dedicated_worker_publishes_acknowledged_transport_and_wakes_the_native_host()
     let mut fixture = Fixture::new();
     assert!(fixture.state.lock().unwrap().loads.is_empty());
     let lease = fixture.play(1);
-    assert_eq!(fixture.service.snapshot().selected, Some(fixture.tracks[1].id));
+    assert_eq!(
+        fixture.service.snapshot().selected,
+        Some(fixture.tracks[1].id)
+    );
     assert!(lease.may_output());
     fixture.service.dispatch(PlaybackCommand::Pause).unwrap();
     fixture.until(|fixture| fixture.service.snapshot().state == PlaybackState::Paused);
     assert!(!lease.may_output());
-    fixture.service.dispatch(PlaybackCommand::Play(fixture.tracks[1].id)).unwrap();
+    fixture
+        .service
+        .dispatch(PlaybackCommand::Play(fixture.tracks[1].id))
+        .unwrap();
     fixture.until(|fixture| fixture.service.snapshot().state == PlaybackState::Playing);
     assert_eq!(fixture.state.lock().unwrap().loads.len(), 1);
     fixture.stop_without_backend_progress();
@@ -256,7 +284,10 @@ fn urgent_stop_revokes_during_a_blocked_load_and_ignores_its_late_completion() {
     assert_eq!(fixture.service.snapshot().state, PlaybackState::Stopped);
     assert!(fixture.state.lock().unwrap().plays.is_empty());
     fixture.play(1);
-    assert_eq!(fixture.service.snapshot().selected, Some(fixture.tracks[1].id));
+    assert_eq!(
+        fixture.service.snapshot().selected,
+        Some(fixture.tracks[1].id)
+    );
 }
 
 #[test]
@@ -265,7 +296,11 @@ fn urgent_stop_is_accepted_when_the_ordinary_command_queue_is_full() {
     let (lease, release) = fixture.blocked_load(0);
     let mut full = false;
     for _ in 0..64 {
-        if fixture.service.dispatch(PlaybackCommand::Play(fixture.tracks[0].id)).is_err() {
+        if fixture
+            .service
+            .dispatch(PlaybackCommand::Play(fixture.tracks[0].id))
+            .is_err()
+        {
             full = true;
             break;
         }
@@ -330,7 +365,8 @@ fn drop_revokes_a_live_or_inflight_source_without_joining_the_backend() {
             drop(fixture.service);
             let _ = done.send(());
         });
-        completed.recv_timeout(Duration::from_secs(3))
+        completed
+            .recv_timeout(Duration::from_secs(3))
             .expect("Drop must not join a blocked backend");
         assert!(lease.is_cancelled());
         assert!(!lease.may_output());
@@ -342,7 +378,10 @@ fn drop_revokes_a_live_or_inflight_source_without_joining_the_backend() {
 fn removing_an_unacknowledged_load_revokes_it_even_when_front_selection_is_older() {
     let mut fixture = Fixture::new();
     let (lease, release) = fixture.blocked_load(1);
-    assert_eq!(fixture.service.snapshot().selected, Some(fixture.tracks[0].id));
+    assert_eq!(
+        fixture.service.snapshot().selected,
+        Some(fixture.tracks[0].id)
+    );
     let remaining = vec![fixture.tracks[0].clone(), fixture.tracks[2].clone()];
     fixture.service.reconcile_queue(&remaining).unwrap();
     assert!(lease.is_cancelled());
@@ -361,10 +400,19 @@ fn a_stop_epoch_does_not_discard_the_latest_accepted_queue() {
     assert!(lease.is_cancelled());
     release.0.release();
     fixture.until(|fixture| !fixture.state.lock().unwrap().released.is_empty());
-    fixture.service.dispatch(PlaybackCommand::Play(fixture.tracks[2].id)).unwrap();
+    fixture
+        .service
+        .dispatch(PlaybackCommand::Play(fixture.tracks[2].id))
+        .unwrap();
     fixture.until(|fixture| fixture.service.snapshot().state == PlaybackState::Playing);
-    assert_eq!(fixture.service.snapshot().selected, Some(fixture.tracks[2].id));
-    assert_eq!(fixture.state.lock().unwrap().loads.last().unwrap().0.id, fixture.tracks[2].id);
+    assert_eq!(
+        fixture.service.snapshot().selected,
+        Some(fixture.tracks[2].id)
+    );
+    assert_eq!(
+        fixture.state.lock().unwrap().loads.last().unwrap().0.id,
+        fixture.tracks[2].id
+    );
 }
 
 #[test]
@@ -378,13 +426,22 @@ fn a_new_play_after_stop_survives_an_older_release_finishing_late() {
     fixture.until(|fixture| !fixture.state.lock().unwrap().released.is_empty());
     assert!(lease.is_cancelled());
     fixture.stop_without_backend_progress();
-    fixture.service.dispatch(PlaybackCommand::Play(fixture.tracks[1].id)).unwrap();
+    fixture
+        .service
+        .dispatch(PlaybackCommand::Play(fixture.tracks[1].id))
+        .unwrap();
     release.0.release();
     fixture.until(|fixture| fixture.service.snapshot().state == PlaybackState::Playing);
-    assert_eq!(fixture.service.snapshot().selected, Some(fixture.tracks[1].id));
+    assert_eq!(
+        fixture.service.snapshot().selected,
+        Some(fixture.tracks[1].id)
+    );
     fixture.service.dispatch(PlaybackCommand::Pause).unwrap();
     fixture.until(|fixture| fixture.service.snapshot().state == PlaybackState::Paused);
-    fixture.service.dispatch(PlaybackCommand::Play(fixture.tracks[1].id)).unwrap();
+    fixture
+        .service
+        .dispatch(PlaybackCommand::Play(fixture.tracks[1].id))
+        .unwrap();
     fixture.until(|fixture| fixture.service.snapshot().state == PlaybackState::Playing);
 }
 
@@ -411,7 +468,10 @@ fn pause_wins_over_a_queue_raced_drained_completion_without_touching_expired_ses
     fixture.service.dispatch(PlaybackCommand::Pause).unwrap();
     release.0.release();
     fixture.until(|fixture| fixture.service.snapshot().state == PlaybackState::Paused);
-    assert_eq!(fixture.service.snapshot().selected, Some(fixture.tracks[0].id));
+    assert_eq!(
+        fixture.service.snapshot().selected,
+        Some(fixture.tracks[0].id)
+    );
     assert_eq!(fixture.state.lock().unwrap().pauses, 0);
     assert_eq!(fixture.state.lock().unwrap().loads.len(), 1);
     assert!(lease.is_cancelled());
@@ -437,29 +497,46 @@ fn explicit_play_wins_over_pending_completion_and_restarts_its_requested_track()
         fixture.tracks[1].clone(),
     ];
     fixture.service.reconcile_queue(&reordered).unwrap();
-    fixture.service.dispatch(PlaybackCommand::Play(fixture.tracks[0].id)).unwrap();
+    fixture
+        .service
+        .dispatch(PlaybackCommand::Play(fixture.tracks[0].id))
+        .unwrap();
     release.0.release();
     fixture.until(|fixture| fixture.state.lock().unwrap().loads.len() == 2);
     fixture.until(|fixture| fixture.service.snapshot().state == PlaybackState::Playing);
     assert!(old.is_cancelled());
-    assert_eq!(fixture.service.snapshot().selected, Some(fixture.tracks[0].id));
-    assert_ne!(fixture.state.lock().unwrap().loads[1].1.generation(), old.generation());
+    assert_eq!(
+        fixture.service.snapshot().selected,
+        Some(fixture.tracks[0].id)
+    );
+    assert_ne!(
+        fixture.state.lock().unwrap().loads[1].1.generation(),
+        old.generation()
+    );
 }
 
 #[test]
 fn a_rejected_navigation_request_cannot_replace_terminal_output_failure_detail() {
     let mut fixture = Fixture::new();
     let lease = fixture.play(2);
-    fixture.state.lock().unwrap().events.push_back(BackendEvent::Failed {
-        generation: lease.generation(),
-        error: "Fixture output disconnected".into(),
-    });
+    fixture
+        .state
+        .lock()
+        .unwrap()
+        .events
+        .push_back(BackendEvent::Failed {
+            generation: lease.generation(),
+            error: "Fixture output disconnected".into(),
+        });
     fixture.until(|fixture| fixture.service.snapshot().state == PlaybackState::Faulted);
     let before = fixture.service.snapshot().revision;
     fixture.service.dispatch(PlaybackCommand::Next).unwrap();
     fixture.until(|fixture| fixture.service.snapshot().revision > before);
     assert_eq!(fixture.service.snapshot().state, PlaybackState::Faulted);
-    assert_eq!(fixture.service.snapshot().problem.as_deref(), Some("Fixture output disconnected"));
+    assert_eq!(
+        fixture.service.snapshot().problem.as_deref(),
+        Some("Fixture output disconnected")
+    );
 }
 
 #[test]
@@ -475,8 +552,15 @@ fn failed_factory_is_bounded_unavailable_and_has_no_play_authority() {
     service.poll_events();
     assert!(!service.snapshot().available);
     assert_eq!(service.snapshot().state, PlaybackState::Unavailable);
-    assert_eq!(service.snapshot().problem.as_ref().unwrap().chars().count(), 512);
-    assert!(service.dispatch(PlaybackCommand::Play(Uuid::nil())).is_err());
+    assert_eq!(
+        service.snapshot().problem.as_ref().unwrap().chars().count(),
+        512
+    );
+    assert!(
+        service
+            .dispatch(PlaybackCommand::Play(Uuid::nil()))
+            .is_err()
+    );
     let stable = service.snapshot().clone();
     service.poll_events();
     service.poll_events();

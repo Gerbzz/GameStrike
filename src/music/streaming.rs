@@ -134,7 +134,11 @@ impl Session {
         if self.lease.is_cancelled() {
             return Ok(DecodedRead::Pending);
         }
-        if let DecodedRead::Frames { sample_rate, frames } = &read {
+        if let DecodedRead::Frames {
+            sample_rate,
+            frames,
+        } = &read
+        {
             if *sample_rate == 0 {
                 return Err("decoder returned an unknown sample rate".into());
             }
@@ -262,7 +266,9 @@ impl<D: DecoderFactory, O: OutputFactory> StreamingBackend<D, O> {
                     return Err("cannot pause an unopened output".into());
                 }
                 let result = self.output_factory.begin(
-                    session.sample_rate.ok_or("music stream has no source rate")?,
+                    session
+                        .sample_rate
+                        .ok_or("music stream has no source rate")?,
                     session.lease.clone(),
                 );
                 if !session.authorized(request) {

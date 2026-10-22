@@ -1,10 +1,11 @@
 //! Dedicated, bounded transport actor. No catalog scan, media decoder or device host lives here.
 use super::{
-    Track, validate_tracks,
+    Track,
     playback::{
         AbortHandle, Authorization, PlaybackBackend, PlaybackCommand, PlaybackController,
         PlaybackSnapshot, PlaybackState,
     },
+    validate_tracks,
 };
 use std::{
     sync::{
@@ -247,9 +248,9 @@ impl PlaybackService {
         {
             self.snapshot.available = false;
             self.snapshot.state = PlaybackState::Unavailable;
-            self.snapshot.problem.get_or_insert_with(|| {
-                "Native music playback worker is unavailable".into()
-            });
+            self.snapshot
+                .problem
+                .get_or_insert_with(|| "Native music playback worker is unavailable".into());
             self.snapshot.revision = self.snapshot.revision.wrapping_add(1);
         }
     }
@@ -325,7 +326,9 @@ fn run(
         };
         // Queue state is authoritative independently of Stop epochs. Never discard
         // a committed queue just because an intervening Stop advanced its epoch.
-        let Ok(authorization) = shared.abort.authorization() else { return };
+        let Ok(authorization) = shared.abort.authorization() else {
+            return;
+        };
         if pending.revision != authorization.queue_revision {
             thread::park_timeout(Duration::from_millis(20));
             continue;
@@ -364,7 +367,9 @@ fn run(
         match request {
             Ok(request) => {
                 requested = true;
-                let Ok(current) = shared.abort.authorization() else { return };
+                let Ok(current) = shared.abort.authorization() else {
+                    return;
+                };
                 if request.authorization == current {
                     if current != authorization {
                         // It is a valid newer intent, not a stale request. Apply

@@ -88,7 +88,12 @@ impl Harness {
     }
 
     fn click(&mut self, queue: &MusicSnapshot, id: Id, enabled: bool) -> Frame {
-        let point = self.ctx.read_response(id).expect("Music control").rect.center();
+        let point = self
+            .ctx
+            .read_response(id)
+            .expect("Music control")
+            .rect
+            .center();
         let pressed = self.draw(
             queue,
             vec![
@@ -161,7 +166,12 @@ fn row_selection_never_autoplays_and_play_keeps_the_explicit_row_after_select_fa
     harness.panel.set_playback(&playback);
     let played = harness.activate(&queue, Id::new("pwds.music.play"), true);
     assert_playback(&played, PlaybackCommand::Play(chosen));
-    assert!(played.labels.iter().any(|label| label == "PLAYBACK STOPPED"));
+    assert!(
+        played
+            .labels
+            .iter()
+            .any(|label| label == "PLAYBACK STOPPED")
+    );
     assert!(harness.draw(&queue, vec![], true).commands.is_empty());
     assert_eq!(queue.queue[0].id, Uuid::from_u128(1));
 }
@@ -170,7 +180,9 @@ fn row_selection_never_autoplays_and_play_keeps_the_explicit_row_after_select_fa
 fn keyboard_row_selection_emits_one_select_intent() {
     let mut harness = Harness::default();
     let queue = queue();
-    harness.panel.set_playback(&attached(PlaybackState::Stopped, 1, 1));
+    harness
+        .panel
+        .set_playback(&attached(PlaybackState::Stopped, 1, 1));
     harness.draw(&queue, vec![], true);
     let selected = Uuid::from_u128(3);
     let frame = harness.activate(&queue, Id::new(("pwds.music.track", selected)), true);
@@ -197,16 +209,22 @@ fn displayed_playing_requires_an_authoritative_started_snapshot() {
                 .is_empty()
         );
     }
-    harness.panel.set_playback(&attached(PlaybackState::Playing, 1, 3));
+    harness
+        .panel
+        .set_playback(&attached(PlaybackState::Playing, 1, 3));
     let playing = harness.draw(&queue, vec![], true);
     assert!(playing.labels.iter().any(|text| text == "PLAYBACK PLAYING"));
     let pause = harness.click(&queue, Id::new("pwds.music.pause"), true);
     assert_playback(&pause, PlaybackCommand::Pause);
     assert!(pause.labels.iter().any(|text| text == "PLAYBACK PLAYING"));
-    harness.panel.set_playback(&attached(PlaybackState::Pausing, 1, 4));
+    harness
+        .panel
+        .set_playback(&attached(PlaybackState::Pausing, 1, 4));
     let pausing = harness.draw(&queue, vec![], true);
     assert!(pausing.labels.iter().any(|text| text == "PLAYBACK PAUSING"));
-    harness.panel.set_playback(&attached(PlaybackState::Paused, 1, 5));
+    harness
+        .panel
+        .set_playback(&attached(PlaybackState::Paused, 1, 5));
     let paused = harness.draw(&queue, vec![], true);
     assert!(paused.labels.iter().any(|text| text == "PLAYBACK PAUSED"));
 }
@@ -215,7 +233,9 @@ fn displayed_playing_requires_an_authoritative_started_snapshot() {
 fn transport_pointer_and_keyboard_actions_emit_only_the_exact_intent() {
     let mut harness = Harness::default();
     let queue = queue();
-    harness.panel.set_playback(&attached(PlaybackState::Playing, 2, 1));
+    harness
+        .panel
+        .set_playback(&attached(PlaybackState::Playing, 2, 1));
     harness.draw(&queue, vec![], true);
     for (id, command, pointer) in [
         ("pwds.music.pause", PlaybackCommand::Pause, false),
@@ -238,7 +258,12 @@ fn unavailable_transport_keeps_queue_management_and_local_selection_available() 
     let mut harness = Harness::default();
     let queue = queue();
     let frame = harness.draw(&queue, vec![], true);
-    assert!(frame.labels.iter().any(|label| label == "PLAYBACK NOT CONNECTED"));
+    assert!(
+        frame
+            .labels
+            .iter()
+            .any(|label| label == "PLAYBACK NOT CONNECTED")
+    );
     let chosen = Uuid::from_u128(2);
     assert!(
         harness
@@ -256,9 +281,17 @@ fn unavailable_transport_keeps_queue_management_and_local_selection_available() 
         [AppCommand::Music(MusicCommand::RemoveTrack(id))] if *id == chosen
     ));
     let add = harness.activate(&queue, Id::new("pwds.music.add"), true);
-    assert!(matches!(add.commands.as_slice(), [AppCommand::ChooseMusicFiles]));
+    assert!(matches!(
+        add.commands.as_slice(),
+        [AppCommand::ChooseMusicFiles]
+    ));
     for id in transport_ids() {
-        assert!(harness.activate(&queue, Id::new(id), true).commands.is_empty());
+        assert!(
+            harness
+                .activate(&queue, Id::new(id), true)
+                .commands
+                .is_empty()
+        );
         assert!(harness.click(&queue, Id::new(id), true).commands.is_empty());
     }
 }
@@ -267,15 +300,31 @@ fn unavailable_transport_keeps_queue_management_and_local_selection_available() 
 fn boot_disables_transport_and_row_intents() {
     let mut harness = Harness::default();
     let queue = queue();
-    harness.panel.set_playback(&attached(PlaybackState::Playing, 2, 1));
+    harness
+        .panel
+        .set_playback(&attached(PlaybackState::Playing, 2, 1));
     harness.draw(&queue, vec![], false);
     for id in transport_ids() {
-        assert!(harness.activate(&queue, Id::new(id), false).commands.is_empty());
-        assert!(harness.click(&queue, Id::new(id), false).commands.is_empty());
+        assert!(
+            harness
+                .activate(&queue, Id::new(id), false)
+                .commands
+                .is_empty()
+        );
+        assert!(
+            harness
+                .click(&queue, Id::new(id), false)
+                .commands
+                .is_empty()
+        );
     }
     assert!(
         harness
-            .activate(&queue, Id::new(("pwds.music.track", Uuid::from_u128(3))), false)
+            .activate(
+                &queue,
+                Id::new(("pwds.music.track", Uuid::from_u128(3))),
+                false
+            )
             .commands
             .is_empty()
     );
@@ -286,10 +335,17 @@ fn storage_failure_disables_source_actions_but_retains_connected_pause_and_stop(
     let mut harness = Harness::default();
     let mut queue = queue();
     queue.available = false;
-    harness.panel.set_playback(&attached(PlaybackState::Playing, 2, 1));
+    harness
+        .panel
+        .set_playback(&attached(PlaybackState::Playing, 2, 1));
     harness.draw(&queue, vec![], true);
     for id in ["pwds.music.play", "pwds.music.next", "pwds.music.previous"] {
-        assert!(harness.activate(&queue, Id::new(id), true).commands.is_empty());
+        assert!(
+            harness
+                .activate(&queue, Id::new(id), true)
+                .commands
+                .is_empty()
+        );
     }
     let pause = harness.activate(&queue, Id::new("pwds.music.pause"), true);
     assert_playback(&pause, PlaybackCommand::Pause);
@@ -301,17 +357,26 @@ fn storage_failure_disables_source_actions_but_retains_connected_pause_and_stop(
 fn delayed_selection_acknowledgements_preserve_the_newest_local_row_choice() {
     let mut harness = Harness::default();
     let queue = queue();
-    harness.panel.set_playback(&attached(PlaybackState::Stopped, 1, 1));
+    harness
+        .panel
+        .set_playback(&attached(PlaybackState::Stopped, 1, 1));
     harness.draw(&queue, vec![], true);
     for selected in [2, 3] {
         let id = Uuid::from_u128(selected);
         let frame = harness.click(&queue, Id::new(("pwds.music.track", id)), true);
         assert_playback(&frame, PlaybackCommand::Select(id));
     }
-    harness.panel.set_playback(&attached(PlaybackState::Stopped, 2, 2));
+    harness
+        .panel
+        .set_playback(&attached(PlaybackState::Stopped, 2, 2));
     let before_latest_ack = harness.activate(&queue, Id::new("pwds.music.play"), true);
-    assert_playback(&before_latest_ack, PlaybackCommand::Play(Uuid::from_u128(3)));
-    harness.panel.set_playback(&attached(PlaybackState::Stopped, 3, 3));
+    assert_playback(
+        &before_latest_ack,
+        PlaybackCommand::Play(Uuid::from_u128(3)),
+    );
+    harness
+        .panel
+        .set_playback(&attached(PlaybackState::Stopped, 3, 3));
     let after_latest_ack = harness.activate(&queue, Id::new("pwds.music.play"), true);
     assert_playback(&after_latest_ack, PlaybackCommand::Play(Uuid::from_u128(3)));
 }
@@ -320,12 +385,20 @@ fn delayed_selection_acknowledgements_preserve_the_newest_local_row_choice() {
 fn removed_pending_row_falls_back_to_the_acknowledged_retained_selection() {
     let mut harness = Harness::default();
     let mut queue = queue();
-    harness.panel.set_playback(&attached(PlaybackState::Stopped, 1, 1));
+    harness
+        .panel
+        .set_playback(&attached(PlaybackState::Stopped, 1, 1));
     harness.draw(&queue, vec![], true);
-    harness.click(&queue, Id::new(("pwds.music.track", Uuid::from_u128(3))), true);
+    harness.click(
+        &queue,
+        Id::new(("pwds.music.track", Uuid::from_u128(3))),
+        true,
+    );
     queue.queue.pop();
     queue.revision += 1;
-    harness.panel.set_playback(&attached(PlaybackState::Stopped, 2, 2));
+    harness
+        .panel
+        .set_playback(&attached(PlaybackState::Stopped, 2, 2));
     harness.draw(&queue, vec![], true);
     let play = harness.activate(&queue, Id::new("pwds.music.play"), true);
     assert_playback(&play, PlaybackCommand::Play(Uuid::from_u128(2)));
@@ -335,12 +408,20 @@ fn removed_pending_row_falls_back_to_the_acknowledged_retained_selection() {
 fn reselecting_the_acknowledged_row_does_not_hide_later_controller_advancement() {
     let mut harness = Harness::default();
     let queue = queue();
-    harness.panel.set_playback(&attached(PlaybackState::Playing, 1, 1));
+    harness
+        .panel
+        .set_playback(&attached(PlaybackState::Playing, 1, 1));
     harness.draw(&queue, vec![], true);
-    let selected = harness.click(&queue, Id::new(("pwds.music.track", Uuid::from_u128(1))), true);
+    let selected = harness.click(
+        &queue,
+        Id::new(("pwds.music.track", Uuid::from_u128(1))),
+        true,
+    );
     assert_playback(&selected, PlaybackCommand::Select(Uuid::from_u128(1)));
     // Selecting the already selected row is a controller no-op with no new revision.
-    harness.panel.set_playback(&attached(PlaybackState::Stopped, 2, 2));
+    harness
+        .panel
+        .set_playback(&attached(PlaybackState::Stopped, 2, 2));
     let play = harness.activate(&queue, Id::new("pwds.music.play"), true);
     assert_playback(&play, PlaybackCommand::Play(Uuid::from_u128(2)));
 }
@@ -349,9 +430,16 @@ fn reselecting_the_acknowledged_row_does_not_hide_later_controller_advancement()
 fn next_and_previous_wait_for_authoritative_selection_and_respect_queue_ends() {
     let mut harness = Harness::default();
     let queue = queue();
-    harness.panel.set_playback(&attached(PlaybackState::Stopped, 1, 1));
+    harness
+        .panel
+        .set_playback(&attached(PlaybackState::Stopped, 1, 1));
     let initial = harness.draw(&queue, vec![], true);
-    assert!(initial.labels.iter().any(|label| label == "CURRENT: Zebra  /  NEXT: Moon"));
+    assert!(
+        initial
+            .labels
+            .iter()
+            .any(|label| label == "CURRENT: Zebra  /  NEXT: Moon")
+    );
     assert!(
         harness
             .activate(&queue, Id::new("pwds.music.previous"), true)
@@ -361,11 +449,23 @@ fn next_and_previous_wait_for_authoritative_selection_and_respect_queue_ends() {
     let next = harness.activate(&queue, Id::new("pwds.music.next"), true);
     assert_playback(&next, PlaybackCommand::Next);
     let before_commit = harness.draw(&queue, vec![], true);
-    assert!(before_commit.labels.iter().any(|label| label == "CURRENT: Zebra  /  NEXT: Moon"));
+    assert!(
+        before_commit
+            .labels
+            .iter()
+            .any(|label| label == "CURRENT: Zebra  /  NEXT: Moon")
+    );
     assert!(before_commit.commands.is_empty());
-    harness.panel.set_playback(&attached(PlaybackState::Stopped, 3, 2));
+    harness
+        .panel
+        .set_playback(&attached(PlaybackState::Stopped, 3, 2));
     let committed = harness.draw(&queue, vec![], true);
-    assert!(committed.labels.iter().any(|label| label == "CURRENT: Amber  /  NEXT: END OF QUEUE"));
+    assert!(
+        committed
+            .labels
+            .iter()
+            .any(|label| label == "CURRENT: Amber  /  NEXT: END OF QUEUE")
+    );
     assert!(
         harness
             .activate(&queue, Id::new("pwds.music.next"), true)

@@ -933,13 +933,7 @@ impl NativeView {
         self.problem_notice(ui, p, g, snapshot);
     }
 
-    fn problem_notice(
-        &self,
-        ui: &egui::Ui,
-        p: &Painter,
-        g: &Geometry,
-        snapshot: &AppSnapshot,
-    ) {
+    fn problem_notice(&self, ui: &egui::Ui, p: &Painter, g: &Geometry, snapshot: &AppSnapshot) {
         if !snapshot.problems.is_empty() {
             let rect = Rect::from_min_size(
                 pos2(
@@ -955,7 +949,11 @@ impl NativeView {
                 format!(
                     "{} {} NOTICE(S): {}",
                     snapshot.problems.len(),
-                    if self.section == 3 { "MUSIC" } else { "LIBRARY" },
+                    if self.section == 3 {
+                        "MUSIC"
+                    } else {
+                        "LIBRARY"
+                    },
                     snapshot.problems[0]
                 ),
                 FontId::monospace((12.0 * g.scale).max(9.0)),

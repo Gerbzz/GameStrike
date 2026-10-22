@@ -1,7 +1,7 @@
 //! Renderer-independent native application state. Only the worker owns filesystem/process hosts.
 mod library;
-pub use library::{DesktopHost, LibraryBackend};
 use crate::music::{MusicCommand, MusicSnapshot, playback::PlaybackCommand};
+pub use library::{DesktopHost, LibraryBackend};
 
 use std::{
     collections::BTreeSet,

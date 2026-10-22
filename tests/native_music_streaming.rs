@@ -78,7 +78,9 @@ impl OutputFactory for MemoryOutputFactory {
 impl Output for MemoryOutput {
     fn start(&mut self, lease: &PlaybackLease, operation: u64) -> Result<(), String> {
         let mut memory = self.0.lock().unwrap();
-        memory.requests.push((lease.generation(), operation, OutputState::Running));
+        memory
+            .requests
+            .push((lease.generation(), operation, OutputState::Running));
         if memory.fault == Some("start") {
             return Err("start failed".into());
         }
@@ -87,7 +89,9 @@ impl Output for MemoryOutput {
 
     fn pause(&mut self, lease: &PlaybackLease, operation: u64) -> Result<(), String> {
         let mut memory = self.0.lock().unwrap();
-        memory.requests.push((lease.generation(), operation, OutputState::Paused));
+        memory
+            .requests
+            .push((lease.generation(), operation, OutputState::Paused));
         if memory.fault == Some("pause") {
             return Err("pause failed".into());
         }
@@ -101,7 +105,10 @@ impl Output for MemoryOutput {
         }
         Ok(match memory.acknowledged {
             Some((generation, op, state))
-                if generation == lease.generation() && op == operation => state,
+                if generation == lease.generation() && op == operation =>
+            {
+                state
+            }
             _ => OutputState::Pending,
         })
     }
@@ -111,7 +118,10 @@ impl Output for MemoryOutput {
         if memory.fault == Some("write") {
             return Err("write failed".into());
         }
-        let result = memory.writes.pop_front().unwrap_or(Ok(OutputWrite::Written(frames.len())));
+        let result = memory
+            .writes
+            .pop_front()
+            .unwrap_or(Ok(OutputWrite::Written(frames.len())));
         if let Ok(OutputWrite::Written(count)) = &result
             && *count > 0
             && *count <= frames.len()
@@ -199,13 +209,30 @@ impl Fixture {
             path: std::env::temp_dir().join("gamestrike-streaming-fixture.wav"),
         };
         let mut controller = PlaybackController::new(Box::new(Relay(authority.clone())));
-        controller.replace_queue(std::slice::from_ref(&track)).unwrap();
-        Self { memory, authority, stream, controller, track }
+        controller
+            .replace_queue(std::slice::from_ref(&track))
+            .unwrap();
+        Self {
+            memory,
+            authority,
+            stream,
+            controller,
+            track,
+        }
     }
 
     fn load(&mut self) -> PlaybackLease {
-        self.controller.dispatch(PlaybackCommand::Play(self.track.id)).unwrap();
-        let lease = self.authority.lock().unwrap().leases.last().unwrap().clone();
+        self.controller
+            .dispatch(PlaybackCommand::Play(self.track.id))
+            .unwrap();
+        let lease = self
+            .authority
+            .lock()
+            .unwrap()
+            .leases
+            .last()
+            .unwrap()
+            .clone();
         self.stream.load(&self.track, lease.clone()).unwrap();
         lease
     }
@@ -226,7 +253,9 @@ impl Fixture {
     fn prime(&mut self) -> PlaybackLease {
         let lease = self.load();
         let ready = self.stream.poll().expect("first valid PCM must prime");
-        assert!(matches!(ready, BackendEvent::Ready { generation } if generation == lease.generation()));
+        assert!(
+            matches!(ready, BackendEvent::Ready { generation } if generation == lease.generation())
+        );
         assert!(self.memory.lock().unwrap().output_rates.is_empty());
         self.deliver(ready);
         self.stream.play(&lease, self.play_operation()).unwrap();
@@ -237,8 +266,10 @@ impl Fixture {
         let lease = self.prime();
         self.acknowledge(&lease, self.play_operation(), OutputState::Running);
         let started = self.stream.poll().expect("acknowledged output start");
-        assert!(matches!(started, BackendEvent::Started { generation, operation }
-            if generation == lease.generation() && operation == self.play_operation()));
+        assert!(
+            matches!(started, BackendEvent::Started { generation, operation }
+            if generation == lease.generation() && operation == self.play_operation())
+        );
         self.deliver(started);
         assert_eq!(self.controller.snapshot().state, PlaybackState::Playing);
         lease
@@ -253,8 +284,10 @@ impl Fixture {
 
     fn failure(&mut self, generation: u64) {
         let event = self.stream.poll().expect("terminal failure event");
-        assert!(matches!(&event, BackendEvent::Failed { generation: actual, error }
-            if *actual == generation && !error.is_empty()));
+        assert!(
+            matches!(&event, BackendEvent::Failed { generation: actual, error }
+            if *actual == generation && !error.is_empty())
+        );
         self.deliver(event);
         assert_eq!(self.controller.snapshot().state, PlaybackState::Faulted);
         assert_eq!(self.stream.buffered_frames(), 0);
@@ -263,7 +296,10 @@ impl Fixture {
 }
 
 fn block(frames: &[[f32; 2]]) -> DecodedRead {
-    DecodedRead::Frames { sample_rate: 44_100, frames: frames.to_vec() }
+    DecodedRead::Frames {
+        sample_rate: 44_100,
+        frames: frames.to_vec(),
+    }
 }
 
 #[test]
@@ -274,9 +310,13 @@ fn construction_is_idle_and_loading_primes_without_opening_output() {
     let lease = fixture.load();
     assert!(!lease.may_output());
     let ready = fixture.stream.poll().unwrap();
-    assert!(matches!(ready, BackendEvent::Ready { generation } if generation == lease.generation()));
+    assert!(
+        matches!(ready, BackendEvent::Ready { generation } if generation == lease.generation())
+    );
     assert_eq!(fixture.stream.buffered_frames(), 2);
-    for _ in 0..3 { assert!(fixture.stream.poll().is_none()); }
+    for _ in 0..3 {
+        assert!(fixture.stream.poll().is_none());
+    }
     let memory = fixture.memory.lock().unwrap();
     assert!(memory.output_rates.is_empty());
     assert!(memory.accepted.is_empty());
@@ -290,7 +330,10 @@ fn pending_decode_has_no_false_ready_or_output() {
     assert!(fixture.stream.poll().is_none());
     assert_eq!(fixture.stream.buffered_frames(), 0);
     assert!(fixture.memory.lock().unwrap().output_rates.is_empty());
-    assert!(matches!(fixture.stream.poll(), Some(BackendEvent::Ready { .. })));
+    assert!(matches!(
+        fixture.stream.poll(),
+        Some(BackendEvent::Ready { .. })
+    ));
 }
 
 #[test]
@@ -299,7 +342,9 @@ fn stereo_order_survives_partial_writes_and_backpressure_without_decode_ahead() 
     let second = [[-0.6, 0.7], [-0.8, 0.9]];
     let mut fixture = Fixture::new(vec![block(&first), block(&second), DecodedRead::End]);
     fixture.memory.lock().unwrap().writes = VecDeque::from([
-        Ok(OutputWrite::Written(1)), Ok(OutputWrite::Pending), Ok(OutputWrite::Written(2)),
+        Ok(OutputWrite::Written(1)),
+        Ok(OutputWrite::Pending),
+        Ok(OutputWrite::Written(2)),
     ]);
     fixture.start();
     assert!(fixture.stream.poll().is_none());
@@ -329,7 +374,12 @@ fn output_acknowledgments_gate_events_and_pause_preserves_pcm_position() {
     fixture.acknowledge(&lease, fixture.play_operation(), OutputState::Running);
     let started = fixture.stream.poll().unwrap();
     fixture.deliver(started);
-    fixture.memory.lock().unwrap().writes.push_back(Ok(OutputWrite::Written(1)));
+    fixture
+        .memory
+        .lock()
+        .unwrap()
+        .writes
+        .push_back(Ok(OutputWrite::Written(1)));
     assert!(fixture.stream.poll().is_none());
     let operation = fixture.pause(&lease);
     assert!(!lease.may_output());
@@ -338,15 +388,26 @@ fn output_acknowledgments_gate_events_and_pause_preserves_pcm_position() {
     let paused = fixture.stream.poll().unwrap();
     assert!(matches!(paused, BackendEvent::Paused { operation: op, .. } if op == operation));
     fixture.deliver(paused);
-    for _ in 0..4 { assert!(fixture.stream.poll().is_none()); }
+    for _ in 0..4 {
+        assert!(fixture.stream.poll().is_none());
+    }
     assert_eq!(fixture.stream.buffered_frames(), 2);
     assert_eq!(fixture.memory.lock().unwrap().accepted, frames[..1]);
     assert_eq!(fixture.memory.lock().unwrap().read_limits.len(), 1);
-    fixture.controller.dispatch(PlaybackCommand::Play(fixture.track.id)).unwrap();
-    fixture.stream.play(&lease, fixture.play_operation()).unwrap();
+    fixture
+        .controller
+        .dispatch(PlaybackCommand::Play(fixture.track.id))
+        .unwrap();
+    fixture
+        .stream
+        .play(&lease, fixture.play_operation())
+        .unwrap();
     assert!(fixture.stream.poll().is_none()); // Previous Paused cannot acknowledge Play.
     fixture.acknowledge(&lease, fixture.play_operation(), OutputState::Running);
-    assert!(matches!(fixture.stream.poll(), Some(BackendEvent::Started { .. })));
+    assert!(matches!(
+        fixture.stream.poll(),
+        Some(BackendEvent::Started { .. })
+    ));
     assert!(fixture.stream.poll().is_none());
     assert_eq!(fixture.memory.lock().unwrap().accepted, frames);
     assert_eq!(fixture.memory.lock().unwrap().output_rates, vec![44_100]);
@@ -359,12 +420,16 @@ fn decoder_eof_and_accepted_pcm_do_not_end_until_output_really_drains() {
     let lease = fixture.start();
     assert!(fixture.stream.poll().is_none()); // PCM accepted by output.
     assert!(fixture.stream.poll().is_none()); // Decoder EOF; output still owns PCM.
-    for _ in 0..3 { assert!(fixture.stream.poll().is_none()); }
+    for _ in 0..3 {
+        assert!(fixture.stream.poll().is_none());
+    }
     assert_eq!(fixture.memory.lock().unwrap().accepted, frames);
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Playing);
     fixture.memory.lock().unwrap().drained = true;
     let ended = fixture.stream.poll().unwrap();
-    assert!(matches!(ended, BackendEvent::Ended { generation } if generation == lease.generation()));
+    assert!(
+        matches!(ended, BackendEvent::Ended { generation } if generation == lease.generation())
+    );
     fixture.deliver(ended);
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Stopped);
     assert_eq!(fixture.memory.lock().unwrap().clears, 1);
@@ -377,7 +442,12 @@ fn decoder_eof_and_accepted_pcm_do_not_end_until_output_really_drains() {
 fn cancellation_clears_pending_pcm_and_late_acknowledgments_cannot_restart_it() {
     let mut fixture = Fixture::new(vec![block(&[[0.1, 0.2], [0.3, 0.4]]), DecodedRead::End]);
     let lease = fixture.start();
-    fixture.memory.lock().unwrap().writes.push_back(Ok(OutputWrite::Pending));
+    fixture
+        .memory
+        .lock()
+        .unwrap()
+        .writes
+        .push_back(Ok(OutputWrite::Pending));
     assert!(fixture.stream.poll().is_none());
     let operation = fixture.play_operation();
     fixture.controller.dispatch(PlaybackCommand::Stop).unwrap();
@@ -402,12 +472,19 @@ fn releasing_an_old_generation_does_not_destroy_the_new_stream() {
     let old = fixture.start();
     fixture.controller.dispatch(PlaybackCommand::Stop).unwrap();
     fixture.stream.release(&old);
-    fixture.memory.lock().unwrap().reads.push_back(Ok(block(&[[0.7, -0.9]])));
+    fixture
+        .memory
+        .lock()
+        .unwrap()
+        .reads
+        .push_back(Ok(block(&[[0.7, -0.9]])));
     let current = fixture.load();
     assert_ne!(old.generation(), current.generation());
     fixture.stream.release(&old);
-    assert!(matches!(fixture.stream.poll(), Some(BackendEvent::Ready { generation })
-        if generation == current.generation()));
+    assert!(
+        matches!(fixture.stream.poll(), Some(BackendEvent::Ready { generation })
+        if generation == current.generation())
+    );
     assert_eq!(fixture.stream.buffered_frames(), 1);
 }
 
@@ -424,7 +501,10 @@ fn superseded_control_operations_do_not_write_or_relabel_acknowledgments() {
     fixture.acknowledge(&lease, pause, OutputState::Paused);
     let paused = fixture.stream.poll().unwrap();
     fixture.deliver(paused);
-    fixture.controller.dispatch(PlaybackCommand::Play(fixture.track.id)).unwrap();
+    fixture
+        .controller
+        .dispatch(PlaybackCommand::Play(fixture.track.id))
+        .unwrap();
     let current = fixture.play_operation();
     fixture.stream.play(&lease, current).unwrap();
     fixture.stream.pause(&lease, pause).unwrap();
@@ -432,10 +512,15 @@ fn superseded_control_operations_do_not_write_or_relabel_acknowledgments() {
     assert!(fixture.stream.poll().is_none()); // Same state, stale operation.
     assert!(fixture.memory.lock().unwrap().accepted.is_empty());
     fixture.acknowledge(&lease, current, OutputState::Running);
-    assert!(matches!(fixture.stream.poll(), Some(BackendEvent::Started { operation, .. })
-        if operation == current));
+    assert!(
+        matches!(fixture.stream.poll(), Some(BackendEvent::Started { operation, .. })
+        if operation == current)
+    );
     assert!(fixture.stream.poll().is_none());
-    assert_eq!(fixture.memory.lock().unwrap().accepted, vec![[0.1, -0.2], [0.3, -0.4]]);
+    assert_eq!(
+        fixture.memory.lock().unwrap().accepted,
+        vec![[0.1, -0.2], [0.3, -0.4]]
+    );
 }
 
 #[test]
@@ -446,7 +531,10 @@ fn invalid_initial_pcm_and_empty_source_fail_without_ready_or_output() {
         block(&[[f32::NAN, 0.0]]),
         block(&[[0.0, f32::INFINITY]]),
         block(&vec![[0.1, -0.1]; MAX_BUFFER_FRAMES + 1]),
-        DecodedRead::Frames { sample_rate: 0, frames: vec![[0.1, -0.1]] },
+        DecodedRead::Frames {
+            sample_rate: 0,
+            frames: vec![[0.1, -0.1]],
+        },
     ];
     for read in bad_reads {
         let mut fixture = Fixture::new(vec![read]);
@@ -464,7 +552,10 @@ fn rate_change_is_terminal_and_never_reinterprets_the_second_block() {
     let first = [[0.1, -0.3]];
     let mut fixture = Fixture::new(vec![
         block(&first),
-        DecodedRead::Frames { sample_rate: 48_000, frames: vec![[0.6, -0.8]] },
+        DecodedRead::Frames {
+            sample_rate: 48_000,
+            frames: vec![[0.6, -0.8]],
+        },
     ]);
     let lease = fixture.start();
     assert!(fixture.stream.poll().is_none());
@@ -481,7 +572,12 @@ fn zero_and_overreported_writes_are_failures_while_pending_is_backpressure() {
     for count in [0, 3] {
         let mut fixture = Fixture::new(vec![block(&[[0.1, -0.1], [0.2, -0.2]])]);
         let lease = fixture.start();
-        fixture.memory.lock().unwrap().writes.push_back(Ok(OutputWrite::Written(count)));
+        fixture
+            .memory
+            .lock()
+            .unwrap()
+            .writes
+            .push_back(Ok(OutputWrite::Written(count)));
         fixture.failure(lease.generation());
         let memory = fixture.memory.lock().unwrap();
         assert!(memory.accepted.is_empty());
@@ -509,7 +605,10 @@ fn output_creation_start_state_and_write_errors_fail_without_false_completion() 
         let ready = fixture.stream.poll().unwrap();
         fixture.deliver(ready);
         fixture.memory.lock().unwrap().fault = Some(fault);
-        fixture.stream.play(&lease, fixture.play_operation()).unwrap();
+        fixture
+            .stream
+            .play(&lease, fixture.play_operation())
+            .unwrap();
         fixture.acknowledge(&lease, fixture.play_operation(), OutputState::Running);
         if fault == "write" {
             let started = fixture.stream.poll().unwrap();
@@ -528,24 +627,46 @@ fn a_full_bounded_block_is_retained_during_backpressure_and_pause() {
         .collect();
     let mut fixture = Fixture::new(vec![block(&frames), block(&[[0.75, -0.5]])]);
     let lease = fixture.start();
-    fixture.memory.lock().unwrap().writes.push_back(Ok(OutputWrite::Pending));
+    fixture
+        .memory
+        .lock()
+        .unwrap()
+        .writes
+        .push_back(Ok(OutputWrite::Pending));
     assert!(fixture.stream.poll().is_none());
     assert_eq!(fixture.stream.buffered_frames(), MAX_BUFFER_FRAMES);
     let pause = fixture.pause(&lease);
     fixture.acknowledge(&lease, pause, OutputState::Paused);
     let paused = fixture.stream.poll().unwrap();
     fixture.deliver(paused);
-    for _ in 0..3 { assert!(fixture.stream.poll().is_none()); }
-    assert_eq!(fixture.memory.lock().unwrap().read_limits, vec![MAX_BUFFER_FRAMES]);
+    for _ in 0..3 {
+        assert!(fixture.stream.poll().is_none());
+    }
+    assert_eq!(
+        fixture.memory.lock().unwrap().read_limits,
+        vec![MAX_BUFFER_FRAMES]
+    );
     assert!(fixture.memory.lock().unwrap().accepted.is_empty());
-    fixture.controller.dispatch(PlaybackCommand::Play(fixture.track.id)).unwrap();
-    fixture.stream.play(&lease, fixture.play_operation()).unwrap();
+    fixture
+        .controller
+        .dispatch(PlaybackCommand::Play(fixture.track.id))
+        .unwrap();
+    fixture
+        .stream
+        .play(&lease, fixture.play_operation())
+        .unwrap();
     fixture.acknowledge(&lease, fixture.play_operation(), OutputState::Running);
-    assert!(matches!(fixture.stream.poll(), Some(BackendEvent::Started { .. })));
+    assert!(matches!(
+        fixture.stream.poll(),
+        Some(BackendEvent::Started { .. })
+    ));
     assert!(fixture.stream.poll().is_none());
     assert_eq!(fixture.memory.lock().unwrap().accepted, frames);
     assert_eq!(fixture.stream.buffered_frames(), 0);
-    assert_eq!(fixture.memory.lock().unwrap().read_limits, vec![MAX_BUFFER_FRAMES]);
+    assert_eq!(
+        fixture.memory.lock().unwrap().read_limits,
+        vec![MAX_BUFFER_FRAMES]
+    );
 }
 
 #[test]

@@ -134,8 +134,14 @@ impl Fixture {
 fn construction_queue_and_selection_do_not_open_or_start_a_source() {
     let mut fixture = Fixture::new();
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Stopped);
-    fixture.controller.dispatch(PlaybackCommand::Select(fixture.queue[2].id)).unwrap();
-    assert_eq!(fixture.controller.snapshot().selected, Some(fixture.queue[2].id));
+    fixture
+        .controller
+        .dispatch(PlaybackCommand::Select(fixture.queue[2].id))
+        .unwrap();
+    assert_eq!(
+        fixture.controller.snapshot().selected,
+        Some(fixture.queue[2].id)
+    );
     let state = fixture.backend.lock().unwrap();
     assert!(state.loads.is_empty());
     assert!(state.plays.is_empty());
@@ -147,20 +153,37 @@ fn construction_queue_and_selection_do_not_open_or_start_a_source() {
 #[test]
 fn explicit_play_id_and_acknowledgments_control_visible_playing_state() {
     let mut fixture = Fixture::new();
-    fixture.controller.dispatch(PlaybackCommand::Select(fixture.queue[0].id)).unwrap();
-    fixture.controller.dispatch(PlaybackCommand::Play(fixture.queue[2].id)).unwrap();
+    fixture
+        .controller
+        .dispatch(PlaybackCommand::Select(fixture.queue[0].id))
+        .unwrap();
+    fixture
+        .controller
+        .dispatch(PlaybackCommand::Play(fixture.queue[2].id))
+        .unwrap();
     let lease = fixture.lease();
-    assert_eq!(fixture.controller.snapshot().selected, Some(fixture.queue[2].id));
+    assert_eq!(
+        fixture.controller.snapshot().selected,
+        Some(fixture.queue[2].id)
+    );
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Loading);
     assert!(!lease.may_output());
-    fixture.event(BackendEvent::Started { generation: lease.generation(), operation: 0 });
+    fixture.event(BackendEvent::Started {
+        generation: lease.generation(),
+        operation: 0,
+    });
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Loading);
-    fixture.event(BackendEvent::Ready { generation: lease.generation() });
+    fixture.event(BackendEvent::Ready {
+        generation: lease.generation(),
+    });
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Starting);
     let operation = fixture.operation();
     assert!(lease.is_current(operation));
     assert!(lease.may_output());
-    fixture.event(BackendEvent::Started { generation: lease.generation(), operation });
+    fixture.event(BackendEvent::Started {
+        generation: lease.generation(),
+        operation,
+    });
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Playing);
 }
 
@@ -169,8 +192,18 @@ fn unknown_play_or_select_preserves_the_active_session() {
     let mut fixture = Fixture::new();
     let lease = fixture.start(1);
     let before = fixture.controller.snapshot();
-    assert!(fixture.controller.dispatch(PlaybackCommand::Select(Uuid::nil())).is_err());
-    assert!(fixture.controller.dispatch(PlaybackCommand::Play(Uuid::nil())).is_err());
+    assert!(
+        fixture
+            .controller
+            .dispatch(PlaybackCommand::Select(Uuid::nil()))
+            .is_err()
+    );
+    assert!(
+        fixture
+            .controller
+            .dispatch(PlaybackCommand::Play(Uuid::nil()))
+            .is_err()
+    );
     assert_eq!(fixture.controller.snapshot(), before);
     assert!(!lease.is_cancelled());
     assert!(lease.may_output());
@@ -179,15 +212,23 @@ fn unknown_play_or_select_preserves_the_active_session() {
 #[test]
 fn pause_during_loading_cancels_then_explicit_play_uses_a_new_generation() {
     let mut fixture = Fixture::new();
-    fixture.controller.dispatch(PlaybackCommand::Play(fixture.queue[0].id)).unwrap();
+    fixture
+        .controller
+        .dispatch(PlaybackCommand::Play(fixture.queue[0].id))
+        .unwrap();
     let old = fixture.lease();
     fixture.controller.dispatch(PlaybackCommand::Pause).unwrap();
     assert!(old.is_cancelled());
     assert!(!old.may_output());
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Paused);
-    fixture.event(BackendEvent::Ready { generation: old.generation() });
+    fixture.event(BackendEvent::Ready {
+        generation: old.generation(),
+    });
     assert!(fixture.backend.lock().unwrap().plays.is_empty());
-    fixture.controller.dispatch(PlaybackCommand::Play(fixture.queue[0].id)).unwrap();
+    fixture
+        .controller
+        .dispatch(PlaybackCommand::Play(fixture.queue[0].id))
+        .unwrap();
     assert_ne!(fixture.lease().generation(), old.generation());
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Loading);
 }
@@ -195,12 +236,20 @@ fn pause_during_loading_cancels_then_explicit_play_uses_a_new_generation() {
 #[test]
 fn pause_during_starting_revokes_the_unacknowledged_play() {
     let mut fixture = Fixture::new();
-    fixture.controller.dispatch(PlaybackCommand::Play(fixture.queue[0].id)).unwrap();
+    fixture
+        .controller
+        .dispatch(PlaybackCommand::Play(fixture.queue[0].id))
+        .unwrap();
     let lease = fixture.lease();
-    fixture.event(BackendEvent::Ready { generation: lease.generation() });
+    fixture.event(BackendEvent::Ready {
+        generation: lease.generation(),
+    });
     let operation = fixture.operation();
     fixture.controller.dispatch(PlaybackCommand::Pause).unwrap();
-    fixture.event(BackendEvent::Started { generation: lease.generation(), operation });
+    fixture.event(BackendEvent::Started {
+        generation: lease.generation(),
+        operation,
+    });
     assert!(lease.is_cancelled());
     assert!(!lease.is_current(operation));
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Paused);
@@ -216,14 +265,26 @@ fn reordered_pause_and_resume_acknowledgments_cannot_override_latest_intent() {
     assert!(!lease.is_current(old_play));
     assert!(!lease.may_output());
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Pausing);
-    fixture.controller.dispatch(PlaybackCommand::Play(fixture.queue[0].id)).unwrap();
+    fixture
+        .controller
+        .dispatch(PlaybackCommand::Play(fixture.queue[0].id))
+        .unwrap();
     let resumed = fixture.operation();
     assert_ne!(resumed, pause);
     assert!(!lease.is_current(pause));
-    fixture.event(BackendEvent::Paused { generation: lease.generation(), operation: pause });
-    fixture.event(BackendEvent::Started { generation: lease.generation(), operation: old_play });
+    fixture.event(BackendEvent::Paused {
+        generation: lease.generation(),
+        operation: pause,
+    });
+    fixture.event(BackendEvent::Started {
+        generation: lease.generation(),
+        operation: old_play,
+    });
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Starting);
-    fixture.event(BackendEvent::Started { generation: lease.generation(), operation: resumed });
+    fixture.event(BackendEvent::Started {
+        generation: lease.generation(),
+        operation: resumed,
+    });
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Playing);
     assert_eq!(fixture.backend.lock().unwrap().loads.len(), 1);
 }
@@ -238,13 +299,29 @@ fn stop_revokes_before_release_and_all_late_completions_are_ignored() {
     assert!(lease.is_cancelled());
     assert!(!lease.may_output());
     assert!(!lease.is_current(operation));
-    assert_eq!(fixture.backend.lock().unwrap().releases, vec![(lease.generation(), true)]);
+    assert_eq!(
+        fixture.backend.lock().unwrap().releases,
+        vec![(lease.generation(), true)]
+    );
     for event in [
-        BackendEvent::Ready { generation: lease.generation() },
-        BackendEvent::Started { generation: lease.generation(), operation },
-        BackendEvent::Paused { generation: lease.generation(), operation },
-        BackendEvent::Ended { generation: lease.generation() },
-        BackendEvent::Failed { generation: lease.generation(), error: "late failure".into() },
+        BackendEvent::Ready {
+            generation: lease.generation(),
+        },
+        BackendEvent::Started {
+            generation: lease.generation(),
+            operation,
+        },
+        BackendEvent::Paused {
+            generation: lease.generation(),
+            operation,
+        },
+        BackendEvent::Ended {
+            generation: lease.generation(),
+        },
+        BackendEvent::Failed {
+            generation: lease.generation(),
+            error: "late failure".into(),
+        },
     ] {
         fixture.event(event);
         assert_eq!(fixture.controller.snapshot(), before);
@@ -254,22 +331,39 @@ fn stop_revokes_before_release_and_all_late_completions_are_ignored() {
 #[test]
 fn ordered_navigation_has_no_wrap_and_only_active_play_intent_continues() {
     let mut fixture = Fixture::new();
-    assert!(fixture.controller.dispatch(PlaybackCommand::Previous).is_err());
+    assert!(
+        fixture
+            .controller
+            .dispatch(PlaybackCommand::Previous)
+            .is_err()
+    );
     fixture.controller.dispatch(PlaybackCommand::Next).unwrap();
-    assert_eq!(fixture.controller.snapshot().selected, Some(fixture.queue[1].id));
+    assert_eq!(
+        fixture.controller.snapshot().selected,
+        Some(fixture.queue[1].id)
+    );
     assert!(fixture.backend.lock().unwrap().loads.is_empty());
     let lease = fixture.start(1);
     fixture.controller.dispatch(PlaybackCommand::Next).unwrap();
     assert!(lease.is_cancelled());
-    assert_eq!(fixture.controller.snapshot().selected, Some(fixture.queue[2].id));
+    assert_eq!(
+        fixture.controller.snapshot().selected,
+        Some(fixture.queue[2].id)
+    );
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Loading);
     let before = fixture.controller.snapshot();
     assert!(fixture.controller.dispatch(PlaybackCommand::Next).is_err());
     assert_eq!(fixture.controller.snapshot(), before);
     fixture.controller.dispatch(PlaybackCommand::Pause).unwrap();
     let loads = fixture.backend.lock().unwrap().loads.len();
-    fixture.controller.dispatch(PlaybackCommand::Previous).unwrap();
-    assert_eq!(fixture.controller.snapshot().selected, Some(fixture.queue[1].id));
+    fixture
+        .controller
+        .dispatch(PlaybackCommand::Previous)
+        .unwrap();
+    assert_eq!(
+        fixture.controller.snapshot().selected,
+        Some(fixture.queue[1].id)
+    );
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Paused);
     assert_eq!(fixture.backend.lock().unwrap().loads.len(), loads);
 }
@@ -280,24 +374,42 @@ fn eos_uses_session_identity_across_pause_resume_and_stops_at_queue_end() {
     let first = fixture.start(1);
     fixture.controller.dispatch(PlaybackCommand::Pause).unwrap();
     let pause = fixture.backend.lock().unwrap().pauses.last().unwrap().1;
-    fixture.event(BackendEvent::Paused { generation: first.generation(), operation: pause });
-    fixture.controller.dispatch(PlaybackCommand::Play(fixture.queue[1].id)).unwrap();
+    fixture.event(BackendEvent::Paused {
+        generation: first.generation(),
+        operation: pause,
+    });
+    fixture
+        .controller
+        .dispatch(PlaybackCommand::Play(fixture.queue[1].id))
+        .unwrap();
     fixture.event(BackendEvent::Started {
         generation: first.generation(),
         operation: fixture.operation(),
     });
-    fixture.event(BackendEvent::Ended { generation: first.generation() });
+    fixture.event(BackendEvent::Ended {
+        generation: first.generation(),
+    });
     assert!(first.is_cancelled());
-    assert_eq!(fixture.controller.snapshot().selected, Some(fixture.queue[2].id));
+    assert_eq!(
+        fixture.controller.snapshot().selected,
+        Some(fixture.queue[2].id)
+    );
     let last = fixture.lease();
-    fixture.event(BackendEvent::Ready { generation: last.generation() });
+    fixture.event(BackendEvent::Ready {
+        generation: last.generation(),
+    });
     fixture.event(BackendEvent::Started {
         generation: last.generation(),
         operation: fixture.operation(),
     });
-    fixture.event(BackendEvent::Ended { generation: last.generation() });
+    fixture.event(BackendEvent::Ended {
+        generation: last.generation(),
+    });
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Stopped);
-    assert_eq!(fixture.controller.snapshot().selected, Some(fixture.queue[2].id));
+    assert_eq!(
+        fixture.controller.snapshot().selected,
+        Some(fixture.queue[2].id)
+    );
     assert_eq!(fixture.backend.lock().unwrap().loads.len(), 2);
 }
 
@@ -306,9 +418,14 @@ fn eos_while_pause_is_pending_does_not_autoadvance() {
     let mut fixture = Fixture::new();
     let lease = fixture.start(0);
     fixture.controller.dispatch(PlaybackCommand::Pause).unwrap();
-    fixture.event(BackendEvent::Ended { generation: lease.generation() });
+    fixture.event(BackendEvent::Ended {
+        generation: lease.generation(),
+    });
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Stopped);
-    assert_eq!(fixture.controller.snapshot().selected, Some(fixture.queue[0].id));
+    assert_eq!(
+        fixture.controller.snapshot().selected,
+        Some(fixture.queue[0].id)
+    );
     assert_eq!(fixture.backend.lock().unwrap().loads.len(), 1);
 }
 
@@ -317,28 +434,53 @@ fn eos_advance_preserves_a_next_source_failure_instead_of_reporting_normal_stop(
     let mut fixture = Fixture::new();
     let previous = fixture.start(0);
     fixture.backend.lock().unwrap().fail_load = true;
-    fixture.event(BackendEvent::Ended { generation: previous.generation() });
+    fixture.event(BackendEvent::Ended {
+        generation: previous.generation(),
+    });
     assert!(previous.is_cancelled());
     assert!(fixture.lease().is_cancelled());
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Faulted);
-    assert_eq!(fixture.controller.snapshot().selected, Some(fixture.queue[1].id));
-    assert_eq!(fixture.controller.snapshot().problem.as_deref(), Some("fixture decode failure"));
+    assert_eq!(
+        fixture.controller.snapshot().selected,
+        Some(fixture.queue[1].id)
+    );
+    assert_eq!(
+        fixture.controller.snapshot().problem.as_deref(),
+        Some("fixture decode failure")
+    );
 }
 
 #[test]
 fn load_failure_and_current_disconnect_fail_closed_then_allow_explicit_retry() {
     let mut fixture = Fixture::new();
     fixture.backend.lock().unwrap().fail_load = true;
-    assert!(fixture.controller.dispatch(PlaybackCommand::Play(fixture.queue[0].id)).is_err());
+    assert!(
+        fixture
+            .controller
+            .dispatch(PlaybackCommand::Play(fixture.queue[0].id))
+            .is_err()
+    );
     let failed = fixture.lease();
     assert!(failed.is_cancelled());
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Faulted);
     fixture.backend.lock().unwrap().fail_load = false;
     let live = fixture.start(0);
-    fixture.event(BackendEvent::Failed { generation: live.generation(), error: "x".repeat(900) });
+    fixture.event(BackendEvent::Failed {
+        generation: live.generation(),
+        error: "x".repeat(900),
+    });
     assert!(live.is_cancelled());
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Faulted);
-    assert_eq!(fixture.controller.snapshot().problem.unwrap().chars().count(), 512);
+    assert_eq!(
+        fixture
+            .controller
+            .snapshot()
+            .problem
+            .unwrap()
+            .chars()
+            .count(),
+        512
+    );
     let retry = fixture.start(0);
     assert_ne!(retry.generation(), live.generation());
     assert!(fixture.controller.snapshot().problem.is_none());
@@ -351,7 +493,10 @@ fn play_or_pause_request_failure_revokes_the_source() {
         let lease = if during_pause {
             fixture.start(0)
         } else {
-            fixture.controller.dispatch(PlaybackCommand::Play(fixture.queue[0].id)).unwrap();
+            fixture
+                .controller
+                .dispatch(PlaybackCommand::Play(fixture.queue[0].id))
+                .unwrap();
             fixture.lease()
         };
         if during_pause {
@@ -359,7 +504,9 @@ fn play_or_pause_request_failure_revokes_the_source() {
             assert!(fixture.controller.dispatch(PlaybackCommand::Pause).is_err());
         } else {
             fixture.backend.lock().unwrap().fail_play = true;
-            fixture.event(BackendEvent::Ready { generation: lease.generation() });
+            fixture.event(BackendEvent::Ready {
+                generation: lease.generation(),
+            });
         }
         assert!(lease.is_cancelled());
         assert!(!lease.may_output());
@@ -379,7 +526,10 @@ fn ordinary_reorder_preserves_session_but_removed_or_changed_source_cancels() {
     reordered.remove(0);
     fixture.controller.reconcile_queue(&reordered).unwrap();
     assert!(first.is_cancelled());
-    assert_eq!(fixture.controller.snapshot().selected, Some(fixture.queue[0].id));
+    assert_eq!(
+        fixture.controller.snapshot().selected,
+        Some(fixture.queue[0].id)
+    );
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Stopped);
     fixture.start(0);
     let second = fixture.lease();
@@ -398,7 +548,10 @@ fn explicit_playlist_replacement_cancels_even_overlapping_ids_without_autoplay()
     saved.reverse();
     fixture.controller.replace_queue(&saved).unwrap();
     assert!(lease.is_cancelled());
-    assert_eq!(fixture.controller.snapshot().selected, Some(fixture.queue[1].id));
+    assert_eq!(
+        fixture.controller.snapshot().selected,
+        Some(fixture.queue[1].id)
+    );
     assert_eq!(fixture.controller.snapshot().state, PlaybackState::Stopped);
     assert_eq!(fixture.backend.lock().unwrap().loads.len(), 1);
 }
@@ -424,7 +577,11 @@ fn unavailable_shutdown_and_drop_never_leave_a_live_lease() {
     let mut unavailable = PlaybackController::unavailable();
     assert!(!unavailable.snapshot().available);
     assert_eq!(unavailable.snapshot().state, PlaybackState::Unavailable);
-    assert!(unavailable.dispatch(PlaybackCommand::Play(Uuid::nil())).is_err());
+    assert!(
+        unavailable
+            .dispatch(PlaybackCommand::Play(Uuid::nil()))
+            .is_err()
+    );
     unavailable.dispatch(PlaybackCommand::Stop).unwrap();
     for shutdown in [false, true] {
         let mut fixture = Fixture::new();
@@ -432,12 +589,20 @@ fn unavailable_shutdown_and_drop_never_leave_a_live_lease() {
         if shutdown {
             fixture.controller.shutdown();
             assert!(!fixture.controller.snapshot().available);
-            assert!(fixture.controller.dispatch(PlaybackCommand::Play(fixture.queue[0].id)).is_err());
+            assert!(
+                fixture
+                    .controller
+                    .dispatch(PlaybackCommand::Play(fixture.queue[0].id))
+                    .is_err()
+            );
             assert!(!fixture.controller.poll());
         }
         drop(fixture.controller);
         assert!(lease.is_cancelled());
         assert!(!lease.may_output());
-        assert_eq!(fixture.backend.lock().unwrap().releases, vec![(lease.generation(), true)]);
+        assert_eq!(
+            fixture.backend.lock().unwrap().releases,
+            vec![(lease.generation(), true)]
+        );
     }
 }

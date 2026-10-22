@@ -348,7 +348,10 @@ impl eframe::App for DesktopApp {
                 if !self.options.synthetic
                     && self.service.snapshot().music.available
                     && let Some(paths) = rfd::FileDialog::new()
-                        .add_filter("Local music files", &["wav", "mp3", "flac", "ogg", "m4a", "aac"])
+                        .add_filter(
+                            "Local music files",
+                            &["wav", "mp3", "flac", "ogg", "m4a", "aac"],
+                        )
                         .pick_files()
                     && let Err(error) = self
                         .service

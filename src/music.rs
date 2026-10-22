@@ -305,7 +305,10 @@ fn validate_path(path: &Path) -> Result<(), String> {
         || text.len() > MAX_PATH_BYTES
         || text.chars().any(char::is_control)
     {
-        return Err("Choose an absolute track filename of at most 4096 bytes without control characters".into());
+        return Err(
+            "Choose an absolute track filename of at most 4096 bytes without control characters"
+                .into(),
+        );
     }
     Ok(())
 }
@@ -317,7 +320,9 @@ fn read_catalog_bytes(path: &Path) -> Result<Option<Vec<u8>>, String> {
         Err(error) => return Err(format!("Could not inspect music metadata: {error}")),
     };
     if !metadata.file_type().is_file() {
-        return Err("Music metadata must be a regular file, not a directory or symbolic link".into());
+        return Err(
+            "Music metadata must be a regular file, not a directory or symbolic link".into(),
+        );
     }
     let mut bytes = Vec::new();
     File::open(path)
