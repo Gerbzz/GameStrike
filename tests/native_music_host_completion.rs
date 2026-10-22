@@ -31,7 +31,9 @@ fn wait_workers() {
 fn serial() -> MutexGuard<'static, ()> {
     // This mutex carries no fixture data. Keep serialization after an earlier
     // test panic so its real failure does not mask independent decoder results.
-    let guard = TESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let guard = TESTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     wait_workers();
     guard
 }
