@@ -292,15 +292,13 @@ impl eframe::App for DesktopApp {
             let import = ctx.input(|input| {
                 input.focused && input.modifiers.command && input.key_pressed(egui::Key::O)
             });
-            if import {
-                if let Some(path) = rfd::FileDialog::new()
+            if import
+                && let Some(path) = rfd::FileDialog::new()
                     .add_filter("HTML games or ZIP archives", &["html", "htm", "zip"])
                     .pick_file()
-                {
-                    if let Err(error) = self.service.dispatch(AppCommand::Import(path)) {
-                        self.service.report_problem(error);
-                    }
-                }
+                && let Err(error) = self.service.dispatch(AppCommand::Import(path))
+            {
+                self.service.report_problem(error);
             }
             let dropped = ctx.input(|input| {
                 input

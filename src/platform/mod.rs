@@ -36,8 +36,8 @@ impl DesktopHost for SystemHost {
                 args,
                 working_dir,
             } => {
-                if !path.is_file()
-                    && !(cfg!(target_os = "macos")
+                if !(path.is_file()
+                    || cfg!(target_os = "macos")
                         && path.is_dir()
                         && path.extension().is_some_and(|ext| ext == "app"))
                 {
@@ -229,10 +229,10 @@ fn drain_errors(mut pipe: Box<dyn Read + Send>, error: Arc<Mutex<Option<String>>
 
 fn record_error(line: &[u8], error: &Mutex<Option<String>>) {
     let text = String::from_utf8_lossy(line);
-    if let Some(detail) = text.strip_prefix("Error: ") {
-        if let Ok(mut error) = error.lock() {
-            *error = Some(detail.chars().take(240).collect());
-        }
+    if let Some(detail) = text.strip_prefix("Error: ")
+        && let Ok(mut error) = error.lock()
+    {
+        *error = Some(detail.chars().take(240).collect());
     }
 }
 

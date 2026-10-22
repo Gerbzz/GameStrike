@@ -20,7 +20,7 @@ The run remains failed: five of 16 native visual contracts discarded unapplied t
 
 Pixel inspection found a runner-pointer tooltip over the captured library. Capture mode now neutralizes only interaction events while preserving real framebuffer replies and viewport/DPI metadata. Normal interactive input is unchanged. The single PWDS design also pins native popup styling to dark, with an OS-light-theme regression contract. These fixes still require the fresh native run.
 
-Cargo generated the new dependency lock on hosted Rust 1.96.1. Independent review verified its hashes, all patch hunks, preservation of existing package versions/checksums and the expected native dependency graph. The lock must be committed and validated again before exact-source acceptance; a resolved candidate cannot make the initial run green. Matched eframe/egui-wgpu 0.36.2 use wgpu 30 through the reexport.
+Cargo generated the new dependency lock on hosted Rust 1.96.1. Independent review verified its hashes, all patch hunks, preservation of existing package versions/checksums and the expected native dependency graph. The reviewed lock is committed at 39e985a; final repaired-source acceptance still requires a passing run. A resolved candidate cannot make the initial run green. Matched eframe/egui-wgpu 0.36.2 use wgpu 30 through the reexport.
 
 Required hosted checks remain:
 
@@ -34,8 +34,7 @@ cargo clippy --locked --no-default-features --features native-ui --bin gamestrik
 cargo build --locked --release --no-default-features --features native-ui --bin gamestrike-desktop -j 2
 ```
 
-These commands are instructions for a separately authorized runner, not a report of
-execution. The cross-platform workflow now declares hosted lock-resolution and Windows native build/test/capture jobs. Publication and actual run results must be recorded separately; wiring alone is not compilation evidence.
+The workflow runs these commands on hosted runners. The initial diagnostic results above and repair run [39703364559](https://github.com/Gerbzz/GameStrike/actions/runs/39703364559) establish actual execution; the latter passes native contracts and formatting but still reports four desktop/adapter Clippy warnings. Final repaired-head results must be checked separately.
 
 Observed local checks: 15 pure PowerShell metadata contracts passed after a negative
 control exposed acceptance of a NaN pose; finite-number and boolean checks correct it.
@@ -49,7 +48,7 @@ Set `GAMESTRIKE_SOURCE_SHA` to the exact checked-out commit **at compile time**.
 `scripts/capture-native.ps1` is a prepared Windows hosted-runner harness. It requires
 the new native executable under that checkout's `target/release`, enforces process
 timeouts/nonzero exits, and rejects missing screenshots/metadata or mismatched source
-identity. It cannot run outside its explicit hosted-CI guard. Successful native execution of this harness has not been established.
+identity. It cannot run outside its explicit hosted-CI guard. All nine cases executed successfully in the initial diagnostic run; that run's other failures still prevent overall acceptance.
 
 The executable uses egui's real window framebuffer screenshot event. It waits for
 generated synthetic collection data, texture preparation and a recorded wgpu callback,
