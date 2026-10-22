@@ -27,6 +27,8 @@ player = [
 launcher = ["player"]
 # Rust-rendered desktop shell; independent of the optional HTML-game player/WebView runtime.
 native-ui = ["dep:eframe", "dep:egui-wgpu", "dep:rfd", "dep:windows-sys", "dep:gamestrike-audio-core"]
+# Proposed Windows decoder/output host; never enabled by default.
+native-music-host = ["native-ui", "dep:cpal", "dep:symphonia"]
 # Platform-named aliases. `launcher-windows` and `player-windows` keep existing commands working.
 player-windows = ["player"]
 launcher-windows = ["launcher"]
@@ -55,6 +57,9 @@ wry = { version = "=0.57.0", default-features = false, features = ["os-webview",
 tao = { version = "=0.37.1", optional = true }
 
 [target.'cfg(windows)'.dependencies]
+# Optional concrete music host; no ASIO/JACK or provider integration.
+cpal = { version = "=0.16.0", default-features = false, optional = true }
+symphonia = { version = "=0.5.5", default-features = false, features = ["wav", "pcm", "mp3", "flac"], optional = true }
 # Registry reading and ShellExecuteW are for the store library scanners and store launches.
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Controls_Dialogs", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"], optional = true }
 windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_UI_Shell"], optional = true }

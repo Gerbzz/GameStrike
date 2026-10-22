@@ -1,6 +1,7 @@
 use super::{AppSnapshot, CatalogBackend, CoverImage, GameCard, GameId, LaunchOutcome};
 use crate::{
     Library,
+    music::{MusicCommand, MusicSnapshot, MusicStore},
     stores::{Launch, StoreLibrary},
 };
 use std::{
@@ -21,6 +22,7 @@ pub struct LibraryBackend<H: DesktopHost> {
     library: Library,
     stores: StoreLibrary,
     host: H,
+    music: Result<MusicStore, String>,
 }
 
 impl<H: DesktopHost> LibraryBackend<H> {
@@ -28,11 +30,14 @@ impl<H: DesktopHost> LibraryBackend<H> {
         let library = Library::open(&root).map_err(|error| error.to_string())?;
         let stores = StoreLibrary::open(&root).map_err(|error| error.to_string())?;
         let root = std::fs::canonicalize(root).map_err(|error| error.to_string())?;
+        // A damaged music manifest disables only Music, preserving the game collection.
+        let music = MusicStore::open(&root);
         Ok(Self {
             root,
             library,
             stores,
             host,
+            music,
         })
     }
 }
@@ -85,6 +90,13 @@ impl<H: DesktopHost> CatalogBackend for LibraryBackend<H> {
         });
         Ok(AppSnapshot {
             games,
+            music: match &self.music {
+                Ok(store) => store.snapshot(),
+                Err(error) => MusicSnapshot {
+                    problem: Some(format!("Music could not be read: {error}")),
+                    ..Default::default()
+                },
+            },
             problems: scan.problems,
             running: BTreeSet::new(),
             refreshing: false,
@@ -94,6 +106,13 @@ impl<H: DesktopHost> CatalogBackend for LibraryBackend<H> {
 
     fn refresh(&mut self) -> Result<(), String> {
         self.host.refresh_stores(&self.stores)
+    }
+
+    fn update_music(&mut self, command: MusicCommand) -> Result<MusicSnapshot, String> {
+        self.music
+            .as_mut()
+            .map_err(|error| error.clone())?
+            .apply(command)
     }
 
     fn import(&mut self, source: &Path) -> Result<(), String> {

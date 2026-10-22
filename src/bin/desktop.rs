@@ -7,6 +7,7 @@ mod platform;
 use eframe::egui;
 use gamestrike::{
     application::{AppCommand, CatalogBackend, LauncherService, LibraryBackend},
+    music::{MusicCommand, playback::PlaybackCommand, service::PlaybackService},
     native_capture::{DesktopOptions, isolate_capture_input, validate_pixels, validate_viewport},
     native_ui::{NativeView, boot::BootPose},
 };
@@ -80,6 +81,9 @@ struct DesktopApp {
     options: DesktopOptions,
     view: NativeView,
     service: LauncherService,
+    playback: PlaybackService,
+    applied_music_revision: Option<u64>,
+    applied_music_replacement_revision: u64,
     started: Instant,
     skipped: bool,
     capture_frames: u8,
@@ -118,6 +122,11 @@ impl DesktopApp {
             options,
             view,
             service,
+            // A concrete decoder/output factory is not connected yet. Never attach
+            // the regression fixtures or open an audio device at app startup.
+            playback: PlaybackService::unavailable(),
+            applied_music_revision: None,
+            applied_music_replacement_revision: 0,
             started: Instant::now(),
             skipped: false,
             capture_frames: 0,
@@ -140,6 +149,45 @@ impl DesktopApp {
             self.options.reduced_motion,
             self.skipped || self.options.skip_boot,
         )
+    }
+
+    fn poll_services(&mut self) {
+        self.service.poll_events();
+        self.playback.poll_events();
+        if self.options.synthetic || !self.playback.snapshot().available {
+            return;
+        }
+        let music = &self.service.snapshot().music;
+        if !music.available {
+            if self.applied_music_revision.is_some() {
+                let _ = self.playback.dispatch(PlaybackCommand::Stop);
+                match self.playback.replace_queue(&[]) {
+                    Ok(()) => self.applied_music_revision = None,
+                    Err(error) => self.service.report_problem(error),
+                }
+            }
+            return;
+        }
+        if self.applied_music_revision == Some(music.revision) {
+            return;
+        }
+        let revision = music.revision;
+        let queue = music.queue.clone();
+        let replacement = self.service.music_replacement_revision();
+        let result = if self.applied_music_revision.is_none()
+            || self.applied_music_replacement_revision != replacement
+        {
+            self.playback.replace_queue(&queue)
+        } else {
+            self.playback.reconcile_queue(&queue)
+        };
+        match result {
+            Ok(()) => {
+                self.applied_music_revision = Some(revision);
+                self.applied_music_replacement_revision = replacement;
+            }
+            Err(error) => self.service.report_problem(error),
+        }
     }
 
     fn finish_capture(&mut self, ctx: &egui::Context, result: Result<(), String>) {
@@ -261,7 +309,7 @@ impl eframe::App for DesktopApp {
     }
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.service.poll_events();
+        self.poll_services();
         // eframe calls logic without ui while hidden. The acceptance deadline must still run.
         if self.options.capture.is_some() && !self.capture_finished {
             if self.started.elapsed() > Duration::from_secs(20) {
@@ -277,13 +325,39 @@ impl eframe::App for DesktopApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        self.service.poll_events();
+        self.poll_services();
         if ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
             self.skipped = true;
         }
         let pose = self.pose();
+        self.view.set_playback(self.playback.snapshot());
         let commands = self.view.show(&ctx, self.service.snapshot(), pose);
         for command in commands {
+            if let AppCommand::Playback(command) = &command {
+                let result = if self.options.synthetic {
+                    Err("Synthetic capture has no playback authority".into())
+                } else {
+                    self.playback.dispatch(command.clone())
+                };
+                if let Err(error) = result {
+                    self.service.report_problem(error);
+                }
+                continue;
+            }
+            if matches!(&command, AppCommand::ChooseMusicFiles) {
+                if !self.options.synthetic
+                    && self.service.snapshot().music.available
+                    && let Some(paths) = rfd::FileDialog::new()
+                        .add_filter("Local music files", &["wav", "mp3", "flac", "ogg", "m4a", "aac"])
+                        .pick_files()
+                    && let Err(error) = self
+                        .service
+                        .dispatch(AppCommand::Music(MusicCommand::AddTracks(paths)))
+                {
+                    self.service.report_problem(error);
+                }
+                continue;
+            }
             if let Err(error) = self.service.dispatch(command) {
                 self.service.report_problem(error);
             }
@@ -318,5 +392,13 @@ impl eframe::App for DesktopApp {
         if !pose.settled() && self.options.boot_time.is_none() && self.options.capture.is_none() {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
+    }
+}
+
+impl Drop for DesktopApp {
+    fn drop(&mut self) {
+        // Revoke before potentially slower renderer/catalog field destruction.
+        // The service owns its own shutdown; no device or worker join is done here.
+        let _ = self.playback.dispatch(PlaybackCommand::Stop);
     }
 }

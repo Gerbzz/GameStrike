@@ -3,6 +3,7 @@
 //! Import-only foundation. This crate never interprets imported HTML or JavaScript.
 
 pub mod application;
+pub mod music;
 pub mod native_capture;
 #[cfg(feature = "native-ui")]
 pub mod native_ui;

@@ -7,6 +7,7 @@ mod covers;
 pub mod geometry;
 mod gpu;
 mod mesh_geometry;
+pub mod music;
 mod navigation;
 mod paint;
 
@@ -47,6 +48,7 @@ pub struct NativeView {
     gpu: gpu::NativeGpu,
     covers: covers::Covers,
     logo: TextureHandle,
+    music: music::MusicPanel,
     section: usize,
     filter: usize,
     selected: Option<GameId>,
@@ -69,6 +71,7 @@ impl NativeView {
             gpu,
             covers: covers::Covers::default(),
             logo,
+            music: music::MusicPanel::default(),
             section: 0,
             filter: 0,
             selected: None,
@@ -81,6 +84,10 @@ impl NativeView {
 
     pub fn renderer_label(&self) -> String {
         self.gpu.label.clone()
+    }
+
+    pub fn set_playback(&mut self, playback: &crate::music::playback::PlaybackSnapshot) {
+        self.music.set_playback(playback);
     }
 
     /// True only after this exact content pose has prepared texture data and a
@@ -176,7 +183,20 @@ impl NativeView {
                 } else {
                     self.textures_prepared = true;
                     if pose.content > 0.0 {
-                        self.unavailable(&paint::faded(&p, pose.content), &g);
+                        if self.section == 3 {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(g.library), |ui| {
+                                ui.set_opacity(pose.content);
+                                commands.extend(self.music.show(
+                                    ui,
+                                    g.library,
+                                    g.scale,
+                                    &snapshot.music,
+                                    pose.settled(),
+                                ));
+                            });
+                        } else {
+                            self.unavailable(&paint::faded(&p, pose.content), &g);
+                        }
                     }
                 }
                 if pose.content > 0.0 {
@@ -206,7 +226,7 @@ impl NativeView {
                     );
                 }
                 let signature = format!(
-                    "{}|{}|{:?}|{}|{}|{:?}|{}|{}|{:?}",
+                    "{}|{}|{:?}|{}|{}|{:?}|{}|{}|{:?}|{}|{}|{:?}|{}|{:?}",
                     snapshot.revision,
                     snapshot.games.len(),
                     g.viewport,
@@ -215,7 +235,12 @@ impl NativeView {
                     self.selected,
                     self.scroll,
                     g.pixels_per_point,
-                    pose
+                    pose,
+                    snapshot.music.revision,
+                    snapshot.music.available,
+                    snapshot.music.problem,
+                    self.music.signature(),
+                    snapshot.problems,
                 );
                 if self.frame_signature != signature {
                     self.epoch = self.epoch.checked_add(1).unwrap_or(1);
@@ -266,7 +291,13 @@ impl NativeView {
             FontId::monospace(37.0 * g.scale.max(0.48)),
             Color32::from_rgb(245, 140, 57),
         );
-        let info = if snapshot.refreshing {
+        let info = if self.section == 3 {
+            format!(
+                "{} QUEUED  /  {} PLAYLISTS",
+                snapshot.music.queue.len(),
+                snapshot.music.playlists.len()
+            )
+        } else if snapshot.refreshing {
             "REFRESHING COLLECTION".to_owned()
         } else {
             format!(
@@ -350,6 +381,7 @@ impl NativeView {
                 }
             }
         }
+        let filters_enabled = enabled && self.section != 3;
         for (i, label) in FILTERS.iter().enumerate() {
             let rect = g.filters[i];
             let count = match i {
@@ -368,7 +400,7 @@ impl NativeView {
                 Id::new(("pwds.filter", i)),
                 label,
                 ControlState {
-                    enabled,
+                    enabled: filters_enabled,
                     selected: self.section == 0 && self.filter == i,
                 },
                 7.0 * g.scale,
@@ -384,7 +416,7 @@ impl NativeView {
                     MUTED
                 },
             );
-            if activated(ui, &response, rect, 7.0 * g.scale, enabled) {
+            if activated(ui, &response, rect, 7.0 * g.scale, filters_enabled) {
                 self.section = 0;
                 self.filter = i;
                 self.scroll = 0.0;
@@ -759,6 +791,30 @@ impl NativeView {
         enabled: bool,
         commands: &mut Vec<AppCommand>,
     ) {
+        if self.section == 3 {
+            let help = g.bottom.shrink2(vec2(12.0, 7.0) * g.scale);
+            let text = p.with_clip_rect(help);
+            text.text(
+                help.left_top(),
+                Align2::LEFT_TOP,
+                format!(
+                    "{} QUEUED  /  {} SAVED PLAYLISTS",
+                    snapshot.music.queue.len(),
+                    snapshot.music.playlists.len()
+                ),
+                FontId::monospace((20.0 * g.scale).max(11.0)),
+                LIGHT,
+            );
+            text.text(
+                help.left_bottom(),
+                Align2::LEFT_BOTTOM,
+                format!("QUEUE MANAGEMENT  /  {}", self.music.playback_status()),
+                FontId::monospace((13.0 * g.scale).max(9.0)),
+                MUTED,
+            );
+            self.problem_notice(ui, p, g, snapshot);
+            return;
+        }
         let selected = self
             .selected
             .as_ref()
@@ -874,6 +930,16 @@ impl NativeView {
         if activated(ui, &refresh, g.refresh, 7.0 * g.scale, can_refresh) {
             commands.push(AppCommand::Refresh);
         }
+        self.problem_notice(ui, p, g, snapshot);
+    }
+
+    fn problem_notice(
+        &self,
+        ui: &egui::Ui,
+        p: &Painter,
+        g: &Geometry,
+        snapshot: &AppSnapshot,
+    ) {
         if !snapshot.problems.is_empty() {
             let rect = Rect::from_min_size(
                 pos2(
@@ -887,8 +953,9 @@ impl NativeView {
                 rect.left_center() + vec2(5.0 * g.scale, 0.0),
                 Align2::LEFT_CENTER,
                 format!(
-                    "{} LIBRARY NOTICE(S): {}",
+                    "{} {} NOTICE(S): {}",
                     snapshot.problems.len(),
+                    if self.section == 3 { "MUSIC" } else { "LIBRARY" },
                     snapshot.problems[0]
                 ),
                 FontId::monospace((12.0 * g.scale).max(9.0)),

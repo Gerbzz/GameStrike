@@ -1,6 +1,7 @@
 //! Renderer-independent native application state. Only the worker owns filesystem/process hosts.
 mod library;
 pub use library::{DesktopHost, LibraryBackend};
+use crate::music::{MusicCommand, MusicSnapshot, playback::PlaybackCommand};
 
 use std::{
     collections::BTreeSet,
@@ -41,10 +42,12 @@ pub struct GameCard {
 #[derive(Clone, Debug, Default)]
 pub struct AppSnapshot {
     pub games: Vec<GameCard>,
+    pub music: MusicSnapshot,
     pub problems: Vec<String>,
     /// Tracked process/helper lifetimes and short delegated-link guards; not store game telemetry.
     pub running: BTreeSet<GameId>,
     pub refreshing: bool,
+    /// Catalog/cover revision. Music has its own revision and does not invalidate cover textures.
     pub revision: u64,
 }
 
@@ -54,6 +57,11 @@ pub enum AppCommand {
     Launch(GameId),
     ToggleFavorite(GameId, bool),
     Import(PathBuf),
+    Music(MusicCommand),
+    /// Intercepted by the dedicated desktop playback service, never the catalog worker.
+    Playback(PlaybackCommand),
+    /// An intent intercepted by the desktop host; workers never own file-picker authority.
+    ChooseMusicFiles,
 }
 
 /// A native/isolated-player process or OS handoff helper; not proof of a store game's lifetime.
@@ -75,6 +83,9 @@ pub trait CatalogBackend: Send {
     fn import(&mut self, source: &Path) -> Result<(), String>;
     fn set_favorite(&mut self, id: &GameId, favorite: bool) -> Result<(), String>;
     fn launch(&mut self, id: &GameId) -> Result<LaunchOutcome, String>;
+    fn update_music(&mut self, _command: MusicCommand) -> Result<MusicSnapshot, String> {
+        Err("Local music queue is unavailable".into())
+    }
 }
 
 enum Event {
@@ -83,6 +94,10 @@ enum Event {
         finishes_refresh: bool,
     },
     Ended(GameId, Result<(), String>),
+    Music {
+        result: Result<MusicSnapshot, String>,
+        replaces_queue: bool,
+    },
 }
 
 struct EventSender {
@@ -106,6 +121,7 @@ pub struct LauncherService {
     shutdown: Arc<AtomicBool>,
     service_problems: Vec<String>,
     catalog_problems: Vec<String>,
+    music_replacement_revision: u64,
 }
 
 impl LauncherService {
@@ -154,6 +170,7 @@ impl LauncherService {
             shutdown,
             service_problems: Vec::new(),
             catalog_problems: Vec::new(),
+            music_replacement_revision: 0,
         }
     }
 
@@ -215,11 +232,18 @@ impl LauncherService {
             shutdown: Arc::new(AtomicBool::new(false)),
             service_problems: Vec::new(),
             catalog_problems: Vec::new(),
+            music_replacement_revision: 0,
         }
     }
 
     pub fn snapshot(&self) -> &AppSnapshot {
         &self.snapshot
+    }
+
+    /// Advances only after a successful explicit playlist load, even when IDs overlap.
+    /// The dedicated transport uses this to distinguish replacement from ordinary edits.
+    pub fn music_replacement_revision(&self) -> u64 {
+        self.music_replacement_revision
     }
 
     pub fn report_problem(&mut self, message: String) {
@@ -243,6 +267,15 @@ impl LauncherService {
             .as_ref()
             .ok_or("Synthetic capture has no action authority")?;
         match &command {
+            AppCommand::ChooseMusicFiles => {
+                return Err("File selection belongs to the native desktop host".into());
+            }
+            AppCommand::Playback(_) => {
+                return Err("Playback belongs to the dedicated music service".into());
+            }
+            AppCommand::Music(_) if !self.snapshot.music.available => {
+                return Err("Local music queue is unavailable".into());
+            }
             AppCommand::Launch(id) => {
                 let game = self
                     .snapshot
@@ -290,6 +323,19 @@ impl LauncherService {
                 .and_then(|events| events.try_recv().ok());
             let Some(event) = event else { break };
             match event {
+                Event::Music {
+                    result: Ok(music),
+                    replaces_queue,
+                } => {
+                    if replaces_queue {
+                        self.music_replacement_revision =
+                            self.music_replacement_revision.wrapping_add(1);
+                    }
+                    self.snapshot.music = music;
+                }
+                Event::Music {
+                    result: Err(error), ..
+                } => self.report_problem(error),
                 Event::Snapshot {
                     result: Ok(mut snapshot),
                     finishes_refresh,
@@ -384,6 +430,22 @@ fn worker(
                     }
                 }
             }
+            Ok(AppCommand::Music(command)) => {
+                if shutdown.load(Ordering::Acquire) {
+                    return;
+                }
+                // Publish only committed music state. Queue edits never reload covers/catalogs.
+                let replaces_queue = matches!(&command, MusicCommand::LoadPlaylist(_));
+                if outgoing
+                    .send(Event::Music {
+                        result: backend.update_music(command),
+                        replaces_queue,
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+            }
             Ok(command) => {
                 if shutdown.load(Ordering::Acquire) {
                     return;
@@ -393,6 +455,11 @@ fn worker(
                     AppCommand::Refresh => backend.refresh(),
                     AppCommand::ToggleFavorite(id, favorite) => backend.set_favorite(&id, favorite),
                     AppCommand::Import(source) => backend.import(&source),
+                    AppCommand::ChooseMusicFiles => {
+                        Err("File selection is a desktop-only action".into())
+                    }
+                    AppCommand::Playback(_) => Err("Playback is a dedicated-service action".into()),
+                    AppCommand::Music(_) => unreachable!(),
                     AppCommand::Launch(_) => unreachable!(),
                 };
                 let snapshot = result.and_then(|()| backend.snapshot());

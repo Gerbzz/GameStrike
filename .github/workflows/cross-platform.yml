@@ -314,6 +314,8 @@ jobs:
             resolved_lock_sha256 = $lockHash
             lock_differs_from_checkout = ($env:LOCK_CHANGED -ceq 'true')
             validation_scope = 'hosted engineering validation; owned synthetic library and audio contracts'
+            music_host_validation_scope = 'feature-enabled build and Clippy; owned decoder fixtures and fake output driver; no device access'
+            native_release_features = 'native-music-host (includes native-ui); product playback backend remains unavailable'
             acceptance_gate = 'Review and commit any dependency/formatting proposals; rerun the new head. Human native pixel/motion review remains required.'
           } | ConvertTo-Json | Set-Content -LiteralPath ci-native-evidence/source.json -Encoding utf8
           rustc --version | Tee-Object -FilePath ci-native-evidence/logs/toolchain.log
@@ -338,6 +340,11 @@ jobs:
         run: |
           cargo test --locked --no-default-features --features native-ui --lib --tests --bin gamestrike-desktop --no-fail-fast 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/native-tests.log
           if ($LASTEXITCODE -ne 0) { throw 'Native contracts failed.' }
+      - name: Native music host owned decoder and fake output contracts
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: |
+          cargo test --locked --no-default-features --features native-music-host --test native_music_host_decoder --test native_music_host_output --test native_music_host_completion --no-fail-fast 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/native-music-host-tests.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native music host owned-fixture contracts failed.' }
       - name: Synthetic capture metadata contracts (no native execution)
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         run: |
@@ -359,6 +366,11 @@ jobs:
         run: |
           cargo clippy --locked --no-default-features --features native-ui --bin gamestrike-desktop -- -D warnings 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/native-clippy.log
           if ($LASTEXITCODE -ne 0) { throw 'Native Clippy failed.' }
+      - name: Native music host and test Clippy
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: |
+          cargo clippy --locked --no-default-features --features native-music-host --lib --tests --bin gamestrike-desktop -- -D warnings 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/native-music-host-clippy.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native music host Clippy failed.' }
       - name: Upload native check diagnostics before the release build
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         uses: actions/upload-artifact@v4
@@ -367,11 +379,11 @@ jobs:
           path: ci-native-evidence/logs/
           if-no-files-found: error
           retention-days: 14
-      - name: Build the original-source native executable
+      - name: Build the original-source native executable with the music host feature
         id: build
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         run: |
-          cargo build --locked --release --no-default-features --features native-ui --bin gamestrike-desktop -j 2 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/native-build.log
+          cargo build --locked --release --no-default-features --features native-music-host --bin gamestrike-desktop -j 2 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/native-build.log
           if ($LASTEXITCODE -ne 0) { throw 'Native release build failed.' }
           New-Item -ItemType Directory -Path ci-native-evidence/bin | Out-Null
           Copy-Item -LiteralPath target/release/gamestrike-desktop.exe -Destination ci-native-evidence/bin/gamestrike-desktop.exe
