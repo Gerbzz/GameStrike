@@ -28,9 +28,17 @@ impl BootPose {
         };
         if t >= BOOT_END {
             return Self {
-                seconds: BOOT_END, ignite: 0.0, core: 0.0, flash: 0.0,
-                emblem: 1.0, fly: 1.0, frame: 1.0, content: 1.0,
-                net: 1.0, particles: 0.0, shockwave: 0.0,
+                seconds: BOOT_END,
+                ignite: 0.0,
+                core: 0.0,
+                flash: 0.0,
+                emblem: 1.0,
+                fly: 1.0,
+                frame: 1.0,
+                content: 1.0,
+                net: 1.0,
+                particles: 0.0,
+                shockwave: 0.0,
             };
         }
         let home = cubic(smooth(4.2, BOOT_END, t));
@@ -38,8 +46,11 @@ impl BootPose {
             seconds: t,
             ignite: smooth(0.15, 0.5, t) * (1.0 - smooth(1.4, 2.0, t)),
             core: smooth(1.0, 2.6, t) * (1.0 - smooth(3.0, 3.35, t)),
-            flash: if t < 3.0 { smooth(2.9, 3.0, t) * 0.45 }
-                else { 0.75 * (-(t - 3.0) * 13.0).exp() },
+            flash: if t < 3.0 {
+                smooth(2.9, 3.0, t) * 0.45
+            } else {
+                0.75 * (-(t - 3.0) * 13.0).exp()
+            },
             emblem: smooth(3.0, 3.45, t),
             fly: cubic(((t - 4.2) / 0.8).clamp(0.0, 1.0)),
             frame: ((t - 4.2) / 1.15).clamp(0.0, 1.0),
@@ -61,5 +72,9 @@ pub(crate) fn smooth(a: f32, b: f32, value: f32) -> f32 {
 }
 
 fn cubic(t: f32) -> f32 {
-    if t < 0.5 { 4.0 * t * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(3) * 0.5 }
+    if t < 0.5 {
+        4.0 * t * t * t
+    } else {
+        1.0 - (-2.0 * t + 2.0).powi(3) * 0.5
+    }
 }

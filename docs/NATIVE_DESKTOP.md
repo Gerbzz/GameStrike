@@ -1,6 +1,6 @@
 # Native Rust desktop slice
 
-This is an uncompiled engineering slice, not a finished or verified replacement launcher.
+This engineering slice is undergoing hosted validation; it is not a finished or verified replacement launcher.
 The existing launcher/player and artwork remain intact. The new binary is
 `gamestrike-desktop`; its `native-ui` feature is independent of `player` and Wry.
 
@@ -12,15 +12,13 @@ Core application UI is never rendered by that player or a browser.
 
 ## Evidence status
 
-No new native binary, Rust test result, shader validation result or native screenshot
-has been produced. Test files are contract sources, not passing-test evidence.
-`Cargo.lock` needs legitimate Cargo resolution for the newly declared optional native
-dependencies before `--locked` checks can run. Do not hand-edit transitive checksums.
+The first hosted diagnostic run is [39700483311](https://github.com/Gerbzz/GameStrike/actions/runs/39700483311), source `2e33f69d7758788a027636141cf43db73f922261`. The standalone synthetic audio core passes all 53 contracts. The retained Windows launcher job also passes 15 application, seven capture and four catalog contracts, four provisional cue-policy/PCM contracts, and its player-isolation test. These do not exercise the native renderer.
 
-First authorized hosted validation must resolve/review the dependency lock, run the
-library/store/native/application contracts and standalone audio contracts, format and
-lint the native target, then build the actual executable. Use Rust 1.96.1 and matched
-eframe/egui-wgpu 0.36.2 (wgpu 30 through the reexport).
+Native-feature contracts and Clippy failed in that initial diagnostic run. No native executable, shader validation or native framebuffer capture is accepted yet. Final outcomes and compiler diagnostics must be recorded at the repaired source SHA.
+
+Cargo generated the new dependency lock on hosted Rust 1.96.1. Independent review verified its hashes, all patch hunks, preservation of existing package versions/checksums and the expected native dependency graph. The lock must be committed and validated again before exact-source acceptance; a resolved candidate cannot make the initial run green. Matched eframe/egui-wgpu 0.36.2 use wgpu 30 through the reexport.
+
+Required hosted checks remain:
 
 ```sh
 cargo test --locked --no-default-features --lib --tests
@@ -39,8 +37,7 @@ Observed local checks: 15 pure PowerShell metadata contracts passed after a nega
 control exposed acceptance of a NaN pose; finite-number and boolean checks correct it.
 These exercise only metadata fixtures, not a native process. Three PowerShell files
 parse, Cargo TOML/native-feature/asset-reference checks pass, and new-file whitespace
-checks pass. All 43 new Rust test declarations and the 53 carried audio contracts
-remain unexecuted. No Rust formatting or shader validation result exists.
+checks pass. Those were the pre-publication results. Current hosted evidence above supersedes the earlier unexecuted-contract status; native renderer tests and actual shader/framebuffer verification still require passing runs at the repaired source SHA.
 
 ## Native acceptance path
 
@@ -48,7 +45,7 @@ Set `GAMESTRIKE_SOURCE_SHA` to the exact checked-out commit **at compile time**.
 `scripts/capture-native.ps1` is a prepared Windows hosted-runner harness. It requires
 the new native executable under that checkout's `target/release`, enforces process
 timeouts/nonzero exits, and rejects missing screenshots/metadata or mismatched source
-identity. It cannot run outside its explicit hosted-CI guard. The script has not run.
+identity. It cannot run outside its explicit hosted-CI guard. Successful native execution of this harness has not been established.
 
 The executable uses egui's real window framebuffer screenshot event. It waits for
 generated synthetic collection data, texture preparation and a recorded wgpu callback,
@@ -82,4 +79,4 @@ establish acceptance on another machine or resolve application-control trust.
 
 ## Single-theme and navigation cue follow-up — 2026-10-22
 
-The fixed native PWDS orange design remains unchanged. The preserved browser preview now removes alternate-dashboard selection and migrates stale theme preferences to Collection; it is preview evidence only. Original short fixed-pitch navigation, confirm, back and error cues replace layered sweeps and ambient sound, with repeat limits, bounded volume and two transient voices. The pure Rust cue policy/PCM and its contract source mirror that direction, but a native audio-output adapter is not connected and no native cue playback is claimed. No console samples were copied.
+The fixed native PWDS orange design remains unchanged. The preserved browser preview now removes alternate-dashboard selection and migrates stale theme preferences to Collection; it is preview evidence only. The initial pitched navigation cues are provisional engineering source, not an approved final sound design. A separate original tactile contact-texture proposal is preserved for listening review. Scheduling controls include repeat limits, bounded volume and two transient voices. Native audio output is not connected, so neither synthetic PCM tests nor the browser preview establish native cue playback. No console samples were copied.

@@ -1879,9 +1879,20 @@ mod launcher_app {
         #[test]
         fn collection_is_the_only_dashboard_entry_and_capture_views_are_unique() {
             for view in CAPTURE_VIEWS {
-                assert_eq!(start_url(CaptureView(view)), "gamestrikeui://localhost/index.html");
+                assert_eq!(
+                    start_url(CaptureView(view)),
+                    "gamestrikeui://localhost/index.html"
+                );
             }
-            for removed in ["green", "blades", "original", "pwds", "boot-blades", "boot-original", "boot-pwds"] {
+            for removed in [
+                "green",
+                "blades",
+                "original",
+                "pwds",
+                "boot-blades",
+                "boot-original",
+                "boot-pwds",
+            ] {
                 assert!(!CAPTURE_VIEWS.contains(&removed), "{removed}");
             }
             let mut names = CAPTURE_VIEWS.to_vec();

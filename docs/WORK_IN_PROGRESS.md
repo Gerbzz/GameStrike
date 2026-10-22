@@ -106,3 +106,11 @@ PWDS orange Collection is now the only dashboard in the preserved preview. Setti
 Navigation cue source replaces layered oscillators, noise sweeps and automatic ambience with four short original rounded pulses, repeat/coalescing limits and bounded voices/gain. The preview preserves mute and media independence. Pure Rust PCM/policy is included for hosted contracts; native device playback remains unimplemented. No proprietary recordings, microphone capture or driver changes are included.
 
 Local preview verification: 47 theme/startup/launcher JavaScript tests pass before the sound tests were added. Isolated Microsoft Edge renders the retained frame and a synthetic three-game library at 1672x941, no page errors; direct classic entry returns to index.html and saves collection-orange. This is browser evidence, not native Rust acceptance. The desktop-host loopback helper at 127.0.0.1:18778 responds HTTP 200 and the user's Edge window is left open. Native exact-head CI, artifact and pixel results remain to be recorded after publication.
+
+## First hosted native diagnostics — 2026-10-22
+
+Published native branch source 2e33f69d7758788a027636141cf43db73f922261 triggered run 39700483311. The standalone Rust audio core passes 53 contracts. The retained Windows launcher path passes 15 application, seven capture, four catalog and four provisional cue-policy contracts, plus actual player isolation. Native-feature contracts and Clippy fail in this diagnostic run; no successful native GUI build or framebuffer evidence is claimed.
+
+The reviewed Cargo-produced lock and hosted rustfmt proposal are applied for a fresh-source repair. Two observed stable-toolchain Clippy errors are corrected without suppression: the favorite-ID validation uses a match guard, and checked RGBA buffers use fixed-size array chunks. Existing guards and capture assertions remain unchanged. The native dependency cache is retained on failed hosted jobs to avoid repeatedly recompiling dependencies during diagnosis. Exact terminal native results belong with the repaired head once available.
+
+The tactile sound proposal and audition comparison remain separate from these CI repairs, pending listening review. The browser preview keeps the proposed textures; native audio output remains unwired.

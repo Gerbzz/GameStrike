@@ -140,7 +140,12 @@ pub struct EndpointPairId {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SampleEncoding { F32, I16, I32, Unsupported }
+pub enum SampleEncoding {
+    F32,
+    I16,
+    I32,
+    Unsupported,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NegotiatedFormat {
@@ -159,7 +164,11 @@ pub struct BackendHandshake {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum DeviceSamples { F32(Vec<f32>), I16(Vec<i16>), I32(Vec<i32>) }
+pub enum DeviceSamples {
+    F32(Vec<f32>),
+    I16(Vec<i16>),
+    I32(Vec<i32>),
+}
 
 /// The host implements this boundary; the core has no actual device backend.
 /// Handshake must open the requested stable pair and report the actual negotiated
@@ -168,7 +177,11 @@ pub enum DeviceSamples { F32(Vec<f32>), I16(Vec<i16>), I32(Vec<i32>) }
 /// failure cannot be established by this synthetic contract.
 pub trait EndpointBackend {
     fn handshake(&mut self, requested: &EndpointPairId) -> Result<BackendHandshake, AudioError>;
-    fn write(&mut self, format: NegotiatedFormat, samples: &DeviceSamples) -> Result<(), AudioError>;
+    fn write(
+        &mut self,
+        format: NegotiatedFormat,
+        samples: &DeviceSamples,
+    ) -> Result<(), AudioError>;
     fn close(&mut self);
 }
 
@@ -181,7 +194,11 @@ pub struct VerifiedEndpoint {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BridgeStatus { Ready, SilentUnderflow, Disconnected }
+pub enum BridgeStatus {
+    Ready,
+    SilentUnderflow,
+    Disconnected,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BridgeBlock {

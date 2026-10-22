@@ -7,15 +7,40 @@ fn options(args: &[&str]) -> Result<DesktopOptions, String> {
 #[test]
 fn native_capture_requires_an_owned_synthetic_library() {
     assert!(options(&["--capture-native", "frame.png"]).is_err());
-    assert!(options(&["--capture-native", "frame.png", "--synthetic-library", "--library", "real-library"]).is_err());
-    let parsed = options(&["--capture-native", "frame.png", "--synthetic-library", "--boot-time", "4.5"]).unwrap();
+    assert!(
+        options(&[
+            "--capture-native",
+            "frame.png",
+            "--synthetic-library",
+            "--library",
+            "real-library"
+        ])
+        .is_err()
+    );
+    let parsed = options(&[
+        "--capture-native",
+        "frame.png",
+        "--synthetic-library",
+        "--boot-time",
+        "4.5",
+    ])
+    .unwrap();
     assert_eq!(parsed.boot_time, Some(4.5));
     assert!(parsed.synthetic);
 }
 
 #[test]
 fn intentionally_dark_opening_is_not_offered_as_automated_nonblank_evidence() {
-    assert!(options(&["--capture-native", "dark.png", "--synthetic-library", "--boot-time", "0"]).is_err());
+    assert!(
+        options(&[
+            "--capture-native",
+            "dark.png",
+            "--synthetic-library",
+            "--boot-time",
+            "0"
+        ])
+        .is_err()
+    );
     assert!(options(&["--synthetic-library", "--boot-time", "0"]).is_ok());
 }
 
@@ -49,7 +74,9 @@ fn blank_frame_and_wrong_dimensions_fail_capture_acceptance() {
 #[test]
 fn a_flat_orange_frame_is_not_a_rendered_collection() {
     let mut pixels = Vec::new();
-    for _ in 0..880 * 620 { pixels.extend_from_slice(&[240, 120, 20, 255]); }
+    for _ in 0..880 * 620 {
+        pixels.extend_from_slice(&[240, 120, 20, 255]);
+    }
     assert!(validate_pixels([880, 620], &pixels, true).is_err());
 }
 
@@ -58,11 +85,21 @@ fn engineering_capture_gate_accepts_varied_original_pixels() {
     let mut pixels = Vec::new();
     for y in 0..620 {
         for x in 0..880 {
-            pixels.extend_from_slice(&[(x % 230 + 20) as u8, (y % 150 + 10) as u8, ((x + y) % 80) as u8, 255]);
+            pixels.extend_from_slice(&[
+                (x % 230 + 20) as u8,
+                (y % 150 + 10) as u8,
+                ((x + y) % 80) as u8,
+                255,
+            ]);
         }
     }
     // This only tests pixel validation, not an actual GPU capture or visual fidelity.
     assert!(validate_pixels([880, 620], &pixels, true).is_ok());
-    for alpha in pixels.iter_mut().skip(3).step_by(4) { *alpha = 1; }
-    assert!(validate_pixels([880, 620], &pixels, true).is_err(), "nearly transparent pixels are not a visible native framebuffer");
+    for alpha in pixels.iter_mut().skip(3).step_by(4) {
+        *alpha = 1;
+    }
+    assert!(
+        validate_pixels([880, 620], &pixels, true).is_err(),
+        "nearly transparent pixels are not a visible native framebuffer"
+    );
 }

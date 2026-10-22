@@ -1,10 +1,23 @@
-use gamestrike::{Library, application::{CatalogBackend, DesktopHost, GameId, LaunchOutcome, LibraryBackend}, stores::{Found, Launch, Store, StoreLibrary, store_game_id}};
-use std::{fs, path::Path, sync::{Arc, atomic::{AtomicUsize, Ordering}}};
+use gamestrike::{
+    Library,
+    application::{CatalogBackend, DesktopHost, GameId, LaunchOutcome, LibraryBackend},
+    stores::{Found, Launch, Store, StoreLibrary, store_game_id},
+};
+use std::{
+    fs,
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 use uuid::Uuid;
 
 struct FakeHost(Arc<AtomicUsize>);
 impl DesktopHost for FakeHost {
-    fn refresh_stores(&mut self, _stores: &StoreLibrary) -> Result<(), String> { Ok(()) }
+    fn refresh_stores(&mut self, _stores: &StoreLibrary) -> Result<(), String> {
+        Ok(())
+    }
     fn launch_store(&mut self, _target: &Launch) -> Result<LaunchOutcome, String> {
         self.0.fetch_add(1, Ordering::Relaxed);
         Ok(LaunchOutcome::HandedOff)
@@ -61,15 +74,26 @@ fn native_backend_reuses_import_ids_and_persists_favorites_across_reopen() {
 fn forged_store_uri_is_rejected_before_reaching_the_native_host() {
     let temp = tempfile::tempdir().unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
-    let mut backend = LibraryBackend::open(temp.path().to_path_buf(), FakeHost(Arc::clone(&calls))).unwrap();
+    let mut backend =
+        LibraryBackend::open(temp.path().to_path_buf(), FakeHost(Arc::clone(&calls))).unwrap();
     let id = store_game_id(Store::Steam, "123");
     let found = Found {
-        store: Store::Steam, store_id: "123".into(), title: "Owned malicious-target fixture".into(),
-        install_path: None, cover_source: None,
-        launch: Launch::Uri { uri: "https://example.invalid/not-a-game-launch".into() },
+        store: Store::Steam,
+        store_id: "123".into(),
+        title: "Owned malicious-target fixture".into(),
+        install_path: None,
+        cover_source: None,
+        launch: Launch::Uri {
+            uri: "https://example.invalid/not-a-game-launch".into(),
+        },
     };
-    let catalog = serde_json::json!({"games": [{"id": id,"found": found,"installed": true,"first_seen": 0}]});
-    fs::write(temp.path().join("stores/catalog.json"), serde_json::to_vec(&catalog).unwrap()).unwrap();
+    let catalog =
+        serde_json::json!({"games": [{"id": id,"found": found,"installed": true,"first_seen": 0}]});
+    fs::write(
+        temp.path().join("stores/catalog.json"),
+        serde_json::to_vec(&catalog).unwrap(),
+    )
+    .unwrap();
     assert!(backend.launch(&GameId::Store(id.to_string())).is_err());
     assert_eq!(calls.load(Ordering::Relaxed), 0);
 }

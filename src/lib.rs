@@ -2,11 +2,11 @@
 
 //! Import-only foundation. This crate never interprets imported HTML or JavaScript.
 
-pub mod stores;
 pub mod application;
 pub mod native_capture;
 #[cfg(feature = "native-ui")]
 pub mod native_ui;
+pub mod stores;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

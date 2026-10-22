@@ -80,7 +80,7 @@ Every launcher image on this page was rendered by the real `gamestrike-launcher`
 | ![Empty library: No games found yet, a note that GameStrike looked for games from Steam, Epic Games, the EA app, the Microsoft Store, GOG Galaxy, Ubisoft Connect, and Battle.net, and an Add a game button](docs/screenshots/empty-library.png) **First launch** (Windows), with no store games found. | ![Library at the 880 by 620 minimum window size, five columns, with the status line in the bottom bar](docs/screenshots/minimum-880x620.png) **Minimum window size**, 880 × 620 (Linux). |
 | ![About dialog with the GameStrike mark, the PWDS publisher logo, and the font and three.js credits](docs/screenshots/about.png) **About** (macOS). | ![Player window titled Save Counter (Synthetic Test), GameStrike, Offline, showing localStorage points 2 and IndexedDB opens 1](docs/screenshots/player-offline-save-counter.png) **A game in its own offline player window** (Windows, from the manual run at `c888e7e`; the player is unchanged). |
 
-**The earlier styles**, unchanged and still selectable (same run, Linux):
+**Archived earlier designs** (historical Linux captures; no longer selectable):
 
 | | |
 | --- | --- |

@@ -3,9 +3,10 @@ use gamestrike::stores::{Hive, Registry};
 use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
 use windows_sys::Win32::{
     Foundation::{ERROR_NO_MORE_ITEMS, ERROR_SUCCESS},
-    System::Registry::{HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ,
-        KEY_WOW64_64KEY, REG_DWORD, REG_EXPAND_SZ, REG_SZ, RegCloseKey,
-        RegEnumKeyExW, RegOpenKeyExW, RegQueryValueExW},
+    System::Registry::{
+        HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY, REG_DWORD,
+        REG_EXPAND_SZ, REG_SZ, RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, RegQueryValueExW,
+    },
     UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
 };
 
@@ -33,9 +34,8 @@ fn open_key(hive: Hive, path: &str) -> Option<OpenKey> {
     };
     let path = wide(OsStr::new(path));
     let mut key: HKEY = std::ptr::null_mut();
-    let status = unsafe {
-        RegOpenKeyExW(root, path.as_ptr(), 0, KEY_READ | KEY_WOW64_64KEY, &mut key)
-    };
+    let status =
+        unsafe { RegOpenKeyExW(root, path.as_ptr(), 0, KEY_READ | KEY_WOW64_64KEY, &mut key) };
     (status == ERROR_SUCCESS).then_some(OpenKey(key))
 }
 

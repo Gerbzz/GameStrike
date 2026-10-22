@@ -47,8 +47,12 @@ pub fn render_cue(cue: Cue, sample_rate: u32, volume: f32) -> Vec<f32> {
             let progress = i as f64 / (length - 1) as f64;
             let attack = ((seconds * 1000.0 / attack_ms).min(1.0) * PI / 2.0).sin();
             let phase = 2.0 * PI * frequency * seconds;
-            (volume * peak * attack * (1.0 - progress).powf(2.2)
-                * (phase.sin() + 0.12 * (phase * 2.0).sin()) / 1.12) as f32
+            (volume
+                * peak
+                * attack
+                * (1.0 - progress).powf(2.2)
+                * (phase.sin() + 0.12 * (phase * 2.0).sin())
+                / 1.12) as f32
         })
         .collect()
 }
@@ -78,8 +82,13 @@ impl Default for Gate {
 
 impl Gate {
     fn allows(self) -> bool {
-        self.enabled && self.volume.is_finite() && self.volume > 0.0
-            && self.user_input_seen && !self.game_running && self.visible && !self.capturing
+        self.enabled
+            && self.volume.is_finite()
+            && self.volume > 0.0
+            && self.user_input_seen
+            && !self.game_running
+            && self.visible
+            && !self.capturing
     }
 }
 
@@ -109,8 +118,9 @@ impl CuePolicy {
             return false;
         }
         let blocked = match cue {
-            Cue::Navigate => recent(self.last_navigation, now_ms, 120)
-                || recent(self.last_action, now_ms, 120),
+            Cue::Navigate => {
+                recent(self.last_navigation, now_ms, 120) || recent(self.last_action, now_ms, 120)
+            }
             Cue::Confirm | Cue::Back => recent(self.last_action, now_ms, 100),
             Cue::Error => recent(self.last_error, now_ms, 800),
         };

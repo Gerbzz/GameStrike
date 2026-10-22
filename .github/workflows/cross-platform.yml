@@ -288,6 +288,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: native-windows-rust-1.96.1
+          cache-on-failure: true
       - uses: actions/download-artifact@v4
         with:
           name: gamestrike-resolved-lock

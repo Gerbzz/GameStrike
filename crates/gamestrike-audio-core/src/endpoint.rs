@@ -1,32 +1,50 @@
-use crate::{AudioError, BridgeBlock, BridgeStatus, DeviceSamples, EndpointAvailability,
-    EndpointBackend, EndpointBridge, EndpointPairId, NegotiatedFormat, SAMPLE_RATE_HZ,
-    SampleEncoding, VerifiedEndpoint};
 use crate::lifecycle::append_bounded;
 use crate::signal::valid_samples;
+use crate::{
+    AudioError, BridgeBlock, BridgeStatus, DeviceSamples, EndpointAvailability, EndpointBackend,
+    EndpointBridge, EndpointPairId, NegotiatedFormat, SAMPLE_RATE_HZ, SampleEncoding,
+    VerifiedEndpoint,
+};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 impl VerifiedEndpoint {
-    pub fn pair(&self) -> &EndpointPairId { &self.pair }
-    pub fn is_available(&self) -> bool { self.live.load(Ordering::Acquire) }
+    pub fn pair(&self) -> &EndpointPairId {
+        &self.pair
+    }
+    pub fn is_available(&self) -> bool {
+        self.live.load(Ordering::Acquire)
+    }
 }
 
 impl<B: EndpointBackend> EndpointBridge<B> {
     pub fn new(backend: B, capacity_frames: usize) -> Self {
-        Self { backend, capacity_frames, queue: VecDeque::new(), format: None,
-            proof: None, backend_open: false }
+        Self {
+            backend,
+            capacity_frames,
+            queue: VecDeque::new(),
+            format: None,
+            proof: None,
+            backend_open: false,
+        }
     }
 
     pub fn availability(&self) -> EndpointAvailability {
-        if self.proof.as_ref().is_some_and(VerifiedEndpoint::is_available) {
+        if self
+            .proof
+            .as_ref()
+            .is_some_and(VerifiedEndpoint::is_available)
+        {
             EndpointAvailability::Verified
         } else {
             EndpointAvailability::Unavailable
         }
     }
 
-    pub fn queued_frames(&self) -> usize { self.queue.len() }
+    pub fn queued_frames(&self) -> usize {
+        self.queue.len()
+    }
 
     /// Replacing a connection permanently revokes its old capability first.
     /// Only backend-observed stable IDs and negotiated format authorize a proof.
@@ -51,7 +69,10 @@ impl<B: EndpointBackend> EndpointBridge<B> {
             self.close_connection();
             return Err(AudioError::UnsupportedFormat);
         }
-        let proof = VerifiedEndpoint { pair: pair.clone(), live: Arc::new(AtomicBool::new(true)) };
+        let proof = VerifiedEndpoint {
+            pair: pair.clone(),
+            live: Arc::new(AtomicBool::new(true)),
+        };
         self.format = Some(handshake.format);
         self.proof = Some(proof.clone());
         Ok(proof)
@@ -88,7 +109,10 @@ impl<B: EndpointBackend> EndpointBridge<B> {
         };
         if self.availability() != EndpointAvailability::Verified {
             self.queue.clear();
-            return Ok(BridgeBlock { samples, status: BridgeStatus::Disconnected });
+            return Ok(BridgeBlock {
+                samples,
+                status: BridgeStatus::Disconnected,
+            });
         }
         let status = if self.queue.len() < frames {
             self.queue.clear();
@@ -104,7 +128,10 @@ impl<B: EndpointBackend> EndpointBridge<B> {
         if self.backend.write(format, &samples).is_err() {
             clear_samples(&mut samples);
             self.close_connection();
-            return Ok(BridgeBlock { samples, status: BridgeStatus::Disconnected });
+            return Ok(BridgeBlock {
+                samples,
+                status: BridgeStatus::Disconnected,
+            });
         }
         Ok(BridgeBlock { samples, status })
     }
@@ -115,7 +142,9 @@ impl<B: EndpointBackend> EndpointBridge<B> {
     }
 
     fn close_connection(&mut self) {
-        if let Some(proof) = self.proof.take() { proof.live.store(false, Ordering::Release); }
+        if let Some(proof) = self.proof.take() {
+            proof.live.store(false, Ordering::Release);
+        }
         self.queue.clear();
         if self.backend_open {
             self.backend_open = false;
@@ -127,16 +156,24 @@ impl<B: EndpointBackend> EndpointBridge<B> {
 }
 
 impl<B: EndpointBackend> Drop for EndpointBridge<B> {
-    fn drop(&mut self) { self.close_connection(); }
+    fn drop(&mut self) {
+        self.close_connection();
+    }
 }
 
 fn supported_format(format: NegotiatedFormat) -> bool {
-    format.sample_rate == SAMPLE_RATE_HZ && matches!(format.channels, 1 | 2)
-        && matches!(format.encoding, SampleEncoding::F32 | SampleEncoding::I16 | SampleEncoding::I32)
+    format.sample_rate == SAMPLE_RATE_HZ
+        && matches!(format.channels, 1 | 2)
+        && matches!(
+            format.encoding,
+            SampleEncoding::F32 | SampleEncoding::I16 | SampleEncoding::I32
+        )
 }
 
 fn silent_block(format: NegotiatedFormat, frames: usize) -> Result<DeviceSamples, AudioError> {
-    let count = frames.checked_mul(format.channels as usize).ok_or(AudioError::LengthMismatch)?;
+    let count = frames
+        .checked_mul(format.channels as usize)
+        .ok_or(AudioError::LengthMismatch)?;
     match format.encoding {
         SampleEncoding::F32 => Ok(DeviceSamples::F32(zeroed_vec(count, 0.0)?)),
         SampleEncoding::I16 => Ok(DeviceSamples::I16(zeroed_vec(count, 0)?)),
@@ -147,7 +184,9 @@ fn silent_block(format: NegotiatedFormat, frames: usize) -> Result<DeviceSamples
 
 fn zeroed_vec<T: Clone>(count: usize, zero: T) -> Result<Vec<T>, AudioError> {
     let mut samples = Vec::new();
-    samples.try_reserve_exact(count).map_err(|_| AudioError::QueueFull)?;
+    samples
+        .try_reserve_exact(count)
+        .map_err(|_| AudioError::QueueFull)?;
     samples.resize(count, zero);
     Ok(samples)
 }
@@ -158,12 +197,14 @@ fn write_frame(samples: &mut DeviceSamples, frame: usize, channels: usize, mono:
     match samples {
         DeviceSamples::F32(samples) => samples[start..end].fill(mono),
         DeviceSamples::I16(samples) => {
-            let value = (mono as f64 * 32_768.0).round()
+            let value = (mono as f64 * 32_768.0)
+                .round()
                 .clamp(i16::MIN as f64, i16::MAX as f64) as i16;
             samples[start..end].fill(value);
         }
         DeviceSamples::I32(samples) => {
-            let value = (mono as f64 * 2_147_483_648.0).round()
+            let value = (mono as f64 * 2_147_483_648.0)
+                .round()
                 .clamp(i32::MIN as f64, i32::MAX as f64) as i32;
             samples[start..end].fill(value);
         }
