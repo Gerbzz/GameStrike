@@ -24,6 +24,25 @@ use std::sync::atomic::Ordering;
 const SECTIONS: [&str; 4] = ["GAMES", "SOUNDBOARD", "VOICE", "MUSIC"];
 const FILTERS: [&str; 3] = ["ALL GAMES", "FAVORITES", "RECENTLY PLAYED"];
 
+fn configure_visuals(ctx: &egui::Context) {
+    let mut visuals = egui::Visuals::dark();
+    visuals.selection.bg_fill = AMBER;
+    visuals.selection.stroke = Stroke::new(1.0, LIGHT);
+    visuals.override_text_color = Some(TEXT);
+    ctx.set_theme(egui::Theme::Dark);
+    ctx.set_visuals(visuals);
+}
+
+struct PaintContext<'a> {
+    painter: &'a Painter,
+    geometry: &'a Geometry,
+}
+
+struct ControlState {
+    enabled: bool,
+    selected: bool,
+}
+
 pub struct NativeView {
     gpu: gpu::NativeGpu,
     covers: covers::Covers,
@@ -45,11 +64,7 @@ impl NativeView {
         })?;
         let gpu = gpu::NativeGpu::new(state)?;
         let logo = covers::logo(&cc.egui_ctx)?;
-        let mut visuals = egui::Visuals::dark();
-        visuals.selection.bg_fill = AMBER;
-        visuals.selection.stroke = Stroke::new(1.0, LIGHT);
-        visuals.override_text_color = Some(TEXT);
-        cc.egui_ctx.set_visuals(visuals);
+        configure_visuals(&cc.egui_ctx);
         Ok(Self {
             gpu,
             covers: covers::Covers::default(),
@@ -148,8 +163,10 @@ impl NativeView {
                         let content = paint::faded(&p, pose.content);
                         self.games(
                             ui,
-                            &content,
-                            &g,
+                            PaintContext {
+                                painter: &content,
+                                geometry: &g,
+                            },
                             snapshot,
                             &visible,
                             pose.settled(),
@@ -290,8 +307,10 @@ impl NativeView {
                 rect,
                 nav_id(i),
                 label,
-                enabled,
-                self.section == i,
+                ControlState {
+                    enabled,
+                    selected: self.section == i,
+                },
                 8.0 * g.scale,
             );
             glyph(
@@ -348,8 +367,10 @@ impl NativeView {
                 rect,
                 Id::new(("pwds.filter", i)),
                 label,
-                enabled,
-                self.section == 0 && self.filter == i,
+                ControlState {
+                    enabled,
+                    selected: self.section == 0 && self.filter == i,
+                },
                 7.0 * g.scale,
             );
             p.with_clip_rect(rect).text(
@@ -435,13 +456,14 @@ impl NativeView {
     fn games(
         &mut self,
         ui: &mut egui::Ui,
-        p: &Painter,
-        g: &Geometry,
+        drawing: PaintContext<'_>,
         snapshot: &AppSnapshot,
         visible: &[usize],
         enabled: bool,
         commands: &mut Vec<AppCommand>,
     ) {
+        let p = drawing.painter;
+        let g = drawing.geometry;
         let well = p.with_clip_rect(g.library);
         if visible.is_empty() {
             well.text(
@@ -509,8 +531,10 @@ impl NativeView {
                 commands.push(AppCommand::Launch(game.id.clone()));
             }
             self.card(
-                &well,
-                g,
+                PaintContext {
+                    painter: &well,
+                    geometry: g,
+                },
                 rect,
                 game,
                 selected,
@@ -572,14 +596,15 @@ impl NativeView {
 
     fn card(
         &self,
-        p: &Painter,
-        g: &Geometry,
+        drawing: PaintContext<'_>,
         rect: Rect,
         game: &GameCard,
         selected: bool,
         focused: bool,
         running: bool,
     ) {
+        let p = drawing.painter;
+        let g = drawing.geometry;
         let cut = g.card_cut();
         paint::plate(
             p,
@@ -796,14 +821,16 @@ impl NativeView {
             g.launch,
             Id::new("pwds.launch"),
             "LAUNCH",
-            can_launch,
-            false,
+            ControlState {
+                enabled: can_launch,
+                selected: false,
+            },
             7.0 * g.scale,
         );
-        if activated(ui, &launch, g.launch, 7.0 * g.scale, can_launch) {
-            if let Some(game) = selected {
-                commands.push(AppCommand::Launch(game.id.clone()));
-            }
+        if activated(ui, &launch, g.launch, 7.0 * g.scale, can_launch)
+            && let Some(game) = selected
+        {
+            commands.push(AppCommand::Launch(game.id.clone()));
         }
         let can_favorite = enabled && self.section == 0 && selected.is_some();
         let favorite = control(
@@ -816,14 +843,16 @@ impl NativeView {
             } else {
                 "FAVORITE"
             },
-            can_favorite,
-            false,
+            ControlState {
+                enabled: can_favorite,
+                selected: false,
+            },
             7.0 * g.scale,
         );
-        if activated(ui, &favorite, g.favorite, 7.0 * g.scale, can_favorite) {
-            if let Some(game) = selected {
-                commands.push(AppCommand::ToggleFavorite(game.id.clone(), !game.favorite));
-            }
+        if activated(ui, &favorite, g.favorite, 7.0 * g.scale, can_favorite)
+            && let Some(game) = selected
+        {
+            commands.push(AppCommand::ToggleFavorite(game.id.clone(), !game.favorite));
         }
         let can_refresh = enabled && !snapshot.refreshing;
         let refresh = control(
@@ -836,8 +865,10 @@ impl NativeView {
             } else {
                 "REFRESH"
             },
-            can_refresh,
-            false,
+            ControlState {
+                enabled: can_refresh,
+                selected: false,
+            },
             7.0 * g.scale,
         );
         if activated(ui, &refresh, g.refresh, 7.0 * g.scale, can_refresh) {
@@ -882,10 +913,10 @@ fn control(
     rect: Rect,
     id: Id,
     label: &str,
-    enabled: bool,
-    selected: bool,
+    state: ControlState,
     cut: f32,
 ) -> Response {
+    let ControlState { enabled, selected } = state;
     let response = ui.interact(
         rect,
         id,
@@ -994,4 +1025,30 @@ fn star(p: &Painter, at: Pos2, radius: f32, color: Color32) {
         })
         .collect();
     paint::polygon(p, &points, color, color);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::configure_visuals;
+    use eframe::egui::{Context, RawInput, Theme};
+
+    #[test]
+    fn a_light_system_theme_cannot_replace_the_fixed_collection_popup_style() {
+        let control = Context::default();
+        control.begin_pass(RawInput {
+            system_theme: Some(Theme::Light),
+            ..Default::default()
+        });
+        assert!(!control.global_style().visuals.dark_mode);
+        control.end_pass().drop_without_applying_deltas();
+
+        let collection = Context::default();
+        configure_visuals(&collection);
+        collection.begin_pass(RawInput {
+            system_theme: Some(Theme::Light),
+            ..Default::default()
+        });
+        assert!(collection.global_style().visuals.dark_mode);
+        collection.end_pass().drop_without_applying_deltas();
+    }
 }

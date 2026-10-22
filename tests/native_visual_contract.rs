@@ -1,4 +1,4 @@
-//! Source-first native contracts. Execution has deliberately NOT been observed.
+//! Native contracts exercised by hosted CI.
 //! A removed clamp, early boot reveal, DPI-scaled hit target, or unclipped tile
 //! would each break a distinct assertion below. These are not pixel-parity tests.
 #![cfg(feature = "native-ui")]
@@ -37,7 +37,7 @@ fn native_keyboard_click_uses_the_non_pointer_activation_path() {
     let response = ui.interact(rect, id, Sense::click());
     assert!(activation::activated(&ui, &response, rect, 8.0, true));
     assert!(!activation::activated(&ui, &response, rect, 8.0, false));
-    let _ = ctx.end_pass();
+    ctx.end_pass().drop_without_applying_deltas();
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn real_pointer_clicks_in_a_chamfer_cutout_are_rejected() {
             assert!(response.clicked_by(PointerButton::Primary));
             assert!(!activation::activated(&ui, &response, rect, 8.0, true));
         }
-        let _ = ctx.end_pass();
+        ctx.end_pass().drop_without_applying_deltas();
     }
 }
 
@@ -170,7 +170,7 @@ fn one_sidebar_arrow_cannot_cascade_through_newly_focused_rows() {
         assert_eq!(take_nav_action(state, 1), None);
         assert_eq!(take_nav_action(state, 2), None);
     });
-    let _ = ctx.end_pass();
+    ctx.end_pass().drop_without_applying_deltas();
 }
 
 #[test]
@@ -182,7 +182,7 @@ fn entering_games_consumes_right_arrow_before_grid_navigation() {
         assert_eq!(take_nav_action(state, 0), Some(NavAction::EnterGames));
         assert_eq!(take_grid_action(state, 0, 17, 6), None);
     });
-    let _ = ctx.end_pass();
+    ctx.end_pass().drop_without_applying_deltas();
 }
 
 #[test]
@@ -197,11 +197,11 @@ fn grid_navigation_preserves_rows_and_consumes_each_key_once() {
         );
         assert_eq!(take_grid_action(state, 14, 17, 6), None);
     });
-    let _ = ctx.end_pass();
+    ctx.end_pass().drop_without_applying_deltas();
     let (ctx, input) = key_input(eframe::egui::Key::ArrowLeft);
     ctx.begin_pass(input);
     ctx.input_mut(|state| assert_eq!(take_grid_action(state, 6, 17, 6), Some(GridAction::Sidebar)));
-    let _ = ctx.end_pass();
+    ctx.end_pass().drop_without_applying_deltas();
 }
 
 #[test]

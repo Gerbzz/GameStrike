@@ -37,7 +37,7 @@ pub fn take_grid_action(
     let index = index.min(count - 1);
     let columns = columns.max(1);
     let next = if input.consume_key(Modifiers::NONE, Key::ArrowLeft) {
-        if index % columns == 0 {
+        if index.is_multiple_of(columns) {
             return Some(GridAction::Sidebar);
         }
         index.saturating_sub(1)

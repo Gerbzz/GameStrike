@@ -14,7 +14,11 @@ Core application UI is never rendered by that player or a browser.
 
 The first hosted diagnostic run is [39700483311](https://github.com/Gerbzz/GameStrike/actions/runs/39700483311), source `2e33f69d7758788a027636141cf43db73f922261`. The standalone synthetic audio core passes all 53 contracts. The retained Windows launcher job also passes 15 application, seven capture and four catalog contracts, four provisional cue-policy/PCM contracts, and its player-isolation test. These do not exercise the native renderer.
 
-Native-feature contracts and Clippy failed in that initial diagnostic run. No native executable, shader validation or native framebuffer capture is accepted yet. Final outcomes and compiler diagnostics must be recorded at the repaired source SHA.
+That run compiled a real native executable and passed all nine native framebuffer cases on hosted Windows DX12 / Microsoft Basic Render Driver, including the 1672x941 target, frozen startup, skip and reduced motion. Artifact [12393581357](https://github.com/Gerbzz/GameStrike/actions/runs/39700483311/artifacts/12393581357) records source identity and hashes; executable SHA256 is `72a8598c1bb030920e1fa0b8dbaa551648013bc4a1336e2da4b1b7b491dcf94f`. All 54 artifact file hashes were independently checked. This is hosted synthetic-library evidence, not a release or general hardware acceptance.
+
+The run remains failed: five of 16 native visual contracts discarded unapplied texture updates in their no-renderer fixtures, Clippy reported seven native-source lint errors, formatting failed, and the intentionally enforced candidate-lock gate rejected an uncommitted lock. Test disposal now uses egui's explicit no-renderer API with every input assertion preserved; source lint repairs use context/state parameters and equivalent guards without suppressions. A fresh committed-lock run must pass before accepting the repaired source.
+
+Pixel inspection found a runner-pointer tooltip over the captured library. Capture mode now neutralizes only interaction events while preserving real framebuffer replies and viewport/DPI metadata. Normal interactive input is unchanged. The single PWDS design also pins native popup styling to dark, with an OS-light-theme regression contract. These fixes still require the fresh native run.
 
 Cargo generated the new dependency lock on hosted Rust 1.96.1. Independent review verified its hashes, all patch hunks, preservation of existing package versions/checksums and the expected native dependency graph. The lock must be committed and validated again before exact-source acceptance; a resolved candidate cannot make the initial run green. Matched eframe/egui-wgpu 0.36.2 use wgpu 30 through the reexport.
 
@@ -62,7 +66,7 @@ establish acceptance on another machine or resolve application-control trust.
 
 ## Remaining work
 
-- Compile/format/test/shader validation, actual native captures and measured GPU cost.
+- Passing exact-source format/lint/contracts and fresh native captures after repairs; measured GPU cost and wider hardware acceptance.
 - Full 3D motion/material parity: individual flying/rotating frame parts, camera
   choreography, environment reflections and bloom remain beyond this first slice.
 - Matching licensed TTF/OTF fonts; default egui fonts are engineering-only.

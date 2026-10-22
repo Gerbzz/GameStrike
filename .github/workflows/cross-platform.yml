@@ -359,6 +359,14 @@ jobs:
         run: |
           cargo clippy --locked --no-default-features --features native-ui --bin gamestrike-desktop -- -D warnings 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/native-clippy.log
           if ($LASTEXITCODE -ne 0) { throw 'Native Clippy failed.' }
+      - name: Upload native check diagnostics before the release build
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamestrike-native-checks-${{ github.sha }}
+          path: ci-native-evidence/logs/
+          if-no-files-found: error
+          retention-days: 14
       - name: Build the original-source native executable
         id: build
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}

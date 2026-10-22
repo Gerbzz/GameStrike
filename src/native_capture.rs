@@ -1,6 +1,21 @@
 //! CLI and framebuffer checks shared by the real native binary and synthetic contract tests.
 use std::{collections::BTreeSet, path::PathBuf};
 
+/// A frozen capture must not depend on a hosted runner's pointer or keyboard.
+/// Keep real screenshot replies and viewport metadata; ordinary input is unchanged.
+#[cfg(feature = "native-ui")]
+pub fn isolate_capture_input(input: &mut eframe::egui::RawInput, capturing: bool) {
+    if !capturing {
+        return;
+    }
+    input
+        .events
+        .retain(|event| matches!(event, eframe::egui::Event::Screenshot { .. }));
+    input.events.push(eframe::egui::Event::PointerGone);
+    input.hovered_files.clear();
+    input.dropped_files.clear();
+}
+
 #[derive(Clone, Debug)]
 pub struct DesktopOptions {
     pub library: Option<PathBuf>,

@@ -7,7 +7,7 @@ mod platform;
 use eframe::egui;
 use gamestrike::{
     application::{AppCommand, CatalogBackend, LauncherService, LibraryBackend},
-    native_capture::{DesktopOptions, validate_pixels, validate_viewport},
+    native_capture::{DesktopOptions, isolate_capture_input, validate_pixels, validate_viewport},
     native_ui::{NativeView, boot::BootPose},
 };
 use std::{
@@ -256,6 +256,10 @@ impl DesktopApp {
 }
 
 impl eframe::App for DesktopApp {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, input: &mut egui::RawInput) {
+        isolate_capture_input(input, self.options.capture.is_some());
+    }
+
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.service.poll_events();
         // eframe calls logic without ui while hidden. The acceptance deadline must still run.
