@@ -239,7 +239,9 @@ mod tests {
             let image = cover(index);
             assert_eq!(image.size, [192, 256]);
             assert_eq!(image.rgba.len(), 192 * 256 * 4);
-            assert!(image.rgba.chunks_exact(4).all(|pixel| pixel[3] == 255));
+            let (pixels, remainder) = image.rgba.as_chunks::<4>();
+            assert!(remainder.is_empty());
+            assert!(pixels.iter().all(|pixel| pixel[3] == 255));
             assert_eq!(image.rgba, cover(index).rgba);
             assert!(identities.insert(image.rgba));
         }
