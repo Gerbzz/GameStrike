@@ -350,7 +350,11 @@ fn unknown_game_cannot_reach_the_launch_backend() {
 fn synthetic_capture_has_no_worker_or_launch_authority() {
     let mut service = LauncherService::synthetic();
     let first = service.snapshot().games[0].id.clone();
-    assert!(service.snapshot().games.len() >= 8);
+    assert_eq!(service.snapshot().games.len(), 21);
+    assert!(service.snapshot().games.iter().all(|game| {
+        game.source == "OWNED SYNTHETIC FIXTURE"
+            && game.cover.as_ref().is_some_and(|cover| cover.size == [192, 256])
+    }));
     assert!(service.dispatch(AppCommand::Launch(first)).is_err());
     assert!(
         service

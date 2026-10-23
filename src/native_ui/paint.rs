@@ -7,10 +7,10 @@ use eframe::egui::{
     self, Color32, Mesh, Painter, Pos2, Rect, Shape, Stroke, TextureId, pos2, vec2,
 };
 
-pub(super) const AMBER: Color32 = Color32::from_rgb(255, 138, 23);
-pub(super) const LIGHT: Color32 = Color32::from_rgb(255, 226, 180);
+pub(super) const AMBER: Color32 = Color32::from_rgb(255, 123, 12);
+pub(super) const LIGHT: Color32 = Color32::from_rgb(255, 220, 148);
 pub(super) const TEXT: Color32 = Color32::from_rgb(255, 246, 238);
-pub(super) const MUTED: Color32 = Color32::from_rgb(226, 196, 173);
+pub(super) const MUTED: Color32 = Color32::from_rgb(191, 184, 173);
 
 pub(super) fn faded(p: &Painter, opacity: f32) -> Painter {
     let mut painter = p.clone();
@@ -79,40 +79,190 @@ pub(super) fn plate(p: &Painter, points: &[Pos2], bevel: f32, face: Color32, lit
         Color32::from_black_alpha(190),
         Color32::from_black_alpha(220),
     );
+    // Separate the black casing, polished copper lip and recessed inner bevel.
+    // A single cream-to-brown edge made every surface read as the same flat slab.
+    let lip = inset(points, bevel * 0.27);
+    let shoulder = inset(points, bevel * 0.58);
     let inner = inset(points, bevel);
-    let mut mesh = Mesh::default();
-    for i in 0..points.len() {
-        let j = (i + 1) % points.len();
-        let edge = (points[j] - points[i]).normalized();
-        let illumination = (0.48 + edge.x * 0.35 - edge.y * 0.23).clamp(0.0, 1.0);
-        let rim = mix(Color32::from_rgb(76, 31, 8), LIGHT, illumination);
-        let base = mesh.vertices.len() as u32;
-        mesh.colored_vertex(points[i], rim);
-        mesh.colored_vertex(points[j], rim);
-        mesh.colored_vertex(inner[j], mix(face, AMBER, 0.24));
-        mesh.colored_vertex(inner[i], mix(face, AMBER, 0.24));
-        mesh.add_triangle(base, base + 1, base + 2);
-        mesh.add_triangle(base, base + 2, base + 3);
-    }
-    p.add(Shape::mesh(mesh));
+    rim(p, points, &lip, Color32::from_rgb(26, 12, 5), AMBER);
+    rim(p, &lip, &shoulder, Color32::from_rgb(104, 36, 5), LIGHT);
+    rim(
+        p,
+        &shoulder,
+        &inner,
+        Color32::from_rgb(4, 4, 4),
+        Color32::from_rgb(98, 61, 32),
+    );
     polygon(
         p,
         &inner,
-        mix(face, Color32::from_rgb(93, 46, 19), 0.30),
+        mix(face, Color32::from_rgb(48, 46, 42), 0.22),
         face,
     );
     if lit {
-        for (width, alpha) in [(bevel * 2.8, 12), (bevel * 1.5, 22), (1.1, 165)] {
+        for (width, alpha) in [(bevel * 3.2, 8), (bevel * 1.8, 18), (0.9, 190)] {
             p.add(Shape::closed_line(
-                points.to_vec(),
-                Stroke::new(width, Color32::from_rgba_unmultiplied(255, 117, 24, alpha)),
+                lip.clone(),
+                Stroke::new(width, Color32::from_rgba_unmultiplied(255, 105, 8, alpha)),
             ));
         }
     }
     p.add(Shape::closed_line(
         inner,
-        Stroke::new(0.8, Color32::from_rgb(113, 54, 22)),
+        Stroke::new(0.75, Color32::from_black_alpha(225)),
     ));
+}
+
+fn rim(p: &Painter, outer: &[Pos2], inner: &[Pos2], dark: Color32, light: Color32) {
+    let mut mesh = Mesh::default();
+    for i in 0..outer.len() {
+        let j = (i + 1) % outer.len();
+        let edge = (outer[j] - outer[i]).normalized();
+        let illumination = (0.42 + edge.x * 0.46 - edge.y * 0.34).clamp(0.0, 1.0);
+        let color = mix(dark, light, illumination);
+        let base = mesh.vertices.len() as u32;
+        mesh.colored_vertex(outer[i], color);
+        mesh.colored_vertex(outer[j], color);
+        mesh.colored_vertex(inner[j], mix(color, dark, 0.40));
+        mesh.colored_vertex(inner[i], mix(color, dark, 0.40));
+        mesh.add_triangle(base, base + 1, base + 2);
+        mesh.add_triangle(base, base + 2, base + 3);
+    }
+    p.add(Shape::mesh(mesh));
+}
+
+/// The active cartridge is a physical gold-orange collar, not just a thin outline.
+/// Its extra three points fit inside the grid gutter; hit geometry is unchanged.
+pub(super) fn cartridge(p: &Painter, rect: Rect, cut: f32, u: f32, selected: bool) {
+    if !selected {
+        plate(
+            p,
+            &chamfer(rect, [cut; 4]),
+            (3.4 * u).max(1.0),
+            Color32::from_rgb(10, 10, 11),
+            false,
+        );
+        p.add(Shape::closed_line(
+            chamfer(rect.shrink(2.0 * u), [cut * 0.8; 4]),
+            Stroke::new((0.7 * u).max(0.5), Color32::from_rgb(125, 49, 9)),
+        ));
+        return;
+    }
+    let outer = chamfer(rect.expand(3.0 * u), [cut * 1.4; 4]);
+    for (width, alpha) in [(18.0, 9), (11.0, 17), (6.0, 35)] {
+        p.add(Shape::closed_line(
+            outer.clone(),
+            Stroke::new(
+                width * u,
+                Color32::from_rgba_unmultiplied(255, 119, 0, alpha),
+            ),
+        ));
+    }
+    plate(p, &outer, 7.5 * u, Color32::from_rgb(214, 83, 0), true);
+    let collar = chamfer(rect.shrink(0.5 * u), [cut * 1.1; 4]);
+    p.add(Shape::closed_line(
+        collar,
+        Stroke::new(3.0 * u, Color32::from_rgb(255, 178, 28)),
+    ));
+    // Highlight the upper/left facets only. This establishes a light direction
+    // instead of making every edge equally luminous.
+    p.add(Shape::line(
+        vec![
+            pos2(rect.left() - u, rect.bottom() - cut),
+            pos2(rect.left() - u, rect.top() + cut),
+            pos2(rect.left() + cut, rect.top() - u),
+            pos2(rect.right() - cut, rect.top() - u),
+        ],
+        Stroke::new(2.0 * u, Color32::from_rgb(255, 237, 136)),
+    ));
+}
+
+pub(super) fn display_title(p: &Painter, rect: Rect, title: &str, u: f32) {
+    let make_job = |scale: f32| {
+        let mut job = egui::text::LayoutJob::default();
+        job.append(
+            title,
+            0.0,
+            egui::TextFormat {
+                font_id: super::fonts::display(42.0 * scale),
+                extra_letter_spacing: 6.0 * scale,
+                color: AMBER,
+                ..Default::default()
+            },
+        );
+        job
+    };
+    let mut galley = p.layout_job(make_job(u));
+    if galley.size().x > rect.width() {
+        galley = p.layout_job(make_job(u * rect.width() / galley.size().x));
+    }
+    let at = rect.left_center() - vec2(0.0, galley.size().y * 0.5);
+    p.galley_with_override_text_color(
+        at + vec2(0.0, 2.0 * u),
+        galley.clone(),
+        Color32::BLACK,
+    );
+    for offset in [-0.65, 0.0, 0.65] {
+        p.galley_with_override_text_color(
+            at + vec2(offset * u, 0.0),
+            galley.clone(),
+            AMBER,
+        );
+    }
+}
+
+/// Machined slots: inset black, lower copper reflection and a short orange core.
+pub(super) fn vents(p: &Painter, rect: Rect, u: f32) {
+    for i in 0..9 {
+        let x = rect.left() + i as f32 * rect.width() / 9.0;
+        let slot = Rect::from_min_size(pos2(x, rect.top()), vec2(11.0 * u, rect.height()));
+        polygon(
+            p,
+            &chamfer(slot, [3.0 * u; 4]),
+            Color32::from_rgb(2, 2, 3),
+            Color32::from_rgb(3, 3, 4),
+        );
+        p.line_segment(
+            [slot.left_bottom(), slot.right_bottom()],
+            Stroke::new(u, Color32::from_rgb(105, 44, 11)),
+        );
+        let y = slot.top() + slot.height() * 0.35;
+        p.line_segment(
+            [pos2(x + 3.0 * u, y), pos2(x + 3.0 * u, y + 6.0 * u)],
+            Stroke::new(u, Color32::from_rgb(187, 66, 7)),
+        );
+    }
+}
+
+fn brushed(p: &Painter, points: &[Pos2], u: f32) {
+    let top = points.iter().map(|v| v.y).fold(f32::INFINITY, f32::min);
+    let bottom = points.iter().map(|v| v.y).fold(f32::NEG_INFINITY, f32::max);
+    // Intersect each scanline with the actual polygon, not its bounding box.
+    // This keeps fine surface grain inside angular/concave plate faces.
+    let count = ((bottom - top) / (3.0 * u).max(1.0)) as usize;
+    for row in 1..count.min(512) {
+        let y = top + row as f32 * (3.0 * u).max(1.0);
+        let mut crossings = Vec::new();
+        for i in 0..points.len() {
+            let a = points[i];
+            let b = points[(i + 1) % points.len()];
+            if (a.y <= y && b.y > y) || (b.y <= y && a.y > y) {
+                crossings.push(a.x + (y - a.y) * (b.x - a.x) / (b.y - a.y));
+            }
+        }
+        crossings.sort_by(f32::total_cmp);
+        for pair in crossings.chunks_exact(2) {
+            if pair[1] - pair[0] > 12.0 * u {
+                p.line_segment(
+                    [pos2(pair[0] + 6.0 * u, y), pos2(pair[1] - 6.0 * u, y)],
+                    Stroke::new(
+                        0.5 * u,
+                        Color32::from_white_alpha(if row % 3 == 0 { 10 } else { 4 }),
+                    ),
+                );
+            }
+        }
+    }
 }
 
 pub(super) fn slab(p: &Painter, rect: Rect, cut: f32, selected: bool, focus: bool) {
@@ -126,7 +276,7 @@ pub(super) fn slab(p: &Painter, rect: Rect, cut: f32, selected: bool, focus: boo
             Color32::from_rgb(254, 116, 17),
         );
     } else {
-        plate(p, &points, 1.6, Color32::from_rgb(18, 8, 4), focus);
+        plate(p, &points, 1.6, Color32::from_rgb(8, 9, 11), focus);
     }
     if focus {
         p.add(Shape::closed_line(
@@ -167,7 +317,7 @@ pub(super) fn frame(p: &Painter, g: &Geometry, pose: BootPose) {
         .iter()
         .map(|v| f.center() + (*v - f.center()) * zoom)
         .collect();
-    plate(&p, &assembled, 7.0 * u, Color32::from_rgb(25, 11, 5), true);
+    plate(&p, &assembled, 7.0 * u, Color32::from_rgb(15, 15, 16), true);
     if pose.frame < 0.45 {
         return;
     }
@@ -179,7 +329,7 @@ pub(super) fn frame(p: &Painter, g: &Geometry, pose: BootPose) {
         &p,
         &chamfer(interior, [18.0 * u, 30.0 * u, 26.0 * u, 18.0 * u]),
         5.0 * u,
-        Color32::from_rgb(9, 3, 1),
+        Color32::from_rgb(5, 5, 6),
         true,
     );
     let glass = Rect::from_min_max(
@@ -191,7 +341,7 @@ pub(super) fn frame(p: &Painter, g: &Geometry, pose: BootPose) {
             &p,
             &chamfer(glass, [0.0, 10.0 * u, 0.0, 10.0 * u]),
             2.0 * u,
-            Color32::from_rgb(48, 20, 7),
+            Color32::from_rgb(11, 12, 13),
             false,
         );
     }
@@ -200,7 +350,7 @@ pub(super) fn frame(p: &Painter, g: &Geometry, pose: BootPose) {
         &p,
         &chamfer(side, [16.0 * u, 24.0 * u, 16.0 * u, 16.0 * u]),
         5.0 * u,
-        Color32::from_rgb(14, 6, 3),
+        Color32::from_rgb(10, 10, 11),
         true,
     );
     for fraction in [0.16, 0.60] {
@@ -223,7 +373,7 @@ pub(super) fn frame(p: &Painter, g: &Geometry, pose: BootPose) {
             [12.0 * u, 20.0 * u, 20.0 * u, 12.0 * u],
         ),
         4.0 * u,
-        Color32::from_rgb(7, 2, 1),
+        Color32::from_rgb(3, 4, 5),
         true,
     );
     let x0 = g.emblem.left() + g.emblem.width() * 0.6;
@@ -239,7 +389,8 @@ pub(super) fn frame(p: &Painter, g: &Geometry, pose: BootPose) {
         pos2(x1 - tip * 0.3, y1),
         pos2(x0 + 12.0 * u, y1),
     ];
-    plate(&p, &tab, 5.0 * u, Color32::from_rgb(28, 13, 7), true);
+    plate(&p, &tab, 5.0 * u, Color32::from_rgb(12, 13, 15), true);
+    brushed(&p, &inset(&tab, 7.0 * u), u);
     p.add(Shape::line(
         vec![
             pos2(x1 + tip * 0.95, y0 + tip),
@@ -262,7 +413,8 @@ pub(super) fn frame(p: &Painter, g: &Geometry, pose: BootPose) {
         pos2(bx + 28.0 * u, b.bottom()),
     ];
     if right > bx + 50.0 * u {
-        plate(&p, &title, 5.0 * u, Color32::from_rgb(28, 13, 7), true);
+        plate(&p, &title, 5.0 * u, Color32::from_rgb(12, 13, 15), true);
+        brushed(&p, &inset(&title, 7.0 * u), u);
     }
     let prompt = Rect::from_min_max(
         pos2(g.launch.left() - 10.0 * u, b.top() + 10.0 * u),
@@ -272,7 +424,7 @@ pub(super) fn frame(p: &Painter, g: &Geometry, pose: BootPose) {
         &p,
         &chamfer(prompt, [20.0 * u, 20.0 * u, 20.0 * u, 20.0 * u]),
         4.0 * u,
-        Color32::from_rgb(28, 13, 7),
+        Color32::from_rgb(12, 13, 15),
         true,
     );
     let side_glass = Rect::from_min_max(
@@ -314,6 +466,10 @@ fn rivet(p: &Painter, at: Pos2, r: f32) {
         r * 0.28,
         Color32::from_rgb(133, 112, 88),
     );
+    p.line_segment(
+        [at - vec2(r * 0.48, r * 0.48), at + vec2(r * 0.48, r * 0.48)],
+        Stroke::new((r * 0.22).max(0.4), Color32::from_rgb(62, 57, 49)),
+    );
 }
 
 pub(super) fn emblem(p: &Painter, g: &Geometry, pose: BootPose, logo: TextureId) {
@@ -328,6 +484,17 @@ pub(super) fn emblem(p: &Painter, g: &Geometry, pose: BootPose, logo: TextureId)
     let at = start + (seat - start) * pose.fly;
     let start_r = g.viewport.height().min(g.viewport.width()) * 0.145;
     let radius = (start_r + (g.emblem.width() * 0.5 - start_r) * pose.fly) * pose.emblem;
+    let housing = Rect::from_center_size(
+        at + vec2(0.0, radius * 0.12),
+        vec2(radius * 2.32, radius * 1.86),
+    );
+    plate(
+        p,
+        &chamfer(housing, [radius * 0.36; 4]),
+        (4.0 * g.scale).min(radius * 0.05),
+        Color32::from_rgb(12, 13, 14),
+        true,
+    );
     let mut mesh = Mesh::default();
     let bands = [
         (0.0, Color32::from_rgb(68, 17, 2)),

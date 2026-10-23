@@ -4,6 +4,7 @@ mod activation;
 pub mod boot;
 mod cache_budget;
 mod covers;
+mod fonts;
 pub mod geometry;
 mod gpu;
 mod mesh_geometry;
@@ -67,6 +68,7 @@ impl NativeView {
         let gpu = gpu::NativeGpu::new(state)?;
         let logo = covers::logo(&cc.egui_ctx)?;
         configure_visuals(&cc.egui_ctx);
+        fonts::install(&cc.egui_ctx);
         Ok(Self {
             gpu,
             covers: covers::Covers::default(),
@@ -221,7 +223,7 @@ impl NativeView {
                         at,
                         Align2::CENTER_CENTER,
                         "GAMESTRIKE",
-                        FontId::monospace(42.0 * g.scale.max(0.5)),
+                        fonts::display(42.0 * g.scale.max(0.5)),
                         Color32::from_rgb(255, 196, 122),
                     );
                 }
@@ -283,14 +285,8 @@ impl NativeView {
         } else {
             SECTIONS[self.section]
         };
-        let clip = p.with_clip_rect(g.header);
-        clip.text(
-            g.header.left_center() + vec2(18.0 * g.scale, 0.0),
-            Align2::LEFT_CENTER,
-            title,
-            FontId::monospace(37.0 * g.scale.max(0.48)),
-            Color32::from_rgb(245, 140, 57),
-        );
+        let title_rect = g.header.shrink2(vec2(16.0, 0.0) * g.scale);
+        paint::display_title(&p.with_clip_rect(g.header), title_rect, title, g.scale);
         let info = if self.section == 3 {
             format!(
                 "{} QUEUED  /  {} PLAYLISTS",
@@ -299,6 +295,13 @@ impl NativeView {
             )
         } else if snapshot.refreshing {
             "REFRESHING COLLECTION".to_owned()
+        } else if !snapshot.games.is_empty()
+            && snapshot
+                .games
+                .iter()
+                .all(|game| game.source == "OWNED SYNTHETIC FIXTURE")
+        {
+            format!("SYNTHETIC LIBRARY  /  {} GAMES", snapshot.games.len())
         } else {
             format!(
                 "{} GAMES  /  {}",
@@ -330,6 +333,21 @@ impl NativeView {
         enabled: bool,
     ) {
         let focused_at_start = ui.memory(|memory| memory.focused());
+        let label_y = g.filters[0].top() - 21.0 * g.scale;
+        p.text(
+            pos2(g.filters[0].left() + 4.0 * g.scale, label_y),
+            Align2::LEFT_CENTER,
+            "COLLECTION",
+            fonts::control((16.0 * g.scale).max(9.0)),
+            AMBER,
+        );
+        p.line_segment(
+            [
+                pos2(g.filters[0].left() + 100.0 * g.scale, label_y),
+                pos2(g.filters[0].right(), label_y),
+            ],
+            Stroke::new(g.scale, Color32::from_rgb(87, 40, 15)),
+        );
         for (i, label) in SECTIONS.iter().enumerate() {
             let rect = g.navigation[i];
             let response = control(
@@ -422,6 +440,37 @@ impl NativeView {
                 self.scroll = 0.0;
                 response.request_focus();
             }
+        }
+        // The lower sidebar is a real status/keyboard legend, not empty space
+        // or invented store entries. No new action or device capability is implied.
+        let status = Rect::from_min_max(
+            pos2(
+                g.sidebar.left() + 14.0 * g.scale,
+                g.filters[2].bottom() + 22.0 * g.scale,
+            ),
+            g.sidebar.max - vec2(14.0, 10.0) * g.scale,
+        );
+        if status.height() > 78.0 * g.scale {
+            let status_p = p.with_clip_rect(status);
+            paint::vents(
+                &status_p,
+                Rect::from_min_size(status.min, vec2(status.width(), 32.0 * g.scale)),
+                g.scale,
+            );
+            status_p.text(
+                status.left_bottom() - vec2(0.0, 32.0) * g.scale,
+                Align2::LEFT_BOTTOM,
+                "LOCAL COLLECTION",
+                fonts::control(17.0 * g.scale),
+                MUTED,
+            );
+            status_p.text(
+                status.left_bottom() - vec2(0.0, 10.0) * g.scale,
+                Align2::LEFT_BOTTOM,
+                "CTRL / CMD + O  ·  IMPORT",
+                FontId::monospace((10.0 * g.scale).max(7.0)),
+                MUTED,
+            );
         }
     }
 
@@ -638,17 +687,7 @@ impl NativeView {
         let p = drawing.painter;
         let g = drawing.geometry;
         let cut = g.card_cut();
-        paint::plate(
-            p,
-            &chamfer(rect, [cut; 4]),
-            (3.6 * g.scale).max(1.2),
-            if selected {
-                Color32::from_rgb(153, 61, 7)
-            } else {
-                Color32::from_rgb(32, 14, 6)
-            },
-            selected,
-        );
+        paint::cartridge(p, rect, cut, g.scale, selected);
         let art = rect.shrink(6.0 * g.scale);
         if let Some(texture) = self.covers.textures.get(&game.id) {
             let size = texture.handle.size();
@@ -676,29 +715,32 @@ impl NativeView {
                 Color32::from_black_alpha(115),
                 Color32::from_black_alpha(235),
             );
-            let title_p = p.with_clip_rect(title.shrink(4.0 * g.scale));
-            let font = FontId::proportional((18.0 * g.scale).max(10.0));
-            let galley = title_p.layout(
-                game.title.to_uppercase(),
-                font,
+            let (title_text, caption) = card_label_regions(art, g.scale);
+            let title_p = p.with_clip_rect(title_text);
+            let galley = fonts::single_line(
+                &title_p,
+                &game.title.to_uppercase(),
+                (18.0 * g.scale).max(10.0),
+                title_text.width(),
                 TEXT,
-                title.width() - 10.0 * g.scale,
             );
             title_p.galley(
-                pos2(title.left() + 5.0 * g.scale, title.top() + 5.0 * g.scale),
+                title_text.left_center() - vec2(0.0, galley.size().y * 0.5),
                 galley,
                 TEXT,
             );
-            let label = if texture.synthetic {
+            let label = if game.source == "OWNED SYNTHETIC FIXTURE" {
+                "SYNTHETIC FIXTURE"
+            } else if texture.synthetic {
                 "GENERATED COVER"
             } else {
                 game.source.as_str()
             };
-            p.with_clip_rect(art).text(
-                art.left_bottom() + vec2(5.0, -6.0) * g.scale,
+            p.with_clip_rect(caption).text(
+                caption.left_bottom(),
                 Align2::LEFT_BOTTOM,
                 label,
-                FontId::monospace((9.0 * g.scale).max(7.0)),
+                FontId::monospace((10.0 * g.scale).max(7.0)),
                 MUTED,
             );
         }
@@ -740,13 +782,10 @@ impl NativeView {
                 },
             );
         }
-        if selected || focused {
+        if focused {
             p.add(Shape::closed_line(
                 chamfer(rect.shrink(1.0), [cut; 4]),
-                Stroke::new(
-                    if focused { 2.6 } else { 1.8 },
-                    if focused { LIGHT } else { AMBER },
-                ),
+                Stroke::new(1.5 * g.scale.max(0.6), LIGHT),
             ));
         }
     }
@@ -833,7 +872,7 @@ impl NativeView {
                     title_rect.left_top(),
                     Align2::LEFT_TOP,
                     game.title.to_uppercase(),
-                    FontId::monospace((24.0 * g.scale).max(11.0)),
+                    fonts::control((34.0 * g.scale).max(14.0)),
                     Color32::from_rgb(255, 196, 122),
                 );
                 let status = if snapshot.running.contains(&game.id) {
@@ -972,6 +1011,24 @@ fn card_id(id: &GameId) -> Id {
     Id::new(("pwds.card", format!("{id:?}")))
 }
 
+fn card_label_regions(art: Rect, scale: f32) -> (Rect, Rect) {
+    let caption = Rect::from_min_max(
+        pos2(
+            art.left() + 5.0 * scale,
+            art.bottom() - 6.0 * scale - (14.0 * scale).max(10.0),
+        ),
+        art.right_bottom() + vec2(-5.0, -6.0) * scale,
+    );
+    let title = Rect::from_min_max(
+        pos2(
+            art.left() + 5.0 * scale,
+            art.top() + art.height() * 0.68 + 5.0 * scale,
+        ),
+        pos2(art.right() - 5.0 * scale, caption.top() - 3.0 * scale),
+    );
+    (title, caption)
+}
+
 fn control(
     ui: &egui::Ui,
     p: &Painter,
@@ -995,25 +1052,31 @@ fn control(
     let painter = paint::faded(p, if enabled { 1.0 } else { 0.43 });
     paint::slab(&painter, rect, cut, selected, response.has_focus());
     let label_rect = rect.shrink2(vec2(rect.width() * 0.12, 0.0));
-    painter.with_clip_rect(label_rect).text(
-        rect.center()
-            + vec2(
-                if id == nav_id(0) || id == nav_id(1) || id == nav_id(2) || id == nav_id(3) {
-                    rect.width() * 0.05
-                } else {
-                    0.0
-                },
-                0.0,
-            ),
-        Align2::CENTER_CENTER,
+    let center = rect.center()
+        + vec2(
+            if id == nav_id(0) || id == nav_id(1) || id == nav_id(2) || id == nav_id(3) {
+                rect.width() * 0.05
+            } else {
+                0.0
+            },
+            0.0,
+        );
+    let width = 2.0 * (center.x - label_rect.left()).min(label_rect.right() - center.x);
+    let color = if selected {
+        Color32::from_rgb(22, 6, 0)
+    } else {
+        TEXT
+    };
+    let galley = fonts::fitted_control(
+        &painter,
         label,
-        FontId::proportional((rect.height() * 0.37).max(9.0)),
-        if selected {
-            Color32::from_rgb(22, 6, 0)
-        } else {
-            TEXT
-        },
+        (rect.height() * 0.48).max(11.0),
+        width,
+        color,
     );
+    painter
+        .with_clip_rect(label_rect)
+        .galley(center - galley.size() * 0.5, galley, color);
     response
 }
 
@@ -1094,8 +1157,57 @@ fn star(p: &Painter, at: Pos2, radius: f32, color: Color32) {
 
 #[cfg(test)]
 mod tests {
-    use super::configure_visuals;
-    use eframe::egui::{Context, RawInput, Theme};
+    use super::{card_label_regions, configure_visuals, fonts, geometry::Geometry, paint::TEXT};
+    use eframe::egui::{Context, LayerId, RawInput, Rect, Theme, pos2, vec2};
+
+    #[test]
+    fn bundled_font_labels_fit_and_never_cover_fixture_provenance() {
+        let ctx = Context::default();
+        fonts::install(&ctx);
+        ctx.begin_pass(RawInput::default());
+        let p = ctx.layer_painter(LayerId::background());
+        for size in [
+            vec2(880.0, 620.0),
+            vec2(1250.0, 800.0),
+            vec2(1672.0, 941.0),
+        ] {
+            let g = Geometry::new(Rect::from_min_size(pos2(0.0, 0.0), size), 1.0);
+            let filter = g.filters[2];
+            let width = filter.width() * 0.76;
+            let label = fonts::fitted_control(
+                &p,
+                "RECENTLY PLAYED",
+                (filter.height() * 0.48).max(11.0),
+                width,
+                TEXT,
+            );
+            assert!(label.size().x <= width + 0.01);
+            assert!(!label.elided);
+            let art = g.card_rect(0, 0.0).shrink(6.0 * g.scale);
+            let (title, caption) = card_label_regions(art, g.scale);
+            assert!(art.contains_rect(title) && art.contains_rect(caption));
+            assert!(title.bottom() < caption.top());
+            for name in [
+                "STARBOUND ECHOES",
+                "A VERY LONG TITLE THAT MUST NOT HIDE THE SOURCE LABEL",
+            ] {
+                let text = fonts::single_line(
+                    &p,
+                    name,
+                    (18.0 * g.scale).max(10.0),
+                    title.width(),
+                    TEXT,
+                );
+                assert_eq!(text.rows.len(), 1);
+                assert!(text.size().x <= title.width() + 0.01);
+                assert!(text.size().y <= title.height());
+                if name == "STARBOUND ECHOES" {
+                    assert!(!text.elided);
+                }
+            }
+        }
+        ctx.end_pass().drop_without_applying_deltas();
+    }
 
     #[test]
     fn a_light_system_theme_cannot_replace_the_fixed_collection_popup_style() {

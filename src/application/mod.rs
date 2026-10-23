@@ -1,5 +1,6 @@
 //! Renderer-independent native application state. Only the worker owns filesystem/process hosts.
 mod library;
+mod synthetic_covers;
 use crate::music::{MusicCommand, MusicSnapshot, playback::PlaybackCommand};
 pub use library::{DesktopHost, LibraryBackend};
 
@@ -189,24 +190,20 @@ impl LauncherService {
             "WILD FRONTIER",
             "FROSTLINE",
             "SOLAR ARENA",
+            "COPPER REEF",
+            "DUSK SIGNAL",
+            "LUNAR RELAY",
+            "ASHEN PASS",
+            "PRISM CITY",
+            "CLOUDWARD",
+            "SILENT CURRENT",
+            "REDLINE RUN",
+            "MONOLITH",
         ];
         let games = titles
             .into_iter()
             .enumerate()
             .map(|(index, title)| {
-                let mut rgba = Vec::with_capacity(96 * 144 * 4);
-                for y in 0..144_usize {
-                    for x in 0..96_usize {
-                        let glow = ((x * 3 + y * 2 + index * 19) % 110) as u8;
-                        let stripe = ((x + y / 2 + index * 7) % 35) < 4;
-                        rgba.extend_from_slice(&[
-                            if stripe { 240 } else { 30 + glow },
-                            if stripe { 164 } else { 20 + glow / 2 },
-                            25 + ((index * 27 + y) % 110) as u8,
-                            255,
-                        ]);
-                    }
-                }
                 GameCard {
                     id: GameId::Html(Uuid::from_u128(index as u128 + 1)),
                     title: title.into(),
@@ -214,10 +211,7 @@ impl LauncherService {
                     favorite: index % 4 == 0,
                     files_ok: true,
                     last_played: None,
-                    cover: Some(CoverImage {
-                        size: [96, 144],
-                        rgba,
-                    }),
+                    cover: Some(synthetic_covers::cover(index)),
                 }
             })
             .collect();
