@@ -13,7 +13,7 @@ function New-FixtureMetadata {
         renderer = 'Native Rust / egui-wgpu 0.36.2 / Dx12 / owned fixture'
         game_count = 12; width = 1250; height = 800; pixels_per_point = 1.0
         requested_logical_size = @(1250, 800); boot_time = 0.5; boot_pose_seconds = 0.5
-        skip_boot = $false; reduced_motion = $false
+        skip_boot = $false; reduced_motion = $false; section = 'games'
     }
 }
 function Assert-Rejected([scriptblock]$Mutation, [string]$Name) {
@@ -41,6 +41,13 @@ $reduced = New-FixtureMetadata; $reduced.reduced_motion = $true; $reduced.boot_p
 Assert-NativeCaptureCase -Metadata $reduced -Case $reducedCase -ExpectedSourceSha $source
 $script:checks++
 
+foreach ($section in @('soundboard', 'voice', 'music')) {
+    $sectionCase = $case.Clone(); $sectionCase.Section = $section
+    $sectionMetadata = New-FixtureMetadata; $sectionMetadata.section = $section
+    Assert-NativeCaptureCase -Metadata $sectionMetadata -Case $sectionCase -ExpectedSourceSha $source
+    $script:checks++
+}
+Assert-Rejected { param($m) $m.section = 'music' } 'wrong contextual route'
 Assert-Rejected { param($m) $m.width = 900 } 'clamped width'
 Assert-Rejected { param($m) $m.pixels_per_point = 1.5 } 'mismatched DPI'
 Assert-Rejected { param($m) $m.requested_logical_size = @(880, 620) } 'wrong requested size'

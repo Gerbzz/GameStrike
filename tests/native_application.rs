@@ -1,7 +1,7 @@
 //! Native application contracts. These require a permitted Rust runner; never browser evidence.
 use gamestrike::application::{
-    AppCommand, AppSnapshot, CatalogBackend, GameCard, GameId, LaunchOutcome, LauncherService,
-    RunningGame,
+    AppCommand, AppSnapshot, CatalogBackend, GameCard, GameId, GameOrigin, LaunchOutcome,
+    LauncherService, RunningGame,
 };
 use std::{
     path::Path,
@@ -59,6 +59,7 @@ impl CatalogBackend for FakeBackend {
         }
         let mut games = vec![GameCard {
             id: id(),
+            origin: GameOrigin::Html,
             title: "Original owned fixture".into(),
             source: "HTML".into(),
             favorite: calls.favorite,
@@ -365,6 +366,7 @@ fn synthetic_capture_has_no_worker_or_launch_authority() {
             .is_err()
     );
     assert!(service.dispatch(AppCommand::Refresh).is_err());
+    assert!(service.dispatch(AppCommand::ChooseHtmlFile).is_err());
 }
 
 #[test]

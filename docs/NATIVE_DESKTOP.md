@@ -10,6 +10,12 @@ worker-backed library/import/favorite/launch services, and a synthetic capture p
 Imported HTML games remain in the optional separate `gamestrike-player` process.
 Core application UI is never rendered by that player or a browser.
 
+## Contextual navigation follow-up
+
+See [Native contextual sidebar](NATIVE_CONTEXT_SIDEBAR.md) for provider filters,
+visible local HTML import, and route-specific Music/Soundboard/Voice context.
+Its validation is separate from the historical diagnostic runs below.
+
 ## Evidence status
 
 The first hosted diagnostic run is [39700483311](https://github.com/Gerbzz/GameStrike/actions/runs/39700483311), source `2e33f69d7758788a027636141cf43db73f922261`. The standalone synthetic audio core passes all 53 contracts. The retained Windows launcher job also passes 15 application, seven capture and four catalog contracts, four provisional cue-policy/PCM contracts, and its player-isolation test. These do not exercise the native renderer.

@@ -11,7 +11,7 @@ pub struct Geometry {
     pub header: Rect,
     pub emblem: Rect,
     pub navigation: [Rect; 4],
-    pub filters: [Rect; 3],
+    pub context: Rect,
     pub refresh: Rect,
     pub launch: Rect,
     pub favorite: Rect,
@@ -67,15 +67,10 @@ impl Geometry {
                 vec2(side_width, row_h),
             )
         });
-        let filters = std::array::from_fn(|i| {
-            Rect::from_min_size(
-                pos2(
-                    sidebar.left() + 9.0 * u,
-                    navigation[3].bottom() + 42.0 * u + i as f32 * (row_h + row_gap),
-                ),
-                vec2(side_width - 18.0 * u, row_h),
-            )
-        });
+        let context = Rect::from_min_max(
+            pos2(sidebar.left() + 9.0 * u, navigation[3].bottom() + 20.0 * u),
+            sidebar.max - vec2(9.0, 8.0) * u,
+        );
         let padding = 10.0 * u;
         let gap = 9.0 * u;
         // Match ui/core.js's three-row density (seven columns at 1672x941,
@@ -115,7 +110,7 @@ impl Geometry {
             header,
             emblem,
             navigation,
-            filters,
+            context,
             refresh,
             launch,
             favorite,

@@ -98,7 +98,10 @@ impl DesktopApp {
         options: DesktopOptions,
         outcome: CaptureResult,
     ) -> Result<Self, String> {
-        let view = NativeView::new(cc)?;
+        let mut view = NativeView::new(cc)?;
+        if let Some(section) = options.capture_section {
+            view.select_capture_section(section);
+        }
         eprintln!("GameStrike renderer: {}", view.renderer_label());
         let service = if options.synthetic {
             LauncherService::synthetic()
@@ -284,6 +287,7 @@ impl DesktopApp {
             "requested_logical_size": self.options.size,
             "library": "owned synthetic fixture; no real catalog or devices",
             "game_count": self.service.snapshot().games.len(),
+            "section": self.view.section_name(),
             "boot_time": self.options.boot_time.unwrap_or(5.5),
             "boot_pose_seconds": pose.seconds,
             "reduced_motion": self.options.reduced_motion,
@@ -332,7 +336,12 @@ impl eframe::App for DesktopApp {
         let pose = self.pose();
         self.view.set_playback(self.playback.snapshot());
         let commands = self.view.show(&ctx, self.service.snapshot(), pose);
+        let mut choose_html = false;
         for command in commands {
+            if matches!(&command, AppCommand::ChooseHtmlFile) {
+                choose_html = true;
+                continue;
+            }
             if let AppCommand::Playback(command) = &command {
                 let result = if self.options.synthetic {
                     Err("Synthetic capture has no playback authority".into())
@@ -366,9 +375,11 @@ impl eframe::App for DesktopApp {
             }
         }
         if !self.options.synthetic {
-            let import = ctx.input(|input| {
-                input.focused && input.modifiers.command && input.key_pressed(egui::Key::O)
-            });
+            let import = pose.settled()
+                && (choose_html
+                    || ctx.input(|input| {
+                        input.focused && input.modifiers.command && input.key_pressed(egui::Key::O)
+                    }));
             if import
                 && let Some(path) = rfd::FileDialog::new()
                     .add_filter("HTML games or ZIP archives", &["html", "htm", "zip"])

@@ -43,6 +43,12 @@ $cases = @(
     @{ Name = 'library-target'; Time = '5.5'; Width = '1672'; Height = '941'; Extra = @() }
 )
 
+# Capture the same real lower-sidebar components in every route, at both accepted sizes.
+foreach ($section in @('soundboard', 'voice', 'music')) {
+    $cases += @{ Name = $section; Time = '5.5'; Width = '1250'; Height = '800'; Section = $section; Extra = @('--capture-section', $section) }
+    $cases += @{ Name = "$section-target"; Time = '5.5'; Width = '1672'; Height = '941'; Section = $section; Extra = @('--capture-section', $section) }
+}
+
 foreach ($case in $cases) {
     $pngPath = Join-Path $evidencePath ($case.Name + '.png')
     $arguments = @('--synthetic-library', '--capture-native', $pngPath, '--boot-time', $case.Time,
