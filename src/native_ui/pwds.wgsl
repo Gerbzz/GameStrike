@@ -74,7 +74,7 @@ fn tube_layer(pixel: vec2<f32>, foreground: bool) -> vec4<f32> {
         }
         // Pipes extend along their own route as the frame comes together.
         let extension = smoothstep(along-0.04,along+0.04,u.assembly.x);
-        let halo = exp(-pow(nearest / (radius*1.9),2.0)) * 0.12 * extension;
+        let halo = exp(-pow(nearest / (radius*1.9),2.0)) * 0.17 * extension;
         result = composite(result, vec4(vec3(1.0,0.22,0.025)*halo,halo));
         if (nearest > radius+1.2 || extension < 0.001) { continue; }
         let normal2 = delta / radius;
@@ -89,8 +89,11 @@ fn tube_layer(pixel: vec2<f32>, foreground: bool) -> vec4<f32> {
         let collar = 1.0-smoothstep(0.045,0.075,abs(fract(along*5.0+0.13)-0.5));
         let core = exp(-pow(dot(delta,vec2(-tangent.y,tangent.x))/(radius*0.22),2.0));
         let amber = vec3(1.0,0.32,0.045);
-        var rgb = amber*(0.065+0.38*lit+1.25*rim+0.18*core) + vec3(1.0,0.86,0.63)*(strip*0.85+box);
-        rgb = mix(rgb,amber*(0.1+0.5*lit)+vec3(strip*0.7),collar*0.85);
+        // Dark glass between narrow hot reflections; broad brown diffuse light
+        // flattened the tubes into rubber hoses. Collars remain metallic/opaque.
+        var rgb = amber*(0.025+0.23*lit+1.55*rim+0.22*core) + vec3(1.0,0.86,0.63)*(strip*1.15+box*1.25);
+        let seam = 1.0-smoothstep(0.008,0.025,abs(abs(fract(along*5.0+0.13)-0.5)-0.06));
+        rgb = mix(rgb,amber*(0.055+0.36*lit)+vec3(1.0,0.75,0.45)*(strip*0.9+seam*0.55),collar*0.92);
         let alpha = (1.0-smoothstep(radius-1.0,radius+1.0,nearest))*extension;
         result = composite(result, vec4(rgb*alpha,alpha));
     }
@@ -106,10 +109,11 @@ fn dome(uv: vec2<f32>) -> vec3<f32> {
     let grid = vec2(longitude*68.0/6.2831853,latitude*34.0/3.14159265);
     let cell = abs(fract(grid+0.5)-0.5);
     let width = max(fwidth(grid),vec2(0.0001));
-    let line = 1.0-min(min(cell.x/width.x,cell.y/width.y),1.0);
+    let diagonal = abs(fract(grid.x + grid.y + 0.5)-0.5) / max(fwidth(grid.x + grid.y),0.0001);
+    let line = 1.0-min(min(min(cell.x/width.x,cell.y/width.y),diagonal),1.0);
     let warm = exp(-length((uv-vec2(0.16,0.15))*vec2(1.2,1.0))*2.2);
     let vignette = 1.0-smoothstep(0.25,0.85,length(xy));
-    return vec3(0.017,0.004,0.001) + vec3(0.26,0.075,0.016)*line*u.assembly.y*(0.18+warm)*vignette;
+    return vec3(0.009,0.004,0.003) + vec3(0.34,0.085,0.012)*line*u.assembly.y*(0.30+warm)*vignette;
 }
 fn ignition(uv: vec2<f32>) -> vec3<f32> {
     let t = u.viewport_time.w;

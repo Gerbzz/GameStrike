@@ -294,6 +294,11 @@ fn collection_regions_fit_viewports_and_do_not_overlap_navigation() {
                 assert_eq!(g.navigation_at(region.center()), Some(i));
                 assert_eq!(g.navigation_at(region.left_top()), None);
             }
+            for region in g.filters {
+                assert!(g.sidebar.contains_rect(region));
+            }
+            assert!(g.navigation[3].bottom() < g.filters[0].top());
+            assert!(g.filters[2].bottom() < g.sidebar.bottom());
             assert_eq!(g.navigation_at(g.library.center()), None);
             assert!(g.columns >= 1 && g.columns <= 12);
         }
@@ -312,6 +317,21 @@ fn native_collection_keeps_original_three_row_cover_density() {
     );
     assert_eq!(reference.columns, 7);
     assert_eq!(capture.columns, 6);
+    for g in [reference, capture] {
+        let count = g.columns * 3;
+        let last = g.card_rect(count - 1, 0.0);
+        assert!(g.library.contains_rect(last), "third row clipped: {last:?}");
+        assert_eq!(
+            g.max_scroll(count),
+            0.0,
+            "three rows must fit without scrolling"
+        );
+        assert!(g.library.bottom() - last.bottom() < g.library.height() * 0.08);
+        assert_eq!(g.card_at(last.center(), count, 0.0), Some(count - 1));
+        assert_eq!(g.max_scroll(0), 0.0);
+        assert_eq!(g.max_scroll(1), 0.0);
+        assert!(g.max_scroll(count + 1) > 0.0);
+    }
 }
 
 #[test]

@@ -289,7 +289,7 @@ impl DesktopApp {
             "reduced_motion": self.options.reduced_motion,
             "skip_boot": self.skipped || self.options.skip_boot,
             "readback": "paint callback acknowledged and framebuffer read back",
-            "limitations": ["engineering fonts; original native-format fonts pending", "not Room-PC acceptance", "audio and official provider adapters not connected"],
+            "limitations": ["bundled Latin font subsets; egui fallback for other glyphs", "not Room-PC acceptance", "audio and official provider adapters not connected"],
         });
         let mut report = OpenOptions::new()
             .create_new(true)

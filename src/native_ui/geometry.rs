@@ -19,6 +19,7 @@ pub struct Geometry {
     pub scale: f32,
     pub pixels_per_point: f32,
     tile_width: f32,
+    tile_height: f32,
     padding: f32,
     gap: f32,
 }
@@ -56,7 +57,7 @@ impl Geometry {
             pos2(frame.left() + 186.0 * u, frame.bottom() - 94.0 * u),
             frame.max - vec2(28.0, 6.0) * u,
         );
-        let header = Rect::from_min_size(frame.min + vec2(202.0, 30.0) * u, vec2(470.0, 58.0) * u);
+        let header = Rect::from_min_size(frame.min + vec2(202.0, 30.0) * u, vec2(500.0, 58.0) * u);
         let emblem = Rect::from_min_size(frame.min + vec2(30.0, 2.0) * u, vec2(148.0, 148.0) * u);
         let row_h = (48.0 * u).max(26.0).min(sidebar.height() / 8.8);
         let row_gap = 7.5 * u;
@@ -70,7 +71,7 @@ impl Geometry {
             Rect::from_min_size(
                 pos2(
                     sidebar.left() + 9.0 * u,
-                    sidebar.bottom() - (3 - i) as f32 * (row_h + row_gap),
+                    navigation[3].bottom() + 42.0 * u + i as f32 * (row_h + row_gap),
                 ),
                 vec2(side_width - 18.0 * u, row_h),
             )
@@ -86,6 +87,10 @@ impl Geometry {
         let tile_width = ((library.width() - 2.0 * padding - gap * (columns - 1) as f32)
             / columns as f32)
             .max(0.0001);
+        // Width alone used to leave the third row clipped below the well. Keep
+        // the cover-like aspect, but fit three complete rows at reference sizes.
+        let tile_height = (tile_width * (236.0 / 176.0))
+            .min(((library.height() - 2.0 * padding - 2.0 * gap) / 3.0).max(0.0001));
         let action_w = bottom.width() * 0.16;
         let action_h = bottom.height() * 0.60;
         let action_y = bottom.center().y - action_h * 0.5;
@@ -122,6 +127,7 @@ impl Geometry {
                 1.0
             },
             tile_width,
+            tile_height,
             padding,
             gap,
         }
@@ -131,7 +137,7 @@ impl Geometry {
         9.0 * self.scale
     }
     pub fn row_stride(&self) -> f32 {
-        self.tile_width * (236.0 / 176.0) + 9.5 * self.scale
+        self.tile_height + self.gap
     }
 
     pub fn card_rect(&self, index: usize, scroll: f32) -> Rect {
@@ -147,13 +153,20 @@ impl Geometry {
                     self.padding + (index % self.columns) as f32 * (self.tile_width + self.gap),
                     self.padding + row * self.row_stride() - scroll,
                 ),
-            vec2(self.tile_width, self.tile_width * (236.0 / 176.0)),
+            vec2(self.tile_width, self.tile_height),
         )
     }
 
     pub fn max_scroll(&self, count: usize) -> f32 {
         let rows = count.div_ceil(self.columns).min(1_000_000) as f32;
-        (rows * self.row_stride() + self.padding * 2.0 - self.library.height()).max(0.0)
+        if rows == 0.0 {
+            return 0.0;
+        }
+        // There is no trailing inter-row gap after the final cartridge.
+        let overflow = (rows - 1.0) * self.row_stride() + self.tile_height + self.padding * 2.0
+            - self.library.height();
+        // Arithmetic residue below 1/100 point must not create a phantom scroll bar.
+        if overflow < 0.01 { 0.0 } else { overflow }
     }
 
     pub fn reveal_scroll(&self, index: usize, count: usize, current: f32) -> f32 {
