@@ -1,4 +1,4 @@
-use super::{AppSnapshot, CatalogBackend, CoverImage, GameCard, GameId, LaunchOutcome};
+use super::{AppSnapshot, CatalogBackend, CoverImage, GameCard, GameId, GameOrigin, LaunchOutcome};
 use crate::{
     Library,
     music::{MusicCommand, MusicSnapshot, MusicStore},
@@ -62,6 +62,7 @@ impl<H: DesktopHost> CatalogBackend for LibraryBackend<H> {
             );
             games.push(GameCard {
                 id: GameId::Html(entry.game.id),
+                origin: GameOrigin::Html,
                 title: entry.game.title,
                 source: entry.game.source.unwrap_or_else(|| "HTML".into()),
                 favorite: entry.game.favorite,
@@ -74,6 +75,7 @@ impl<H: DesktopHost> CatalogBackend for LibraryBackend<H> {
             let cover = thumbnail(self.stores.cover_file(entry.id), &mut cover_budget);
             games.push(GameCard {
                 id: GameId::Store(entry.id.to_string()),
+                origin: GameOrigin::Store(entry.store),
                 title: entry.title,
                 source: entry.store_name.into(),
                 favorite: entry.favorite,
@@ -90,6 +92,8 @@ impl<H: DesktopHost> CatalogBackend for LibraryBackend<H> {
         });
         Ok(AppSnapshot {
             games,
+            providers: self.stores.statuses(crate::HostOs::current()),
+            synthetic: false,
             music: match &self.music {
                 Ok(store) => store.snapshot(),
                 Err(error) => MusicSnapshot {

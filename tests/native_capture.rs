@@ -103,3 +103,42 @@ fn engineering_capture_gate_accepts_varied_original_pixels() {
         "nearly transparent pixels are not a visible native framebuffer"
     );
 }
+
+#[test]
+fn capture_route_selection_is_finite_and_synthetic_only() {
+    use gamestrike::native_capture::CaptureSection;
+    for section in ["games", "soundboard", "voice", "music"] {
+        assert!(options(&["--capture-section", section]).is_err());
+        assert!(options(&["--synthetic-library", "--capture-section", section]).is_err());
+        assert!(
+            options(&[
+                "--synthetic-library",
+                "--capture-native",
+                "route.png",
+                "--capture-section",
+                section
+            ])
+            .is_ok()
+        );
+    }
+    assert!(
+        options(&[
+            "--synthetic-library",
+            "--capture-native",
+            "route.png",
+            "--capture-section",
+            "settings"
+        ])
+        .is_err()
+    );
+    let parsed = options(&[
+        "--synthetic-library",
+        "--capture-native",
+        "route.png",
+        "--capture-section",
+        "music",
+    ])
+    .unwrap();
+    assert_eq!(parsed.capture_section, Some(CaptureSection::Music));
+    assert_eq!(CaptureSection::Music.index(), 3);
+}

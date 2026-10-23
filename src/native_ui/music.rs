@@ -184,6 +184,120 @@ impl MusicPanel {
         commands
     }
 
+    /// Real queue/playlist context; browsing a playlist never starts playback.
+    pub fn show_sidebar(
+        &mut self,
+        ui: &mut Ui,
+        rect: Rect,
+        scale: f32,
+        snapshot: &MusicSnapshot,
+        enabled: bool,
+    ) -> Vec<AppCommand> {
+        let mut commands = Vec::new();
+        let enabled = enabled && snapshot.available;
+        self.selected_playlist = self
+            .selected_playlist
+            .filter(|id| snapshot.playlists.iter().any(|playlist| playlist.id == *id));
+        let row = (30.0 * scale).max(24.0);
+        let gap = (5.0 * scale).max(3.0);
+        super::sidebar::label(ui, rect.min, "MUSIC LIBRARY", scale);
+        let queue = Rect::from_min_size(
+            rect.min + vec2(0.0, (24.0 * scale).max(18.0)),
+            vec2(rect.width(), row),
+        );
+        if selectable_row(
+            ui,
+            queue,
+            Id::new("pwds.music.sidebar.queue"),
+            &format!("CURRENT QUEUE  ({})", snapshot.queue.len()),
+            enabled,
+            self.selected_playlist.is_none(),
+            scale,
+        ) {
+            self.selected_playlist = None;
+        }
+        let import = Rect::from_min_size(
+            pos2(rect.left(), queue.bottom() + gap),
+            vec2(rect.width(), row),
+        );
+        if super::sidebar::action(
+            ui,
+            import,
+            "pwds.music.sidebar.import",
+            "ADD LOCAL MUSIC…",
+            enabled,
+            scale,
+            "Choose local music files for the queue. Adding files does not start playback.",
+        ) {
+            commands.push(AppCommand::ChooseMusicFiles);
+        }
+        super::sidebar::label(
+            ui,
+            pos2(rect.left(), import.bottom() + gap * 2.0),
+            "SAVED PLAYLISTS",
+            scale,
+        );
+        let load = Rect::from_min_size(
+            pos2(rect.left(), rect.bottom() - row),
+            vec2(rect.width(), row),
+        );
+        let list = Rect::from_min_max(
+            pos2(
+                rect.left(),
+                import.bottom() + gap * 2.0 + (24.0 * scale).max(18.0),
+            ),
+            pos2(rect.right(), load.top() - gap),
+        );
+        if list.is_positive() {
+            ui.scope_builder(UiBuilder::new().max_rect(list), |ui| {
+                ui.set_clip_rect(list.intersect(ui.clip_rect()));
+                ScrollArea::vertical()
+                    .id_salt("pwds.music.sidebar.playlists")
+                    .auto_shrink([false, false])
+                    .max_height(list.height())
+                    .show(ui, |ui| {
+                        if snapshot.playlists.is_empty() {
+                            ui.label(if snapshot.available {
+                                "No saved playlists yet. Save the current queue in the Music panel."
+                            } else {
+                                "Music storage is unavailable."
+                            });
+                        }
+                        for playlist in &snapshot.playlists {
+                            let (area, _) = ui.allocate_exact_size(
+                                vec2(ui.available_width(), row),
+                                Sense::hover(),
+                            );
+                            if selectable_row(
+                                ui,
+                                area,
+                                Id::new(("pwds.music.sidebar.playlist", playlist.id)),
+                                &playlist.name,
+                                enabled,
+                                self.selected_playlist == Some(playlist.id),
+                                scale,
+                            ) {
+                                self.selected_playlist = Some(playlist.id);
+                            }
+                        }
+                    });
+            });
+        }
+        if super::sidebar::action(
+            ui,
+            load,
+            "pwds.music.sidebar.load",
+            "LOAD SELECTED QUEUE",
+            enabled && self.selected_playlist.is_some(),
+            scale,
+            "Replace the local queue with the selected saved playlist. This does not start playback.",
+        ) && let Some(id) = self.selected_playlist
+        {
+            commands.push(AppCommand::Music(MusicCommand::LoadPlaylist(id)));
+        }
+        commands
+    }
+
     pub(super) fn signature(&self) -> String {
         format!(
             "{:?}|{:?}|{}|{}|{}|{:?}|{:?}",

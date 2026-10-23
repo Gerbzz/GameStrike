@@ -10,6 +10,10 @@ function Assert-NativeCaptureCase {
     $skip = $Case.Extra -contains '--skip-boot'
     $reduced = $Case.Extra -contains '--reduced-motion'
     $expectedPose = if ($skip -or $reduced) { 5.5 } else { $requestedTime }
+    $section = if ($Case.ContainsKey('Section')) { $Case.Section } else { 'games' }
+    if ($section -cnotin @('games', 'soundboard', 'voice', 'music') -or $Metadata.section -cne $section) {
+        throw 'Native evidence does not match the requested contextual route.'
+    }
     $scale = [double]$Metadata.pixels_per_point
     foreach ($number in @($scale, [double]$Metadata.width, [double]$Metadata.height,
         [double]$Metadata.boot_time, [double]$Metadata.boot_pose_seconds)) {

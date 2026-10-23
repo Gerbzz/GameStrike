@@ -294,11 +294,10 @@ fn collection_regions_fit_viewports_and_do_not_overlap_navigation() {
                 assert_eq!(g.navigation_at(region.center()), Some(i));
                 assert_eq!(g.navigation_at(region.left_top()), None);
             }
-            for region in g.filters {
-                assert!(g.sidebar.contains_rect(region));
-            }
-            assert!(g.navigation[3].bottom() < g.filters[0].top());
-            assert!(g.filters[2].bottom() < g.sidebar.bottom());
+            assert!(g.sidebar.contains_rect(g.context));
+            assert!(g.context.is_positive());
+            assert!(g.navigation[3].bottom() < g.context.top());
+            assert!(g.context.bottom() < g.sidebar.bottom());
             assert_eq!(g.navigation_at(g.library.center()), None);
             assert!(g.columns >= 1 && g.columns <= 12);
         }

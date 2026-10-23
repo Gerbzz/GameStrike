@@ -23,6 +23,14 @@ pub enum GameId {
     Store(String),
 }
 
+/// Trusted catalog origin, separate from editable display/source text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GameOrigin {
+    Html,
+    Store(crate::stores::Store),
+    Synthetic,
+}
+
 #[derive(Clone, Debug)]
 pub struct CoverImage {
     pub size: [usize; 2],
@@ -32,6 +40,7 @@ pub struct CoverImage {
 #[derive(Clone, Debug)]
 pub struct GameCard {
     pub id: GameId,
+    pub origin: GameOrigin,
     pub title: String,
     pub source: String,
     pub favorite: bool,
@@ -43,6 +52,8 @@ pub struct GameCard {
 #[derive(Clone, Debug, Default)]
 pub struct AppSnapshot {
     pub games: Vec<GameCard>,
+    pub providers: Vec<crate::stores::StoreStatus>,
+    pub synthetic: bool,
     pub music: MusicSnapshot,
     pub problems: Vec<String>,
     /// Tracked process/helper lifetimes and short delegated-link guards; not store game telemetry.
@@ -63,6 +74,8 @@ pub enum AppCommand {
     Playback(PlaybackCommand),
     /// An intent intercepted by the desktop host; workers never own file-picker authority.
     ChooseMusicFiles,
+    /// Local HTML/HTM/ZIP picker intent; only the desktop host can resolve a path.
+    ChooseHtmlFile,
 }
 
 /// A native/isolated-player process or OS handoff helper; not proof of a store game's lifetime.
@@ -205,6 +218,7 @@ impl LauncherService {
             .enumerate()
             .map(|(index, title)| GameCard {
                 id: GameId::Html(Uuid::from_u128(index as u128 + 1)),
+                origin: GameOrigin::Synthetic,
                 title: title.into(),
                 source: "OWNED SYNTHETIC FIXTURE".into(),
                 favorite: index % 4 == 0,
@@ -216,6 +230,7 @@ impl LauncherService {
         Self {
             snapshot: AppSnapshot {
                 games,
+                synthetic: true,
                 revision: 1,
                 ..Default::default()
             },
@@ -259,7 +274,7 @@ impl LauncherService {
             .as_ref()
             .ok_or("Synthetic capture has no action authority")?;
         match &command {
-            AppCommand::ChooseMusicFiles => {
+            AppCommand::ChooseMusicFiles | AppCommand::ChooseHtmlFile => {
                 return Err("File selection belongs to the native desktop host".into());
             }
             AppCommand::Playback(_) => {
@@ -447,7 +462,7 @@ fn worker(
                     AppCommand::Refresh => backend.refresh(),
                     AppCommand::ToggleFavorite(id, favorite) => backend.set_favorite(&id, favorite),
                     AppCommand::Import(source) => backend.import(&source),
-                    AppCommand::ChooseMusicFiles => {
+                    AppCommand::ChooseMusicFiles | AppCommand::ChooseHtmlFile => {
                         Err("File selection is a desktop-only action".into())
                     }
                     AppCommand::Playback(_) => Err("Playback is a dedicated-service action".into()),

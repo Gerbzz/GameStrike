@@ -16,11 +16,27 @@ pub fn isolate_capture_input(input: &mut eframe::egui::RawInput, capturing: bool
     input.dropped_files.clear();
 }
 
+/// A capture may select an existing route, never a personal catalog or device.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptureSection {
+    Games,
+    Soundboard,
+    Voice,
+    Music,
+}
+
+impl CaptureSection {
+    pub fn index(self) -> usize {
+        self as usize
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct DesktopOptions {
     pub library: Option<PathBuf>,
     pub synthetic: bool,
     pub capture: Option<PathBuf>,
+    pub capture_section: Option<CaptureSection>,
     pub size: [u32; 2],
     pub boot_time: Option<f32>,
     pub reduced_motion: bool,
@@ -33,6 +49,7 @@ impl DesktopOptions {
             library: None,
             synthetic: false,
             capture: None,
+            capture_section: None,
             size: [1250, 800],
             boot_time: None,
             reduced_motion: false,
@@ -52,6 +69,19 @@ impl DesktopOptions {
                 "--capture-native" => {
                     result.capture =
                         Some(PathBuf::from(args.next().ok_or("Missing screenshot path")?))
+                }
+                "--capture-section" => {
+                    result.capture_section = Some(match args.next().as_deref() {
+                        Some("games") => CaptureSection::Games,
+                        Some("soundboard") => CaptureSection::Soundboard,
+                        Some("voice") => CaptureSection::Voice,
+                        Some("music") => CaptureSection::Music,
+                        _ => {
+                            return Err(
+                                "Capture section must be games, soundboard, voice or music".into(),
+                            );
+                        }
+                    });
                 }
                 "--width" | "--height" => {
                     let value = args
@@ -84,6 +114,9 @@ impl DesktopOptions {
                 "--skip-boot" => result.skip_boot = true,
                 _ => return Err(format!("Unknown option: {arg}")),
             }
+        }
+        if result.capture_section.is_some() && (result.capture.is_none() || !result.synthetic) {
+            return Err("Section capture requires --capture-native and --synthetic-library".into());
         }
         if result.synthetic && result.library.is_some() {
             return Err("Synthetic mode cannot read a real library".into());

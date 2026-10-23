@@ -1,6 +1,6 @@
 use gamestrike::{
     Library,
-    application::{CatalogBackend, DesktopHost, GameId, LaunchOutcome, LibraryBackend},
+    application::{CatalogBackend, DesktopHost, GameId, GameOrigin, LaunchOutcome, LibraryBackend},
     stores::{Found, Launch, Store, StoreLibrary, store_game_id},
 };
 use std::{
@@ -58,6 +58,9 @@ fn native_backend_reuses_import_ids_and_persists_favorites_across_reopen() {
     backend.import(&source).unwrap();
     let first = backend.snapshot().unwrap();
     assert_eq!(first.games.len(), 1);
+    assert_eq!(first.games[0].origin, GameOrigin::Html);
+    assert!(!first.synthetic);
+    assert_eq!(first.providers.len(), Store::ALL.len());
     let id = first.games[0].id.clone();
     backend.set_favorite(&id, true).unwrap();
     backend.import(&source).unwrap();

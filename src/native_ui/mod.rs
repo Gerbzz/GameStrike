@@ -11,8 +11,9 @@ mod mesh_geometry;
 pub mod music;
 mod navigation;
 mod paint;
+pub mod sidebar;
 
-use crate::application::{AppCommand, AppSnapshot, GameCard, GameId};
+use crate::application::{AppCommand, AppSnapshot, GameCard, GameId, GameOrigin};
 use activation::activated;
 use boot::BootPose;
 use eframe::egui::{
@@ -24,7 +25,6 @@ use paint::{AMBER, LIGHT, MUTED, TEXT};
 use std::sync::atomic::Ordering;
 
 const SECTIONS: [&str; 4] = ["GAMES", "SOUNDBOARD", "VOICE", "MUSIC"];
-const FILTERS: [&str; 3] = ["ALL GAMES", "FAVORITES", "RECENTLY PLAYED"];
 
 /// Install the fixed theme and bundled fonts before the first egui pass.
 /// Standalone native panels use the same setup as the full GPU-backed view.
@@ -58,7 +58,7 @@ pub struct NativeView {
     logo: TextureHandle,
     music: music::MusicPanel,
     section: usize,
-    filter: usize,
+    game_sidebar: sidebar::GamesSidebar,
     selected: Option<GameId>,
     scroll: f32,
     epoch: u64,
@@ -81,13 +81,22 @@ impl NativeView {
             logo,
             music: music::MusicPanel::default(),
             section: 0,
-            filter: 0,
+            game_sidebar: sidebar::GamesSidebar::default(),
             selected: None,
             scroll: 0.0,
             epoch: 0,
             frame_signature: String::new(),
             textures_prepared: false,
         })
+    }
+
+    /// Select an existing route for a synthetic framebuffer case; no intent is emitted.
+    pub fn select_capture_section(&mut self, section: crate::native_capture::CaptureSection) {
+        self.section = section.index();
+    }
+
+    pub fn section_name(&self) -> &'static str {
+        ["games", "soundboard", "voice", "music"][self.section]
     }
 
     pub fn renderer_label(&self) -> String {
@@ -137,7 +146,7 @@ impl NativeView {
                 paint::frame(&chrome, &g, pose);
                 if pose.content > 0.0 {
                     let content = paint::faded(&p, pose.content);
-                    self.sidebar(ui, &content, &g, snapshot, pose.settled());
+                    commands.extend(self.sidebar(ui, &content, &g, snapshot, pose));
                     self.heading(&content, &g, snapshot);
                 }
                 let visible = self.visible(snapshot);
@@ -234,12 +243,12 @@ impl NativeView {
                     );
                 }
                 let signature = format!(
-                    "{}|{}|{:?}|{}|{}|{:?}|{}|{}|{:?}|{}|{}|{:?}|{}|{:?}",
+                    "{}|{}|{:?}|{}|{:?}|{:?}|{}|{}|{:?}|{}|{}|{:?}|{}|{:?}",
                     snapshot.revision,
                     snapshot.games.len(),
                     g.viewport,
                     self.section,
-                    self.filter,
+                    self.game_sidebar.filter,
                     self.selected,
                     self.scroll,
                     g.pixels_per_point,
@@ -266,23 +275,7 @@ impl NativeView {
     }
 
     fn visible(&self, snapshot: &AppSnapshot) -> Vec<usize> {
-        let mut indices: Vec<_> = snapshot
-            .games
-            .iter()
-            .enumerate()
-            .filter_map(|(i, game)| {
-                (match self.filter {
-                    1 => game.favorite,
-                    2 => game.last_played.is_some(),
-                    _ => true,
-                })
-                .then_some(i)
-            })
-            .collect();
-        if self.filter == 2 {
-            indices.sort_by_key(|&i| std::cmp::Reverse(snapshot.games[i].last_played));
-        }
-        indices
+        self.game_sidebar.visible(snapshot)
     }
 
     fn heading(&self, p: &Painter, g: &Geometry, snapshot: &AppSnapshot) {
@@ -299,20 +292,18 @@ impl NativeView {
                 snapshot.music.queue.len(),
                 snapshot.music.playlists.len()
             )
+        } else if self.section != 0 {
+            "NOT CONNECTED IN THIS BUILD".to_owned()
         } else if snapshot.refreshing {
             "REFRESHING COLLECTION".to_owned()
-        } else if !snapshot.games.is_empty()
-            && snapshot
-                .games
-                .iter()
-                .all(|game| game.source == "OWNED SYNTHETIC FIXTURE")
-        {
+        } else if snapshot.synthetic {
             format!("SYNTHETIC LIBRARY  /  {} GAMES", snapshot.games.len())
         } else {
             format!(
-                "{} GAMES  /  {}",
+                "{} OF {} GAMES  /  {}",
+                self.visible(snapshot).len(),
                 snapshot.games.len(),
-                FILTERS[self.filter]
+                self.game_sidebar.filter.label()
             )
         };
         let available = Rect::from_min_max(
@@ -336,24 +327,10 @@ impl NativeView {
         p: &Painter,
         g: &Geometry,
         snapshot: &AppSnapshot,
-        enabled: bool,
-    ) {
+        pose: BootPose,
+    ) -> Vec<AppCommand> {
+        let enabled = pose.settled();
         let focused_at_start = ui.memory(|memory| memory.focused());
-        let label_y = g.filters[0].top() - 21.0 * g.scale;
-        p.text(
-            pos2(g.filters[0].left() + 4.0 * g.scale, label_y),
-            Align2::LEFT_CENTER,
-            "COLLECTION",
-            fonts::control((16.0 * g.scale).max(9.0)),
-            AMBER,
-        );
-        p.line_segment(
-            [
-                pos2(g.filters[0].left() + 100.0 * g.scale, label_y),
-                pos2(g.filters[0].right(), label_y),
-            ],
-            Stroke::new(g.scale, Color32::from_rgb(87, 40, 15)),
-        );
         for (i, label) in SECTIONS.iter().enumerate() {
             let rect = g.navigation[i];
             let response = control(
@@ -381,7 +358,6 @@ impl NativeView {
             );
             if activated(ui, &response, rect, 8.0 * g.scale, enabled) {
                 self.section = i;
-                self.scroll = 0.0;
                 response.request_focus();
             }
             if enabled && focused_at_start == Some(response.id) {
@@ -393,7 +369,6 @@ impl NativeView {
                     match action {
                         navigation::NavAction::Select(next) => {
                             self.section = next;
-                            self.scroll = 0.0;
                             ui.memory_mut(|memory| memory.request_focus(nav_id(next)));
                         }
                         navigation::NavAction::EnterGames => {
@@ -405,79 +380,31 @@ impl NativeView {
                 }
             }
         }
-        let filters_enabled = enabled && self.section != 3;
-        for (i, label) in FILTERS.iter().enumerate() {
-            let rect = g.filters[i];
-            let count = match i {
-                1 => snapshot.games.iter().filter(|game| game.favorite).count(),
-                2 => snapshot
-                    .games
-                    .iter()
-                    .filter(|game| game.last_played.is_some())
-                    .count(),
-                _ => snapshot.games.len(),
-            };
-            let response = control(
-                ui,
-                p,
-                rect,
-                Id::new(("pwds.filter", i)),
-                label,
-                ControlState {
-                    enabled: filters_enabled,
-                    selected: self.section == 0 && self.filter == i,
-                },
-                7.0 * g.scale,
-            );
-            p.with_clip_rect(rect).text(
-                rect.right_center() - vec2(8.0 * g.scale, 0.0),
-                Align2::RIGHT_CENTER,
-                count.to_string(),
-                FontId::monospace((13.0 * g.scale).max(9.0)),
-                if self.section == 0 && self.filter == i {
-                    Color32::from_rgb(44, 15, 0)
-                } else {
-                    MUTED
-                },
-            );
-            if activated(ui, &response, rect, 7.0 * g.scale, filters_enabled) {
-                self.section = 0;
-                self.filter = i;
-                self.scroll = 0.0;
-                response.request_focus();
+        let previous_filter = self.game_sidebar.filter;
+        let output = ui.scope_builder(egui::UiBuilder::new().max_rect(g.context), |ui| {
+            ui.set_clip_rect(g.context.intersect(ui.clip_rect()));
+            ui.set_opacity(pose.content);
+            match self.section {
+                0 => self
+                    .game_sidebar
+                    .show(ui, g.context, g.scale, snapshot, enabled),
+                3 => self.music.show_sidebar(
+                    ui,
+                    g.context,
+                    g.scale,
+                    &snapshot.music,
+                    enabled && !snapshot.synthetic,
+                ),
+                section => {
+                    sidebar::unavailable(ui, g.context, g.scale, section);
+                    Vec::new()
+                }
             }
+        });
+        if self.game_sidebar.filter != previous_filter {
+            self.scroll = 0.0;
         }
-        // The lower sidebar is a real status/keyboard legend, not empty space
-        // or invented store entries. No new action or device capability is implied.
-        let status = Rect::from_min_max(
-            pos2(
-                g.sidebar.left() + 14.0 * g.scale,
-                g.filters[2].bottom() + 22.0 * g.scale,
-            ),
-            g.sidebar.max - vec2(14.0, 10.0) * g.scale,
-        );
-        if status.height() > 78.0 * g.scale {
-            let status_p = p.with_clip_rect(status);
-            paint::vents(
-                &status_p,
-                Rect::from_min_size(status.min, vec2(status.width(), 32.0 * g.scale)),
-                g.scale,
-            );
-            status_p.text(
-                status.left_bottom() - vec2(0.0, 32.0) * g.scale,
-                Align2::LEFT_BOTTOM,
-                "LOCAL COLLECTION",
-                fonts::control(17.0 * g.scale),
-                MUTED,
-            );
-            status_p.text(
-                status.left_bottom() - vec2(0.0, 10.0) * g.scale,
-                Align2::LEFT_BOTTOM,
-                "CTRL / CMD + O  ·  IMPORT",
-                FontId::monospace((10.0 * g.scale).max(7.0)),
-                MUTED,
-            );
-        }
+        output.inner
     }
 
     fn keyboard(
@@ -565,8 +492,10 @@ impl NativeView {
                 Align2::CENTER_CENTER,
                 if snapshot.refreshing {
                     "Reading the local library…"
+                } else if self.game_sidebar.filter == sidebar::GameFilter::Html {
+                    "Use IMPORT HTML / ZIP to add a downloaded local game."
                 } else {
-                    "Choose another collection or refresh the library."
+                    "Use SCAN INSTALLED GAMES, import a local HTML game, or choose another collection."
                 },
                 FontId::proportional((18.0 * g.scale).max(11.0)),
                 MUTED,
@@ -735,7 +664,7 @@ impl NativeView {
                 galley,
                 TEXT,
             );
-            let label = if game.source == "OWNED SYNTHETIC FIXTURE" {
+            let label = if game.origin == GameOrigin::Synthetic {
                 "SYNTHETIC FIXTURE"
             } else if texture.synthetic {
                 "GENERATED COVER"
@@ -955,7 +884,8 @@ impl NativeView {
         {
             commands.push(AppCommand::ToggleFavorite(game.id.clone(), !game.favorite));
         }
-        let can_refresh = enabled && !snapshot.refreshing;
+        let can_refresh =
+            enabled && self.section == 0 && !snapshot.synthetic && !snapshot.refreshing;
         let refresh = control(
             ui,
             p,
@@ -1174,7 +1104,10 @@ mod tests {
         let p = ctx.layer_painter(LayerId::background());
         for size in [vec2(880.0, 620.0), vec2(1250.0, 800.0), vec2(1672.0, 941.0)] {
             let g = Geometry::new(Rect::from_min_size(pos2(0.0, 0.0), size), 1.0);
-            let filter = g.filters[2];
+            let filter = Rect::from_min_size(
+                g.context.min,
+                vec2(g.context.width(), (28.0 * g.scale).max(22.0)),
+            );
             let width = filter.width() * 0.76;
             let label = fonts::fitted_control(
                 &p,
