@@ -6,7 +6,7 @@ use eframe::egui::{
 use gamestrike::{
     application::AppCommand,
     music::{MusicCommand, MusicSnapshot, Playlist, Track},
-    native_ui::music::MusicPanel,
+    native_ui::{configure_context, music::MusicPanel},
 };
 use uuid::Uuid;
 
@@ -37,11 +37,22 @@ struct Frame {
     labels: Vec<(String, f32)>,
 }
 
-#[derive(Default)]
 struct Harness {
     ctx: Context,
     panel: MusicPanel,
     time: f64,
+}
+
+impl Default for Harness {
+    fn default() -> Self {
+        let ctx = Context::default();
+        configure_context(&ctx);
+        Self {
+            ctx,
+            panel: MusicPanel::default(),
+            time: 0.0,
+        }
+    }
 }
 
 impl Harness {

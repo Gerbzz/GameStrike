@@ -11,13 +11,37 @@ pub(super) fn cover(index: usize) -> CoverImage {
     const WIDTH: usize = 192;
     const HEIGHT: usize = 256;
     let palettes = [
-        ([12.0, 27.0, 69.0], [79.0, 45.0, 143.0], [255.0, 175.0, 69.0]),
-        ([67.0, 21.0, 34.0], [213.0, 91.0, 40.0], [255.0, 222.0, 124.0]),
+        (
+            [12.0, 27.0, 69.0],
+            [79.0, 45.0, 143.0],
+            [255.0, 175.0, 69.0],
+        ),
+        (
+            [67.0, 21.0, 34.0],
+            [213.0, 91.0, 40.0],
+            [255.0, 222.0, 124.0],
+        ),
         ([8.0, 17.0, 38.0], [24.0, 72.0, 111.0], [72.0, 237.0, 222.0]),
-        ([38.0, 99.0, 139.0], [145.0, 199.0, 204.0], [255.0, 222.0, 155.0]),
-        ([8.0, 66.0, 91.0], [35.0, 181.0, 179.0], [244.0, 238.0, 172.0]),
-        ([48.0, 20.0, 42.0], [151.0, 37.0, 65.0], [255.0, 208.0, 71.0]),
-        ([19.0, 38.0, 46.0], [79.0, 107.0, 102.0], [233.0, 143.0, 63.0]),
+        (
+            [38.0, 99.0, 139.0],
+            [145.0, 199.0, 204.0],
+            [255.0, 222.0, 155.0],
+        ),
+        (
+            [8.0, 66.0, 91.0],
+            [35.0, 181.0, 179.0],
+            [244.0, 238.0, 172.0],
+        ),
+        (
+            [48.0, 20.0, 42.0],
+            [151.0, 37.0, 65.0],
+            [255.0, 208.0, 71.0],
+        ),
+        (
+            [19.0, 38.0, 46.0],
+            [79.0, 107.0, 102.0],
+            [233.0, 143.0, 63.0],
+        ),
     ];
     let scene = index % palettes.len();
     let variant = (index / palettes.len()) as f32;
@@ -39,7 +63,11 @@ pub(super) fn cover(index: usize) -> CoverImage {
             let sun_x = 0.67 - variant * 0.13;
             let sun_y = 0.24 + variant * 0.035;
             let distance = ((px - sun_x).powi(2) + (py - sun_y).powi(2)).sqrt();
-            color = blend(color, accent, (1.0 - distance / 0.42).max(0.0).powi(3) * 0.45);
+            color = blend(
+                color,
+                accent,
+                (1.0 - distance / 0.42).max(0.0).powi(3) * 0.45,
+            );
             match scene {
                 0 => {
                     // A tilted planetary ring, small moons and an angular glider.
@@ -50,7 +78,8 @@ pub(super) fn cover(index: usize) -> CoverImage {
                         color = blend(mid, accent, (1.0 - planet / 0.20) * 0.65 + (0.5 - dx) * 0.2);
                     }
                     let ring = ((dx * 0.82 + dy * 0.58).powi(2)
-                        + ((dy * 0.82 - dx * 0.58) * 4.0).powi(2)).sqrt();
+                        + ((dy * 0.82 - dx * 0.58) * 4.0).powi(2))
+                    .sqrt();
                     if (0.28..0.32).contains(&ring) && (dy > 0.0 || planet > 0.20) {
                         color = blend(accent, [255.0; 3], (ring - 0.28) * 12.0);
                     }
@@ -102,8 +131,7 @@ pub(super) fn cover(index: usize) -> CoverImage {
                 }
                 3 => {
                     // Bright cloud bands, suspended islands and a narrow citadel.
-                    if ((py + 0.025 * (px * 17.0 + phase).sin()) * 10.0).fract() < 0.16
-                        && py < 0.5
+                    if ((py + 0.025 * (px * 17.0 + phase).sin()) * 10.0).fract() < 0.16 && py < 0.5
                     {
                         color = blend(color, [242.0, 240.0, 213.0], 0.55);
                     }

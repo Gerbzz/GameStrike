@@ -203,16 +203,14 @@ impl LauncherService {
         let games = titles
             .into_iter()
             .enumerate()
-            .map(|(index, title)| {
-                GameCard {
-                    id: GameId::Html(Uuid::from_u128(index as u128 + 1)),
-                    title: title.into(),
-                    source: "OWNED SYNTHETIC FIXTURE".into(),
-                    favorite: index % 4 == 0,
-                    files_ok: true,
-                    last_played: None,
-                    cover: Some(synthetic_covers::cover(index)),
-                }
+            .map(|(index, title)| GameCard {
+                id: GameId::Html(Uuid::from_u128(index as u128 + 1)),
+                title: title.into(),
+                source: "OWNED SYNTHETIC FIXTURE".into(),
+                favorite: index % 4 == 0,
+                files_ok: true,
+                last_played: None,
+                cover: Some(synthetic_covers::cover(index)),
             })
             .collect();
         Self {

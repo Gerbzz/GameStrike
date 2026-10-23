@@ -1,5 +1,7 @@
 //! Native forms of the project's already-bundled OFL fonts. No OS font lookup.
-use eframe::egui::{self, Color32, Context, FontData, FontDefinitions, FontFamily, FontId, Painter};
+use eframe::egui::{
+    self, Color32, Context, FontData, FontDefinitions, FontFamily, FontId, Painter,
+};
 use std::sync::Arc;
 
 pub(super) fn install(ctx: &Context) {

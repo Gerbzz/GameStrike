@@ -321,7 +321,11 @@ fn native_collection_keeps_original_three_row_cover_density() {
         let count = g.columns * 3;
         let last = g.card_rect(count - 1, 0.0);
         assert!(g.library.contains_rect(last), "third row clipped: {last:?}");
-        assert_eq!(g.max_scroll(count), 0.0, "three rows must fit without scrolling");
+        assert_eq!(
+            g.max_scroll(count),
+            0.0,
+            "three rows must fit without scrolling"
+        );
         assert!(g.library.bottom() - last.bottom() < g.library.height() * 0.08);
         assert_eq!(g.card_at(last.center(), count, 0.0), Some(count - 1));
         assert_eq!(g.max_scroll(0), 0.0);

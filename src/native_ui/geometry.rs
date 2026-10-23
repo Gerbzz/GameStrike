@@ -166,11 +166,7 @@ impl Geometry {
         let overflow = (rows - 1.0) * self.row_stride() + self.tile_height + self.padding * 2.0
             - self.library.height();
         // Arithmetic residue below 1/100 point must not create a phantom scroll bar.
-        if overflow < 0.01 {
-            0.0
-        } else {
-            overflow
-        }
+        if overflow < 0.01 { 0.0 } else { overflow }
     }
 
     pub fn reveal_scroll(&self, index: usize, count: usize, current: f32) -> f32 {

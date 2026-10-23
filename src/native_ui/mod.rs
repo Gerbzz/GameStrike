@@ -26,6 +26,13 @@ use std::sync::atomic::Ordering;
 const SECTIONS: [&str; 4] = ["GAMES", "SOUNDBOARD", "VOICE", "MUSIC"];
 const FILTERS: [&str; 3] = ["ALL GAMES", "FAVORITES", "RECENTLY PLAYED"];
 
+/// Install the fixed theme and bundled fonts before the first egui pass.
+/// Standalone native panels use the same setup as the full GPU-backed view.
+pub fn configure_context(ctx: &egui::Context) {
+    configure_visuals(ctx);
+    fonts::install(ctx);
+}
+
 fn configure_visuals(ctx: &egui::Context) {
     let mut visuals = egui::Visuals::dark();
     visuals.selection.bg_fill = AMBER;
@@ -67,8 +74,7 @@ impl NativeView {
         })?;
         let gpu = gpu::NativeGpu::new(state)?;
         let logo = covers::logo(&cc.egui_ctx)?;
-        configure_visuals(&cc.egui_ctx);
-        fonts::install(&cc.egui_ctx);
+        configure_context(&cc.egui_ctx);
         Ok(Self {
             gpu,
             covers: covers::Covers::default(),
@@ -1157,20 +1163,16 @@ fn star(p: &Painter, at: Pos2, radius: f32, color: Color32) {
 
 #[cfg(test)]
 mod tests {
-    use super::{card_label_regions, configure_visuals, fonts, geometry::Geometry, paint::TEXT};
+    use super::{card_label_regions, configure_context, fonts, geometry::Geometry, paint::TEXT};
     use eframe::egui::{Context, LayerId, RawInput, Rect, Theme, pos2, vec2};
 
     #[test]
     fn bundled_font_labels_fit_and_never_cover_fixture_provenance() {
         let ctx = Context::default();
-        fonts::install(&ctx);
+        configure_context(&ctx);
         ctx.begin_pass(RawInput::default());
         let p = ctx.layer_painter(LayerId::background());
-        for size in [
-            vec2(880.0, 620.0),
-            vec2(1250.0, 800.0),
-            vec2(1672.0, 941.0),
-        ] {
+        for size in [vec2(880.0, 620.0), vec2(1250.0, 800.0), vec2(1672.0, 941.0)] {
             let g = Geometry::new(Rect::from_min_size(pos2(0.0, 0.0), size), 1.0);
             let filter = g.filters[2];
             let width = filter.width() * 0.76;
@@ -1191,13 +1193,8 @@ mod tests {
                 "STARBOUND ECHOES",
                 "A VERY LONG TITLE THAT MUST NOT HIDE THE SOURCE LABEL",
             ] {
-                let text = fonts::single_line(
-                    &p,
-                    name,
-                    (18.0 * g.scale).max(10.0),
-                    title.width(),
-                    TEXT,
-                );
+                let text =
+                    fonts::single_line(&p, name, (18.0 * g.scale).max(10.0), title.width(), TEXT);
                 assert_eq!(text.rows.len(), 1);
                 assert!(text.size().x <= title.width() + 0.01);
                 assert!(text.size().y <= title.height());
@@ -1220,7 +1217,7 @@ mod tests {
         control.end_pass().drop_without_applying_deltas();
 
         let collection = Context::default();
-        configure_visuals(&collection);
+        configure_context(&collection);
         collection.begin_pass(RawInput {
             system_theme: Some(Theme::Light),
             ..Default::default()

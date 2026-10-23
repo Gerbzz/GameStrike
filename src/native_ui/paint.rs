@@ -197,17 +197,9 @@ pub(super) fn display_title(p: &Painter, rect: Rect, title: &str, u: f32) {
         galley = p.layout_job(make_job(u * rect.width() / galley.size().x));
     }
     let at = rect.left_center() - vec2(0.0, galley.size().y * 0.5);
-    p.galley_with_override_text_color(
-        at + vec2(0.0, 2.0 * u),
-        galley.clone(),
-        Color32::BLACK,
-    );
+    p.galley_with_override_text_color(at + vec2(0.0, 2.0 * u), galley.clone(), Color32::BLACK);
     for offset in [-0.65, 0.0, 0.65] {
-        p.galley_with_override_text_color(
-            at + vec2(offset * u, 0.0),
-            galley.clone(),
-            AMBER,
-        );
+        p.galley_with_override_text_color(at + vec2(offset * u, 0.0), galley.clone(), AMBER);
     }
 }
 
