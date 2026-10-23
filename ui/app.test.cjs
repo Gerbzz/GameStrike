@@ -260,17 +260,13 @@ test("generated box art uses curated, high-contrast palettes and the full title"
   assert.ok(palettes.size >= 6, "different games get different palettes");
 });
 
-test("styles: Collection in PWDS Orange is the default, and the cycle reaches every style", () => {
+test("styles: only the current PWDS Collection is available", () => {
   assert.equal(core.styleFor(null).key, "collection-orange");
   assert.equal(core.styleFor("something-else").key, "collection-orange");
-  assert.equal(core.styleFor("collection-green").variant, "green");
-  assert.equal(core.styleFor("blades").page, "classic");
-  const seen = [];
-  let style = core.styleFor(null);
-  for (let i = 0; i < core.STYLES.length; i += 1) { seen.push(style.key); style = core.nextStyle(style.key); }
-  assert.deepEqual(seen, ["collection-orange", "collection-green", "blades", "original", "pwds"]);
-  assert.equal(style.key, "collection-orange", "the cycle wraps around");
-  assert.deepEqual(core.STYLES.filter((s) => s.page === "classic").map((s) => s.key), ["blades", "original", "pwds"], "the earlier styles keep their saved names");
+  assert.equal(core.styleFor("collection-green").variant, "orange");
+  assert.equal(core.styleFor("blades").page, "index");
+  assert.deepEqual(core.STYLES.map((style) => style.key), ["collection-orange"]);
+  assert.equal(core.nextStyle("original").key, "collection-orange");
 });
 
 test("Collection metrics: seven columns by three rows at the reference size, reflowing elsewhere", () => {

@@ -1,0 +1,11 @@
+[package]
+name = "gamestrike-audio-core"
+version = "0.1.0"
+edition = "2024"
+description = "Safe, synthetic communication audio contracts for GameStrike"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]

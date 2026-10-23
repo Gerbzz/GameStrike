@@ -34,7 +34,7 @@ function page() {
     window, document: { body, documentElement: node(), querySelectorAll: () => [], getElementById: () => node(), getAnimations: () => animations },
     state, el, core, CINEMA: { assemble: 4200, end: 5500 }, BOOT_MS: 3200,
     performance: { now: () => 2600 }, sessionStorage: { getItem() {}, removeItem() {} },
-    sound: { stopBoot() {}, bootSounds() {} }, CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
+    sound: { stop() {}, stopBoot() {}, bootSounds() {} }, CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
     setTimeout: (fn) => { timers.push(fn); return timers.length; }, clearTimeout() {},
     getComputedStyle: (element) => element,
     reduceMotion: () => false, render() {}, drawFrame() {}, applyStyle() {}, layoutFocus() {}, paintCovers() {},

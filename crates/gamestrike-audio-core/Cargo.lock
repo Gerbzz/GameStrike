@@ -1,0 +1,6 @@
+# This dependency-free lockfile is checked in for hosted --locked verification.
+version = 4
+
+[[package]]
+name = "gamestrike-audio-core"
+version = "0.1.0"

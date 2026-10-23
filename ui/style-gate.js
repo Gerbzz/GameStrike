@@ -1,12 +1,13 @@
-// Runs first on the Collection page (index.html), before anything draws: if the saved dashboard style is
-// one of the earlier ones (Blades, Original, PWDS Orange), the launcher opens classic.html instead.
-// Both pages are bundled files on the same trusted origin; nothing else is ever navigated to.
+// The PWDS Collection is the only dashboard. Migrate only the obsolete style preference.
 (function () {
   "use strict";
-  var style = null;
-  try { style = window.localStorage.getItem("gamestrike-style"); } catch (_) { style = null; }
-  if (style === "blades" || style === "original" || style === "pwds") {
-    document.documentElement.setAttribute("data-leaving", "classic");
-    window.location.replace("/classic.html");
+  try {
+    if (window.localStorage.getItem("gamestrike-style") !== "collection-orange") {
+      window.localStorage.setItem("gamestrike-style", "collection-orange");
+    }
+  } catch (_) { /* The fixed default also works without optional storage. */ }
+  if (window.location.pathname === "/classic.html") {
+    document.documentElement.setAttribute("data-leaving", "collection");
+    window.location.replace("/index.html");
   }
 })();

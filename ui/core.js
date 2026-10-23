@@ -322,13 +322,9 @@
 
   // ---------- Collection style ----------
 
-  // Dashboard styles. The Collection styles are drawn by index.html; the earlier ones by classic.html.
+  // One selected dashboard. Legacy preferences resolve to this same Collection.
   const STYLES = Object.freeze([
     { key: "collection-orange", label: "Collection: PWDS Orange", page: "index", variant: "orange" },
-    { key: "collection-green", label: "Collection: Green", page: "index", variant: "green" },
-    { key: "blades", label: "Blades", page: "classic" },
-    { key: "original", label: "Original", page: "classic" },
-    { key: "pwds", label: "PWDS Orange", page: "classic" },
   ]);
   // The saved style, or the default when nothing (or something unknown) is saved.
   function styleFor(saved) {

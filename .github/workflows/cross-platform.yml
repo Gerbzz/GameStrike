@@ -7,14 +7,96 @@ on:
       - main
       - "gamestrike-cross-platform"
       - "gamestrike-dome-console"
+      - "gamestrike-native-rust"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  resolve-lock:
+    name: Resolve dependency lock for hosted validation
+    runs-on: windows-latest
+    timeout-minutes: 25
+    outputs:
+      source-sha: ${{ steps.resolve.outputs.source-sha }}
+      lock-sha256: ${{ steps.resolve.outputs.lock-sha256 }}
+      lock-changed: ${{ steps.resolve.outputs.lock-changed }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - name: Resolve with Cargo and record candidate provenance
+        id: resolve
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $evidence = Join-Path $env:RUNNER_TEMP 'gamestrike-resolved-lock'
+          New-Item -ItemType Directory -Path $evidence | Out-Null
+          $source = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $source -notmatch '^[0-9a-f]{40}$') {
+            throw 'Cannot identify the checked-out source.'
+          }
+          $originalHash = (Get-FileHash -LiteralPath Cargo.lock -Algorithm SHA256).Hash.ToLowerInvariant()
+          rustc --version | Tee-Object -FilePath (Join-Path $evidence 'toolchain.log')
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect the pinned Rust toolchain.' }
+          cargo --version | Tee-Object -FilePath (Join-Path $evidence 'toolchain.log') -Append
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect Cargo.' }
+
+          # Prefer the committed lock. Only Cargo may resolve a missing dependency graph;
+          # an altered lock is a review candidate, never exact-source acceptance evidence.
+          cargo fetch --locked 2>&1 | Tee-Object -FilePath (Join-Path $evidence 'committed-lock-check.log')
+          if ($LASTEXITCODE -ne 0) {
+            cargo fetch 2>&1 | Tee-Object -FilePath (Join-Path $evidence 'cargo-resolution.log')
+            if ($LASTEXITCODE -ne 0) { throw 'Cargo dependency resolution failed.' }
+          }
+          $resolvedHash = (Get-FileHash -LiteralPath Cargo.lock -Algorithm SHA256).Hash.ToLowerInvariant()
+          $changed = $originalHash -cne $resolvedHash
+          $lockPatch = Join-Path $evidence 'Cargo.lock.patch'
+          git diff "--output=$lockPatch" -- Cargo.lock
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot record the resolved lock diff.' }
+          Copy-Item -LiteralPath Cargo.lock -Destination (Join-Path $evidence 'Cargo.lock')
+          [ordered]@{
+            source_sha = $source
+            rust_toolchain = '1.96.1'
+            original_lock_sha256 = $originalHash
+            resolved_lock_sha256 = $resolvedHash
+            lock_changed = $changed
+            validation_scope = $(if ($changed) { 'candidate dependency lock' } else { 'committed dependency lock' })
+            acceptance_gate = 'Any changed lock must be reviewed, committed, and validated again at the new source SHA.'
+          } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidence 'lock-resolution.json') -Encoding utf8
+          "source-sha=$source" >> $env:GITHUB_OUTPUT
+          "lock-sha256=$resolvedHash" >> $env:GITHUB_OUTPUT
+          "lock-changed=$($changed.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "Lock SHA256: $resolvedHash; differs from checkout: $changed" >> $env:GITHUB_STEP_SUMMARY
+          if ($changed) {
+            'Candidate-lock validation only. Review and commit Cargo.lock, then rerun the new head before claiming exact-source acceptance.' >> $env:GITHUB_STEP_SUMMARY
+          }
+      - name: Upload resolved lock, diff, and resolver logs for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamestrike-resolved-lock
+          path: ${{ runner.temp }}/gamestrike-resolved-lock/
+          if-no-files-found: error
+          retention-days: 14
+
+  audio-core:
+    name: Synthetic audio core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Audio signal, lifecycle and endpoint contract tests
+        run: cargo test --manifest-path crates/gamestrike-audio-core/Cargo.toml --locked --offline --no-fail-fast
+      - name: Audio core formatting
+        run: cargo fmt --manifest-path crates/gamestrike-audio-core/Cargo.toml -- --check
+
   build-test:
     name: ${{ matrix.os }}
+    needs: resolve-lock
     strategy:
       fail-fast: false
       matrix:
@@ -26,6 +108,24 @@ jobs:
       WEBKIT_DISABLE_DMABUF_RENDERER: "1"
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: gamestrike-resolved-lock
+          path: ${{ runner.temp }}/gamestrike-resolved-lock
+      - name: Use the recorded dependency lock
+        shell: pwsh
+        env:
+          EXPECTED_SOURCE_SHA: ${{ needs.resolve-lock.outputs.source-sha }}
+          EXPECTED_LOCK_SHA256: ${{ needs.resolve-lock.outputs.lock-sha256 }}
+        run: |
+          $source = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $source -cne $env:EXPECTED_SOURCE_SHA) {
+            throw 'Lock artifact and checkout source differ.'
+          }
+          $candidate = Join-Path $env:RUNNER_TEMP 'gamestrike-resolved-lock/Cargo.lock'
+          $hash = (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -cne $env:EXPECTED_LOCK_SHA256) { throw 'Resolved lock hash differs.' }
+          Copy-Item -LiteralPath $candidate -Destination Cargo.lock
 
       - name: Install WebKitGTK, GTK, and Xvfb
         if: runner.os == 'Linux'
@@ -61,8 +161,9 @@ jobs:
         if: steps.format.outcome == 'failure' && runner.os == 'Linux'
         run: |
           cargo fmt --all
-          git diff > "$RUNNER_TEMP/rustfmt.patch"
-          git checkout -- .
+          git diff --output="$RUNNER_TEMP/rustfmt.patch" -- '*.rs'
+          git restore --worktree -- '*.rs'
+          git diff --exit-code -- '*.rs'
       - name: Upload formatting patch
         if: steps.format.outcome == 'failure' && runner.os == 'Linux'
         uses: actions/upload-artifact@v4
@@ -74,6 +175,7 @@ jobs:
         run: |
           node --check ui/core.js
           node --check ui/app.js
+          node --check ui/ui-sounds.js
           node --check ui/classic.js
           node --check ui/style-gate.js
           node --check ui/frame.js
@@ -82,7 +184,7 @@ jobs:
           node --check ui/chrome.js
           node --check ui/boot.js
       - name: Launcher logic tests
-        run: node --test ui/app.test.cjs ui/launch.test.cjs ui/startup.test.cjs ui/scene-lifecycle.test.cjs
+        run: node --test ui/*.test.cjs
 
       - name: Startup recorder regression tests
         if: runner.os == 'Linux'
@@ -161,5 +263,185 @@ jobs:
             target/release/gamestrike.exe
             target/release/gamestrike-launcher.exe
             target/release/gamestrike-player.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  native-windows:
+    name: Windows native Rust (recorded dependency lock)
+    needs: resolve-lock
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_TERM_COLOR: never
+      CARGO_BUILD_JOBS: "2"
+      GAMESTRIKE_SOURCE_SHA: ${{ needs.resolve-lock.outputs.source-sha }}
+      EXPECTED_LOCK_SHA256: ${{ needs.resolve-lock.outputs.lock-sha256 }}
+      LOCK_CHANGED: ${{ needs.resolve-lock.outputs.lock-changed }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: native-windows-rust-1.96.1
+          cache-on-failure: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: gamestrike-resolved-lock
+          path: ${{ runner.temp }}/gamestrike-resolved-lock
+      - name: Verify checkout and prepare native evidence
+        id: prepare
+        run: |
+          $source = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $source -cne $env:GAMESTRIKE_SOURCE_SHA) {
+            throw 'Compile-time source identity does not match this checkout.'
+          }
+          $resolved = Join-Path $env:RUNNER_TEMP 'gamestrike-resolved-lock'
+          $lockHash = (Get-FileHash -LiteralPath (Join-Path $resolved 'Cargo.lock') -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($lockHash -cne $env:EXPECTED_LOCK_SHA256) { throw 'Resolved lock hash differs.' }
+          Copy-Item -LiteralPath (Join-Path $resolved 'Cargo.lock') -Destination Cargo.lock
+          New-Item -ItemType Directory -Path ci-native-evidence/logs | Out-Null
+          Copy-Item -LiteralPath Cargo.lock -Destination ci-native-evidence/Cargo.lock
+          Copy-Item -LiteralPath (Join-Path $resolved 'lock-resolution.json') -Destination ci-native-evidence/lock-resolution.json
+          Copy-Item -LiteralPath crates/gamestrike-audio-core/Cargo.lock -Destination ci-native-evidence/audio-core.Cargo.lock
+          [ordered]@{
+            source_sha = $source
+            rust_toolchain = '1.96.1'
+            resolved_lock_sha256 = $lockHash
+            lock_differs_from_checkout = ($env:LOCK_CHANGED -ceq 'true')
+            validation_scope = 'hosted engineering validation; owned synthetic library and audio contracts'
+            music_host_validation_scope = 'feature-enabled build and Clippy; owned decoder fixtures and fake output driver; no device access'
+            native_release_features = 'native-music-host (includes native-ui); product playback backend remains unavailable'
+            acceptance_gate = 'Review and commit any dependency/formatting proposals; rerun the new head. Human native pixel/motion review remains required.'
+          } | ConvertTo-Json | Set-Content -LiteralPath ci-native-evidence/source.json -Encoding utf8
+          rustc --version | Tee-Object -FilePath ci-native-evidence/logs/toolchain.log
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect Rust.' }
+          cargo --version | Tee-Object -FilePath ci-native-evidence/logs/toolchain.log -Append
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect Cargo.' }
+
+      # A failing check remains fatal. Explicit conditions still gather the independent
+      # checks/build evidence from original source; no continue-on-error is used here.
+      - name: Library, store, and application contracts
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: |
+          cargo test --locked --no-default-features --lib --tests --no-fail-fast 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/library-tests.log
+          if ($LASTEXITCODE -ne 0) { throw 'Library/store/application contracts failed.' }
+      - name: Standalone synthetic audio contracts
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: |
+          cargo test --manifest-path crates/gamestrike-audio-core/Cargo.toml --locked --offline --no-fail-fast 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/audio-tests.log
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic audio contracts failed.' }
+      - name: Native library, application, and desktop contracts
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: |
+          cargo test --locked --no-default-features --features native-ui --lib --tests --bin gamestrike-desktop --no-fail-fast 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/native-tests.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native contracts failed.' }
+      - name: Native music host owned decoder and fake output contracts
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: |
+          cargo test --locked --no-default-features --features native-music-host --test native_music_host_decoder --test native_music_host_output --test native_music_host_completion --no-fail-fast 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/native-music-host-tests.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native music host owned-fixture contracts failed.' }
+      - name: Synthetic capture metadata contracts (no native execution)
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: |
+          & ./scripts/native-capture-contract.tests.ps1 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/metadata-contracts.log
+      - name: Native and library formatting check
+        id: format
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: |
+          cargo fmt --all -- --check 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/native-format.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native/library formatting failed; proposal will be uploaded.' }
+      - name: Standalone audio formatting check
+        id: audio-format
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: |
+          cargo fmt --manifest-path crates/gamestrike-audio-core/Cargo.toml -- --check 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/audio-format.log
+          if ($LASTEXITCODE -ne 0) { throw 'Audio formatting failed; proposal will be uploaded.' }
+      - name: Native Clippy
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: |
+          cargo clippy --locked --no-default-features --features native-ui --bin gamestrike-desktop -- -D warnings 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/native-clippy.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native Clippy failed.' }
+      - name: Native music host and test Clippy
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: |
+          cargo clippy --locked --no-default-features --features native-music-host --lib --tests --bin gamestrike-desktop -- -D warnings 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/native-music-host-clippy.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native music host Clippy failed.' }
+      - name: Upload native check diagnostics before the release build
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamestrike-native-checks-${{ github.sha }}
+          path: ci-native-evidence/logs/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Build the original-source native executable with the music host feature
+        id: build
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: |
+          cargo build --locked --release --no-default-features --features native-music-host --bin gamestrike-desktop -j 2 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/native-build.log
+          if ($LASTEXITCODE -ne 0) { throw 'Native release build failed.' }
+          New-Item -ItemType Directory -Path ci-native-evidence/bin | Out-Null
+          Copy-Item -LiteralPath target/release/gamestrike-desktop.exe -Destination ci-native-evidence/bin/gamestrike-desktop.exe
+          $hash = (Get-FileHash -LiteralPath target/release/gamestrike-desktop.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  gamestrike-desktop.exe" | Set-Content -LiteralPath ci-native-evidence/bin/SHA256SUMS.txt -Encoding utf8
+      - name: Capture actual native framebuffer and metadata (synthetic library only)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          & ./scripts/capture-native.ps1 -Executable ./target/release/gamestrike-desktop.exe -OutputDirectory (Join-Path $env:GITHUB_WORKSPACE 'ci-native-evidence/captures') -ExpectedSourceSha $env:GAMESTRIKE_SOURCE_SHA 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/native-capture.log
+      - name: Require a reviewed committed lock before native acceptance
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' && env.LOCK_CHANGED == 'true' }}
+        run: |
+          throw 'This run used a Cargo-resolved dependency candidate. Review and commit the uploaded Cargo.lock, then rerun the new head; native acceptance remains pending.'
+
+      # Formatting mutations happen only after every compilation/capture step. These
+      # untrusted proposals must be reviewed and committed before a fresh-head rerun.
+      - name: Prepare failure-only native formatting proposal
+        if: ${{ !cancelled() && steps.format.outcome == 'failure' }}
+        run: |
+          try {
+            cargo fmt --all 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/native-format-proposal.log
+            if ($LASTEXITCODE -ne 0) { throw 'Native formatter could not prepare a proposal.' }
+          } finally {
+            git diff --output=ci-native-evidence/native-format.proposal.patch -- '*.rs' ':!crates/gamestrike-audio-core/**'
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot record native formatting proposal.' }
+            git restore --worktree -- '*.rs'
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot restore source after formatting proposal.' }
+            git diff --exit-code -- '*.rs'
+            if ($LASTEXITCODE -ne 0) { throw 'Formatting proposal left modified Rust source.' }
+          }
+      - name: Prepare failure-only standalone audio formatting proposal
+        if: ${{ !cancelled() && steps.audio-format.outcome == 'failure' }}
+        run: |
+          try {
+            cargo fmt --manifest-path crates/gamestrike-audio-core/Cargo.toml 2>&1 | Tee-Object -FilePath ci-native-evidence/logs/audio-format-proposal.log
+            if ($LASTEXITCODE -ne 0) { throw 'Audio formatter could not prepare a proposal.' }
+          } finally {
+            git diff --output=ci-native-evidence/audio-format.proposal.patch -- crates/gamestrike-audio-core
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot record audio formatting proposal.' }
+            git restore --worktree -- crates/gamestrike-audio-core
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot restore standalone audio source.' }
+            git diff --exit-code -- crates/gamestrike-audio-core
+            if ($LASTEXITCODE -ne 0) { throw 'Audio proposal left modified source.' }
+          }
+      - name: Hash all delivered native evidence
+        if: ${{ always() && steps.prepare.outcome == 'success' }}
+        run: |
+          $root = (Resolve-Path -LiteralPath ci-native-evidence).Path
+          $hashes = Get-ChildItem -LiteralPath $root -File -Recurse | Sort-Object FullName | ForEach-Object {
+            $relative = [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/')
+            "{0}  {1}" -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $relative
+          }
+          $hashes | Set-Content -LiteralPath (Join-Path $root 'SHA256SUMS.txt') -Encoding utf8
+      - name: Upload native executable, hashes, lock, logs, proposals, and PNG/JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamestrike-native-windows-${{ github.sha }}
+          path: ci-native-evidence/
           if-no-files-found: error
           retention-days: 14

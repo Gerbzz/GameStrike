@@ -53,250 +53,11 @@
     nowTitle: $("now-title"), nowStatus: $("now-status"), nowIcon: $("now-icon"),
   };
 
-  // ---------- interface sounds (synthesized locally, never fetched) ----------
-  // Original sounds, built from oscillators and filtered noise; no samples are used. The
-  // AudioContext starts only after the player's first key, click, or button press.
-  const sound = (() => {
-    let enabled = stored("gamestrike-sounds", "on") !== "off";
-    let context = null;
-    let master = null;
-    function ready() {
-      if (!enabled || !window.AudioContext || state.capturing) return null;
-      if (!context) {
-        context = new AudioContext();
-        master = context.createDynamicsCompressor();
-        master.connect(context.destination);
-      }
-      if (context.state === "suspended") context.resume().catch(() => {});
-      return context;
-    }
-    function voice(at, { from, to = from, length, volume = 0.05, type = "sawtooth", cutoff = 2400, q = 6, out = null }) {
-      const ctx = context;
-      const gain = ctx.createGain();
-      const filter = ctx.createBiquadFilter();
-      filter.type = "lowpass";
-      filter.Q.value = q;
-      filter.frequency.setValueAtTime(cutoff, at);
-      filter.frequency.exponentialRampToValueAtTime(Math.max(120, cutoff * 0.25), at + length);
-      gain.gain.setValueAtTime(0.0001, at);
-      gain.gain.exponentialRampToValueAtTime(volume, at + 0.008);
-      gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
-      for (const detune of [-7, 7]) {
-        const osc = ctx.createOscillator();
-        osc.type = type;
-        osc.detune.value = detune;
-        osc.frequency.setValueAtTime(from, at);
-        osc.frequency.exponentialRampToValueAtTime(to, at + length);
-        osc.connect(filter);
-        osc.start(at);
-        osc.stop(at + length + 0.03);
-      }
-      filter.connect(gain).connect(out || master);
-    }
-    function whoosh(at, length, from, to, volume, out = null) {
-      const ctx = context;
-      const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * length), ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      const filter = ctx.createBiquadFilter();
-      filter.type = "bandpass";
-      filter.Q.value = 1.4;
-      filter.frequency.setValueAtTime(from, at);
-      filter.frequency.exponentialRampToValueAtTime(to, at + length);
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0.0001, at);
-      gain.gain.exponentialRampToValueAtTime(volume, at + length * 0.35);
-      gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
-      source.connect(filter).connect(gain).connect(out || master);
-      source.start(at);
-    }
-    // ---- the startup's sounds: a low swell, a shimmer as the core forms, the impact of the
-    // flash, mechanical clunks as the frame bolts together, and a pressure hiss as the tubes
-    // connect. Scheduled against the startup's own clock; a skip fades the bus out.
-    let bootBus = null;
-    function noise(at, length, { type = "bandpass", from = 800, to = from, q = 1, volume = 0.05, attack = 0.005, out }) {
-      const ctx = context;
-      const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * length), ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      const filter = ctx.createBiquadFilter();
-      filter.type = type;
-      filter.Q.value = q;
-      filter.frequency.setValueAtTime(from, at);
-      filter.frequency.exponentialRampToValueAtTime(Math.max(40, to), at + length);
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0.0001, at);
-      gain.gain.exponentialRampToValueAtTime(volume, at + attack);
-      gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
-      source.connect(filter).connect(gain).connect(out);
-      source.start(at);
-    }
-    function swell(at, length, out) {
-      const ctx = context;
-      const filter = ctx.createBiquadFilter();
-      filter.type = "lowpass";
-      filter.Q.value = 5;
-      filter.frequency.setValueAtTime(130, at);
-      filter.frequency.exponentialRampToValueAtTime(2600, at + length);
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0.0001, at);
-      gain.gain.exponentialRampToValueAtTime(0.055, at + length * 0.9);
-      gain.gain.exponentialRampToValueAtTime(0.0001, at + length + 0.2);
-      for (const [freq, detune, type] of [[55, -9, "sawtooth"], [55, 9, "sawtooth"], [82.41, 0, "sawtooth"], [110, 4, "triangle"]]) {
-        const osc = ctx.createOscillator();
-        osc.type = type;
-        osc.detune.value = detune;
-        osc.frequency.setValueAtTime(freq, at);
-        osc.frequency.exponentialRampToValueAtTime(freq * 1.5, at + length);
-        osc.connect(filter);
-        osc.start(at);
-        osc.stop(at + length + 0.3);
-      }
-      filter.connect(gain).connect(out);
-    }
-    function shimmer(at, length, out) {
-      const ctx = context;
-      [1318.5, 1760, 2093, 2637].forEach((freq, i) => {
-        const osc = ctx.createOscillator();
-        osc.type = "sine";
-        osc.frequency.value = freq;
-        const trem = ctx.createOscillator();
-        trem.frequency.value = 5 + i * 1.7;
-        const depth = ctx.createGain();
-        depth.gain.value = 0.006;
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.0001, at);
-        gain.gain.exponentialRampToValueAtTime(0.012, at + length * 0.7);
-        gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
-        trem.connect(depth).connect(gain.gain);
-        osc.connect(gain).connect(out);
-        osc.start(at + i * 0.12);
-        trem.start(at);
-        osc.stop(at + length + 0.05);
-        trem.stop(at + length + 0.05);
-      });
-    }
-    function bootSounds(start) {
-      try {
-        if (!ready()) return;
-        const schedule = () => {
-          if (context.state !== "running" || bootBus === false) return;
-          const elapsed = (performance.now() - start) / 1000;
-          if (elapsed > 2.5) return;
-          const t0 = context.currentTime - elapsed;
-          const at = (seconds) => Math.max(context.currentTime + 0.01, t0 + seconds);
-          bootBus = context.createGain();
-          bootBus.connect(master);
-          const out = bootBus;
-          swell(at(0.15), 2.85, out);
-          shimmer(at(1.2), 1.9, out);
-          noise(at(3.0), 0.9, { type: "lowpass", from: 2400, to: 160, q: 0.7, volume: 0.14, out });
-          voice(at(3.0), { from: 52, to: 30, length: 0.7, volume: 0.16, type: "sine", cutoff: 400, q: 1, out });
-          voice(at(3.02), { from: 1046.5, length: 0.55, volume: 0.03, type: "triangle", cutoff: 6000, out });
-          for (const time of [4.45, 4.62, 4.78, 4.92, 5.05]) {
-            noise(at(time), 0.09, { from: 420, to: 260, q: 2.2, volume: 0.08, out });
-            voice(at(time), { from: 96, to: 58, length: 0.13, volume: 0.1, type: "sine", cutoff: 500, q: 1, out });
-          }
-          for (const time of [5.12, 5.17, 5.22, 5.27]) noise(at(time), 0.035, { from: 2600, q: 3, volume: 0.035, out });
-          noise(at(4.85), 0.65, { from: 5200, to: 3200, q: 0.8, volume: 0.032, attack: 0.03, out });
-        };
-        if (context.state === "running") schedule();
-        else context.resume().then(schedule).catch(() => {});
-      } catch (_) { /* sound is decoration only */ }
-    }
-    function stopBoot() {
-      if (bootBus && context) bootBus.gain.setTargetAtTime(0.0001, context.currentTime, 0.04);
-      bootBus = false;
-    }
-    const SOUNDS = {
-      move: (t) => voice(t, { from: 1320, to: 990, length: 0.05, volume: 0.025, type: "triangle", cutoff: 5200 }),
-      zone: (t) => { voice(t, { from: 520, to: 780, length: 0.12, volume: 0.03, type: "triangle" }); whoosh(t, 0.18, 600, 2400, 0.02); },
-      select: (t) => { voice(t, { from: 660, length: 0.09, volume: 0.04 }); voice(t + 0.07, { from: 990, length: 0.16, volume: 0.04 }); },
-      open: (t) => { whoosh(t, 0.35, 300, 3200, 0.035); voice(t + 0.05, { from: 440, to: 880, length: 0.28, volume: 0.03, type: "triangle", cutoff: 3000 }); },
-      back: (t) => { voice(t, { from: 740, to: 370, length: 0.16, volume: 0.035, type: "triangle", cutoff: 2600 }); whoosh(t, 0.2, 2400, 500, 0.015); },
-      launch: (t) => {
-        whoosh(t, 0.9, 200, 5200, 0.05);
-        [523.25, 659.25, 783.99, 1046.5].forEach((note, i) => voice(t + i * 0.075, { from: note, length: 0.5 - i * 0.06, volume: 0.035, cutoff: 3800 }));
-        voice(t, { from: 65.4, to: 130.8, length: 0.9, volume: 0.05, type: "sine", cutoff: 800, q: 1 });
-      },
-      error: (t) => { voice(t, { from: 220, length: 0.12, volume: 0.045, type: "square", cutoff: 900 }); voice(t + 0.13, { from: 196, length: 0.18, volume: 0.045, type: "square", cutoff: 700 }); },
-    };
-    function play(kind) {
-      if (kind === "boot") return;
-      try {
-        if (!ready()) return;
-        (SOUNDS[kind] || SOUNDS.move)(context.currentTime + 0.005);
-        started = true;
-        hum(true);
-      } catch (_) { /* sound is decoration only */ }
-    }
-    // The dome's ambient hum: two low, slightly detuned tones and a breath of filtered noise under
-    // a slow swell, very quiet. It starts with the first sound, and stops while a game runs, while
-    // the window is hidden, and when sounds are off.
-    let drone = null;
-    let held = false;
-    let started = false;
-    function hum(on) {
-      try {
-        const want = on && enabled && !held && !document.hidden;
-        if (want && !drone && ready()) {
-          const ctx = context;
-          const gain = ctx.createGain();
-          gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.014, ctx.currentTime + 2.5);
-          const filter = ctx.createBiquadFilter();
-          filter.type = "lowpass";
-          filter.frequency.value = 340;
-          const swell = ctx.createOscillator();
-          const depth = ctx.createGain();
-          swell.frequency.value = 0.09;
-          depth.gain.value = 0.005;
-          swell.connect(depth).connect(gain.gain);
-          const sources = [55, 82.6, 110.3].map((frequency, index) => {
-            const osc = ctx.createOscillator();
-            osc.type = index === 2 ? "triangle" : "sine";
-            osc.frequency.value = frequency;
-            const level = ctx.createGain();
-            level.gain.value = index === 2 ? 0.25 : 0.6;
-            osc.connect(level).connect(filter);
-            return osc;
-          });
-          const noise = ctx.createBufferSource();
-          const buffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
-          const data = buffer.getChannelData(0);
-          for (let i = 0; i < data.length; i += 1) data[i] = (Math.random() * 2 - 1) * 0.18;
-          noise.buffer = buffer;
-          noise.loop = true;
-          noise.connect(filter);
-          filter.connect(gain).connect(master);
-          [...sources, noise, swell].forEach((node) => node.start());
-          drone = { gain, nodes: [...sources, noise, swell] };
-        } else if (!want && drone) {
-          const { gain, nodes } = drone;
-          drone = null;
-          const end = context.currentTime + 0.8;
-          gain.gain.cancelScheduledValues(context.currentTime);
-          gain.gain.setValueAtTime(Math.max(0.0001, gain.gain.value), context.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.0001, end);
-          nodes.forEach((node) => node.stop(end + 0.05));
-        }
-      } catch (_) { /* sound is decoration only */ }
-    }
-    document.addEventListener("visibilitychange", () => { if (started) hum(!document.hidden); });
-    return {
-      play,
-      bootSounds,
-      stopBoot,
-      get enabled() { return enabled; },
-      toggle() { enabled = !enabled; store("gamestrike-sounds", enabled ? "on" : "off"); if (enabled) play("select"); else hum(false); },
-      // While a game runs the launcher stays quiet.
-      hold(on) { held = on; if (started) hum(!on); },
-    };
-  })();
+  // Short original cues; independent from music, soundboard clips, and voice capture.
+  const sound = window.GameStrikeUiSounds.create({
+    readPreference: stored, writePreference: store,
+    isSuppressed: () => state.capturing,
+  });
 
   // ---------- 3D scene ----------
   // Requests the scene may have missed because it started later; scene.js reads them when it starts.
@@ -959,19 +720,14 @@
     toast(`Sorted by ${label(SORTS, state.sort).toLowerCase()}.`);
   }
 
-  // Applies a style. The earlier styles live on classic.html, so choosing one opens that page.
-  function applyStyle(style, persist) {
+  // One fixed dashboard; old saved/capture values cannot activate another layout.
+  function applyStyle(_style, persist) {
+    const style = core.styleFor(null);
     state.style = style;
     if (persist && !state.capturing) store("gamestrike-style", style.key);
-    if (style.page === "classic") {
-      if (!persist) return;
-      try { sessionStorage.setItem("gamestrike-skip-boot", "1"); } catch (_) { /* the boot then plays once */ }
-      location.replace("/classic.html");
-      return;
-    }
-    document.body.dataset.variant = style.variant;
+    document.body.dataset.variant = "orange";
     window.GameStrikeCovers?.clearCache();
-    window.dispatchEvent(new CustomEvent("gamestrike:variant", { detail: { variant: style.variant } }));
+    window.dispatchEvent(new CustomEvent("gamestrike:variant", { detail: { variant: "orange" } }));
     drawFrame();
   }
 
@@ -982,7 +738,7 @@
     source: { node: $("source-dialog"), first: "source-input" },
     reset: { node: $("reset-dialog"), first: "reset-cancel" },
     remove: { node: $("remove-dialog"), first: "remove-cancel" },
-    settings: { node: $("settings-dialog"), first: "settings-style" },
+    settings: { node: $("settings-dialog"), first: "settings-stores" },
     problems: { node: $("problems-dialog"), first: "problems-close" },
     about: { node: $("about-dialog"), first: "close-about" },
     add: { node: $("add-dialog"), first: "add-program" },
@@ -994,7 +750,6 @@
   let returnFocus = null;
 
   function settingsText() {
-    $("settings-style").textContent = `Style: ${state.style.label}`;
     $("settings-sound").textContent = `Sounds: ${sound.enabled ? "On" : "Off"}`;
     $("settings-sound").setAttribute("aria-pressed", String(sound.enabled));
   }
@@ -1095,7 +850,6 @@
     else if (game) send({ type: "remove_game", id: game.id, keep_saves: keep });
     layoutFocus(true);
   });
-  $("settings-style").addEventListener("click", () => { sound.play("select"); applyStyle(core.nextStyle(state.style.key), true); settingsText(); });
   $("settings-sound").addEventListener("click", () => { sound.toggle(); settingsText(); });
   $("settings-problems").addEventListener("click", () => openDialog("problems"));
   $("settings-stores").addEventListener("click", () => openDialog("stores"));
@@ -1252,6 +1006,7 @@
     const actions = readPad(pad, now);
     if (actions.length && (!state.booted || document.body.classList.contains("assembling"))) { skipBoot(); requestAnimationFrame(pollPad); return; }
     if (actions.length && !state.running && document.hasFocus()) {
+      sound.unlock();
       for (const action of actions) { document.body.dataset.input = "pad"; handleAction(action); }
     }
     requestAnimationFrame(pollPad);
@@ -1369,7 +1124,8 @@
   // start from the default look and never change saved preferences.
   function capture(view) {
     state.capturing = true;
-    applyStyle(core.styleFor(view === "green" ? "collection-green" : "collection-orange"), false);
+    sound.stop();
+    applyStyle(core.styleFor(null), false);
     const bootSecond = view === "boot" ? 3.5 : /^boot-\d+(\.\d+)?$/.test(view) ? Number(view.slice(5)) : null;
     if (bootSecond !== null) {
       document.body.classList.remove("reduce-motion");

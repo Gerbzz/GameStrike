@@ -148,28 +148,13 @@ capture() {
 
 # The Collection style (the default page) in PWDS Orange, then each of its views.
 capture "$library" library
-for pair in focus:focus green:green controller:controller filters:filters search:search favorites:favorites long-title:long detail:detail saves:saves moving:moving settings:settings network-dialog:launch about:about boot:boot boot-0.5:boot-0.5 boot-2:boot-2 boot-4.5:boot-4.5 boot-5.5:boot-5.5 stores:stores store-detail:store-detail add-menu:add-menu store-settings:store-settings; do
+for pair in focus:focus controller:controller filters:filters search:search favorites:favorites long-title:long detail:detail saves:saves moving:moving settings:settings network-dialog:launch about:about boot:boot boot-0.5:boot-0.5 boot-2:boot-2 boot-4.5:boot-4.5 boot-5.5:boot-5.5 stores:stores store-detail:store-detail add-menu:add-menu store-settings:store-settings; do
   capture "$library" "${pair%%:*}" --capture-view "${pair#*:}"
 done
 capture "$library" minimum --window-size 880 620
 
-# The Blades, Original, and PWDS Orange styles, on a library built exactly like the one the
-# baseline run used (six games named "(Synthetic Test)", nothing else set), and captured right
-# after it is built, as the baseline was. These file names match the baseline run's, so the two
-# sets can be compared image by image.
+# Empty Collection: exclude synthetic store fixtures.
 unset GAMESTRIKE_CAPTURE_STORES
-legacy="$work/legacy-library"
-mkdir -p "$legacy"
-for title in 'Orbit Garden' 'Pixel Harbor' 'Lantern Maze' 'Comet Courier' 'Tiny Tactics' \
-  'A Deliberately Long Title For Layout Checks In The Library'; do
-  file="$fixtures/$title (Synthetic Test).html"
-  printf '<!doctype html><title>%s</title><h1>%s</h1><p>GameStrike synthetic test fixture.</p>' \
-    "$title (Synthetic Test)" "$title (Synthetic Test)" >"$file"
-  "$cli" --library "$legacy" import "$file"
-done
-for pair in legacy-blades:blades legacy-system:system legacy-manage:blades-manage legacy-original:original legacy-original-games:original-games legacy-pwds:pwds legacy-boot-blades:boot-blades legacy-boot-original:boot-original legacy-boot-pwds:boot-pwds; do
-  capture "$legacy" "${pair%%:*}" --capture-view "${pair#*:}"
-done
 empty="$work/empty-library"
 mkdir -p "$empty"
 : >"$empty/SYNTHETIC-TEST-LIBRARY"
