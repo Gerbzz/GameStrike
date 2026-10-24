@@ -2,11 +2,36 @@
 name = "gamestrike"
 version = "0.1.0"
 edition = "2024"
-description = "Local GameStrike HTML game library and Windows player"
+description = "Local GameStrike HTML game library and isolated player for Windows, Linux, and macOS"
 
 [features]
-player-windows = ["dep:wry", "dep:tao", "dep:percent-encoding", "dep:windows-sys", "dep:windows", "dep:webview2-com"]
-launcher-windows = ["player-windows"]
+# The player and launcher build on Windows (WebView2), Linux (WebKitGTK), and macOS (WKWebView).
+# Each feature only pulls in the native crates for the OS being built.
+player = [
+    "dep:wry",
+    "dep:tao",
+    "dep:percent-encoding",
+    "dep:windows-sys",
+    "dep:windows",
+    "dep:webview2-com",
+    "dep:webkit2gtk",
+    "dep:gtk",
+    "dep:cairo-rs",
+    "dep:libc",
+    "dep:objc2",
+    "dep:objc2-foundation",
+    "dep:objc2-web-kit",
+    "dep:objc2-app-kit",
+    "dep:block2",
+]
+launcher = ["player"]
+# Platform-named aliases. `launcher-windows` and `player-windows` keep existing commands working.
+player-windows = ["player"]
+launcher-windows = ["launcher"]
+player-linux = ["player"]
+launcher-linux = ["launcher"]
+player-macos = ["player"]
+launcher-macos = ["launcher"]
 
 [dependencies]
 serde = { version = "=1.0.228", features = ["derive"] }
@@ -16,12 +41,32 @@ uuid = { version = "=1.24.0", features = ["v4", "serde"] }
 zip = { version = "=3.0.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 percent-encoding = { version = "=2.3.2", optional = true }
 
-[target.'cfg(windows)'.dependencies]
-wry = { version = "=0.57.0", default-features = false, features = ["os-webview"], optional = true }
+[target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
+# `mac-proxy` only compiles on macOS; it lets offline mode route WKWebView traffic to the sink-hole proxy.
+wry = { version = "=0.57.0", default-features = false, features = ["os-webview", "mac-proxy"], optional = true }
 tao = { version = "=0.37.1", optional = true }
+
+[target.'cfg(windows)'.dependencies]
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_UI_Controls_Dialogs"], optional = true }
 windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage"], optional = true }
 webview2-com = { version = "=0.39.1", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Same versions wry 0.57 uses, so the WebKitGTK and GTK types are shared with it.
+webkit2gtk = { version = "=2.0.2", features = ["v2_38"], optional = true }
+gtk = { version = "=0.18.2", optional = true }
+cairo-rs = { version = "=0.18.5", features = ["png"], optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { version = "=0.2.190", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Same major versions wry 0.57 uses, so WKWebView types are shared with it.
+objc2 = { version = "=0.6.5", optional = true }
+block2 = { version = "=0.6.2", optional = true }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSString", "NSUUID", "NSProcessInfo", "NSValue", "NSURL", "NSArray", "NSData", "NSDictionary", "NSError", "NSObject", "NSKeyValueCoding", "NSRunLoop", "NSDate", "NSSet"], optional = true }
+objc2-web-kit = { version = "=0.3.2", default-features = false, features = ["std", "objc2-app-kit", "block2", "WKWebView", "WKWebViewConfiguration", "WKWebsiteDataStore", "WKPreferences", "WKSnapshotConfiguration", "WKUserContentController", "WKUserScript"], optional = true }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "NSApplication", "NSOpenPanel", "NSSavePanel", "NSPanel", "NSWindow", "NSResponder", "NSView", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSGraphics", "NSRunningApplication"], optional = true }
 
 [dev-dependencies]
 tempfile = "=3.27.0"
@@ -29,9 +74,9 @@ tempfile = "=3.27.0"
 [[bin]]
 name = "gamestrike-player"
 path = "src/player.rs"
-required-features = ["player-windows"]
+required-features = ["player"]
 
 [[bin]]
 name = "gamestrike-launcher"
 path = "src/launcher.rs"
-required-features = ["launcher-windows"]
+required-features = ["launcher"]

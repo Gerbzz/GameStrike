@@ -4,12 +4,13 @@
 
 <h1 align="center">GameStrike</h1>
 
-<p align="center"><strong>A console-style home on Windows for the HTML games you download.</strong><br>
+<p align="center"><strong>A console-style home for the HTML games you download, on Windows, Linux, and macOS.</strong><br>
 Add a game from an <code>.html</code> file or a <code>.zip</code>, pick it from a glossy, console-style dashboard with a mouse, keyboard, or controller, and play it in its own window. Offline by default, with saves kept per game. No account, no uploads.</p>
 
 <p align="center">
   <a href="#what-works-today">What works</a> ·
   <a href="#screenshots">Screenshots</a> ·
+  <a href="#platforms">Platforms</a> ·
   <a href="#build-and-run">Build and run</a> ·
   <a href="#how-games-are-isolated">Isolation</a> ·
   <a href="#verification">Verification</a> ·
@@ -31,7 +32,7 @@ The screenshots document the native branch; the build commands below still build
 Everything in this section is implemented in this repository and covered by the checks listed under [Verification](#verification).
 
 **Library**
-- Add a game through the Windows file picker: a single `.html`/`.htm` file, or a `.zip` with `index.html` at its root or inside one wrapper folder. GameStrike copies the files into its own library; your original download is never modified.
+- Add a game through the native file picker: a single `.html`/`.htm` file, or a `.zip` with `index.html` at its root or inside one wrapper folder. GameStrike copies the files into its own library; your original download is never modified.
 - Re-adding the exact same file is recognized, and the game keeps its saves.
 - Search, and sort by recently played, title, or date added, from the *Add & Find* channel.
 - Each game shows its source type, when it was added, when it was last played and how often, and how much data it has stored.
@@ -63,16 +64,46 @@ The active images show the selected PWDS orange native engineering candidate fro
 
 These captures document native rendering. They do not establish local interactive or audio-device acceptance; native Music playback remains unavailable.
 
+## Platforms
+
+Only platforms that GitHub Actions has built **and** tested, including the real player isolation test, count as supported. See [docs/PLAYER_SECURITY.md](docs/PLAYER_SECURITY.md#per-platform-implementation) for how each guarantee is implemented per OS.
+
+| Platform | Engine | Status | Evidence |
+| --- | --- | --- | --- |
+| Windows (CI: `windows-latest`, Windows Server 2025 image) | WebView2 | **Supported** | [CI run 39261168566, windows job](https://github.com/Gerbzz/GameStrike/actions/runs/39261168566/job/118088878425): fmt, clippy, Rust and JS tests, real-player isolation test, release build, player smoke test, launcher captures |
+| Linux x64 (CI: `ubuntu-latest`, Ubuntu 24.04) | WebKitGTK 4.1 (2.52.6 in CI) | **Supported** | [same run, ubuntu job](https://github.com/Gerbzz/GameStrike/actions/runs/39261168566/job/118088878299): the same steps, with the player and launcher windows under Xvfb |
+| macOS 14 or later (CI: `macos-latest`, macOS 26.6 on Apple silicon; 14 and 15 not tested) | WKWebView | **Supported** | [same run, macOS job](https://github.com/Gerbzz/GameStrike/actions/runs/39261168566/job/118088877675): the same steps |
+
+Platform caveats that apply even when a platform is verified:
+- **Linux and macOS:** WebRTC is switched off for games in both offline and network mode, because WebKit offers no way to limit its UDP to the proxy. Games that need WebRTC will not work there.
+- **macOS:** turning WebRTC off uses WebKit's private peer-connection preference; if a future macOS removes it, the player refuses to start rather than run without it. Each game's saves live in a WebKit data store named after the game ID (outside the library folder), so the library's "game data" size shows 0, and copying a library folder to another Mac does not copy its saves. Needs macOS 14 for per-game data stores; older versions are refused.
+- **macOS:** Clear saves deletes every website data type from the game's data store through WebKit's public API; the empty store folder stays. Launcher captures in CI come out at the runner's screen size (1024 × 645), not the requested 1250 × 800.
+- **Windows:** in 3 of about 10 Windows CI runs on this branch, the second offline launch of a game failed its first same-origin `fetch()` (blocked by the offline proxy, so nothing leaked). The probe now retries that fetch and logs the attempts; games that fetch their own files may see the same occasional failure. The cause is not yet known.
+- **Windows:** WebView2's helper processes can hold a game's profile files open for a moment after the player exits. Clearing saves or removing a game right after closing it retries the delete for up to five seconds (CI hit this twice before the retry was added).
+- **All platforms:** the player is not an OS sandbox (no AppContainer, bubblewrap, or App Sandbox). Saves are kept in the engine's own format, so they do not move between operating systems.
+
 ## Build and run
 
-You need Windows 10 or 11 with the [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (preinstalled on Windows 11) and stable Rust with edition 2024 support.
+Stable Rust with edition 2024 support, plus:
 
-```powershell
-cargo build --locked --features launcher-windows --bins
-.\target\debug\gamestrike-launcher.exe
+| OS | Prerequisites |
+| --- | --- |
+| Windows 10/11 | The [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (preinstalled on Windows 11) and the MSVC build tools. |
+| Linux | WebKitGTK 4.1 and GTK 3 development packages. Debian/Ubuntu: `sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev`. Fedora: `webkit2gtk4.1-devel gtk3-devel libsoup3-devel`. |
+| macOS 14+ | Xcode Command Line Tools (`xcode-select --install`). |
+
+```sh
+cargo build --locked --release --features launcher --bins
+./target/release/gamestrike-launcher        # .\target\release\gamestrike-launcher.exe on Windows
 ```
 
-The launcher expects `gamestrike-player.exe` in the same folder, which this build produces. By default the library lives in `%LOCALAPPDATA%\GameStrike\Library`; pass `--library DIRECTORY` to use another folder, for example a throwaway test library.
+The `launcher-windows` / `player-windows` feature names from earlier versions still work; `launcher-linux` and `launcher-macos` are aliases too. The launcher expects `gamestrike-player` in the same folder, which this build produces. Pass `--library DIRECTORY` to use another folder, for example a throwaway test library. Default library locations:
+
+| OS | Default library |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\GameStrike\Library` (unchanged, so existing libraries and saves keep working) |
+| Linux | `$XDG_DATA_HOME/gamestrike/library`, usually `~/.local/share/gamestrike/library` |
+| macOS | `~/Library/Application Support/GameStrike/Library` (saves: WebKit data stores, see above) |
 
 ```text
 gamestrike --library DIR import GAME.html|GAME.zip
@@ -85,13 +116,15 @@ gamestrike-player --library DIR --id GAME_UUID --offline|--allow-network
 
 **Tests**
 
-```powershell
+```sh
 cargo fmt --all -- --check
-cargo clippy --locked --features launcher-windows --all-targets -- -D warnings
-cargo test --locked --features launcher-windows
+cargo clippy --locked --features launcher --all-targets -- -D warnings
+cargo test --locked --features launcher
 node --test ui/app.test.cjs
-# Opens real player windows for about 20 seconds:
-cargo test --locked --features launcher-windows --test player_isolation -- --ignored --nocapture
+# Opens real player windows for about 30 seconds (prefix with `xvfb-run -a` on headless Linux):
+cargo test --locked --features launcher --test player_isolation -- --ignored --nocapture
+# Release launch and capture smoke test with synthetic games (Linux/macOS; Windows: scripts/hosted-library-capture.ps1):
+bash scripts/hosted-library-capture.sh target/release /tmp/gamestrike-capture
 ```
 
 ## How games are isolated
@@ -110,6 +143,8 @@ cargo test --locked --features launcher-windows --test player_isolation -- --ign
 The details and remaining open questions are in [docs/PLAYER_SECURITY.md](docs/PLAYER_SECURITY.md). The launcher's IPC and input model is in [docs/LAUNCHER_UI.md](docs/LAUNCHER_UI.md).
 
 ## Verification
+
+Linux and macOS results come from CI only; see [Platforms](#platforms) and the per-OS tables in [docs/PLAYER_SECURITY.md](docs/PLAYER_SECURITY.md#linux-and-macos-measurements). The rest of this section is the Windows record.
 
 Results as of 2026-10-17 on Windows 11 Pro, WebView2 runtime as installed on the dev PC and on GitHub's `windows-latest` runner.
 
@@ -141,7 +176,7 @@ That run found two issues, both fixed in `bc6fd31`: the offline summary counted 
 - In network mode, the runtime's own requests for the game's origin outside the custom protocol resolve to `localhost` and could reach a local server on port 443.
 - Controller support and network needs are shown as *not checked* for every game; GameStrike does not inspect games.
 - Covers are generated decorations (initials and a pattern from the game ID), not game artwork.
-- Windows only. No installer, code signing, auto-update, or app icon resource yet.
+- See [Platforms](#platforms) for which operating systems are verified. No installer, code signing, auto-update, or app icon resource yet.
 
 ## Credits and license
 
