@@ -26,6 +26,12 @@ The screenshots document the native branch; the build commands below still build
 > [!IMPORTANT]
 > **Early, unreleased software.** There is no installer or signed binary yet; you build it from source. Imported games are untrusted code. Offline mode blocks their network traffic, but the player is **not** an operating-system sandbox. Read [Limitations](#limitations) before running games you don't trust.
 
+## Rust rewrite direction
+
+- **Target:** A native Rust desktop universal game launcher for installed and local HTML games, with integrated soundboard, voice changer, and music. This is a desktop rewrite, not a website or browser-based replacement. The core app must remain usable locally without forced provider login, while preserving the selected PWDS orange design and branding.
+- **Current implementation:** `main` still builds the Windows HTML-game launcher described below: Rust library/player/launcher code with an HTML/CSS/JavaScript interface in Wry/WebView2. It is not yet a Rust-rendered UI. The separate `gamestrike-desktop` implementation in [draft PR #15](https://github.com/Gerbzz/GameStrike/pull/15) uses native Rust eframe/egui and Wgpu; the selected native screenshots document that engineering branch, not a completed default-branch migration. The native branch retains a separate optional HTML-game player.
+- **Remaining migration:** Bring the native desktop and universal-launcher work onto the default branch only after feature parity and acceptance. Finish native soundboard/voice host integrations and real music device output; the native Music queue/playlist work does not yet provide playback, and the synthetic audio core is not a functioning selectable microphone. Native launcher management, controller/settings parity, and platform/hardware acceptance also remain. The rewrite is in progress, not a finished Rust-only release.
+
 ## What works today
 
 Everything in this section is implemented in this repository and covered by the checks listed under [Verification](#verification).
