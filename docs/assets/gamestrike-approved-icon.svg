@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">GameStrike</title>
+  <desc id="desc">A game cartridge with a pixel-game character and one offset library bar. Original amber and orange vector artwork.</desc>
+  <path fill="#F7AF32" d="M88 88h224v56H144v240H88z"/>
+  <path fill="#D95119" fill-rule="evenodd" d="M192 144h192v24h40v256H168V168h24zM216 216v104h160V216z"/>
+  <path fill="#D95119" fill-rule="evenodd" d="M264 232h16v16h32v-16h16v32h16v32h-16v16h-16v-16h-32v16h-16v-16h-16v-32h16zM272 264v16h16v-16zM304 264v16h16v-16z"/>
+  <path fill="#F7AF32" d="M236 368h24v32h-24zM284 368h24v32h-24zM332 368h24v32h-24z"/>
+</svg>
