@@ -1,4 +1,4 @@
-use gamestrike::Library;
+use gamestrike::{Library, clear_engine_data};
 use std::{env, error::Error, io, path::PathBuf};
 use uuid::Uuid;
 
@@ -8,7 +8,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err(usage().into());
     }
     let root = PathBuf::from(&args[2]);
-    let library = Library::open(root)?;
+    let library = Library::open(&root)?;
     let id = |index: usize| -> Result<Uuid, Box<dyn Error>> {
         Ok(Uuid::parse_str(
             args.get(index)
@@ -53,7 +53,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!("Renamed to {}", library.rename(id(4)?, title)?.title);
         }
         Some("reset-saves") if args.len() == 5 => {
-            library.reset_saves(id(4)?)?;
+            let game = id(4)?;
+            // On macOS the WebKit data store lives outside the library and is cleared first.
+            clear_engine_data(&root, game)?;
+            library.reset_saves(game)?;
             println!("Saves cleared.");
         }
         Some("remove") if args.len() == 5 || args.len() == 6 => {
@@ -62,7 +65,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Some("--keep-saves") => true,
                 Some(_) => return Err(usage().into()),
             };
-            library.remove(id(4)?, keep_saves)?;
+            let game = id(4)?;
+            if !keep_saves {
+                clear_engine_data(&root, game)?;
+            }
+            library.remove(game, keep_saves)?;
             println!(
                 "Removed{}.",
                 if keep_saves {

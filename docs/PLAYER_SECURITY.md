@@ -9,6 +9,25 @@ Imported games are treated as untrusted code. This document describes what the p
 - **Integrity.** For imported games, the player queries its own Windows token and refuses to start unless it is at standard (medium) integrity. It never modifies the token. Fixture modes (`--smoke`, `--boundary-smoke`, `--probe-offline`, `--probe-network`) skip this check because they run only exact bundled first-party bytes; this lets CI runners with elevated tokens exercise them.
 - **Per-game lock.** The player holds an exclusive OS file lock on `profiles/<id>.lock`, so a second player, a removal, or a save reset for that game is refused while it runs. The OS releases the lock if the player crashes.
 
+## Per-platform implementation
+
+The sections below describe the Windows (WebView2) player, which is the measured one. The same guarantees are implemented on Linux and macOS as follows. **Only platforms that GitHub Actions has built and tested count as verified; see the README's Platforms section for the current status.**
+
+| Guarantee | Windows (WebView2) | Linux (WebKitGTK 4.1) | macOS 14+ (WKWebView) |
+| --- | --- | --- | --- |
+| Per-game data store | User-data folder `profiles/<id>` | WebKit data and cache directories `profiles/<id>`, persistent; the player reads the directory back and refuses to start if it differs | `WKWebsiteDataStore` with identifier = game ID, persistent; verified after the WebView is built. It lives in WebKit's own folder, not the library; `gamestrike-player --clear-engine-data` deletes all of its website data types through WebKit's public `removeDataOfTypes:modifiedSince:` (the empty store folder stays), and the launcher and CLI call that before clearing saves or removing a game without kept saves |
+| Per-game origin | `https://gamestrike<id>.localhost` (Wry custom protocol) | `gamestrike<id>://localhost` (registered as secure) | `gamestrike<id>://localhost` (`WKURLSchemeHandler`) |
+| No `file://` escape, assets only from the game folder | Same asset handler on every platform: canonical regular files inside `content/` only | same | same |
+| Navigation outside the game blocked | Navigation handler plus native frame-navigation and external-URI guards | Navigation handler (WebKit's navigation policy covers main frame and subframes); the `https://…localhost` form is refused because it would be a real network request | Navigation handler (`decidePolicyForNavigationAction`, all frames); same refusal of the https form |
+| Popups, downloads, permissions | Denied | Denied | Denied |
+| CSP | Header on every response | Same header (custom-scheme responses carry headers) | same |
+| No host IPC | No IPC handler; web messages and host objects disabled. `window.chrome.webview` still exists | No IPC handler or script message handler; Wry's `window.ipc` stub script is removed before the game loads, so `window.ipc` and `window.webkit` are undefined | No IPC handler or user scripts (checked after build), so `window.ipc` and `window.webkit` are undefined |
+| Offline network block | CSP + owned sink-hole proxy (loopback included) + WebRTC limited to proxied UDP | CSP + owned sink-hole proxy set on the WebKit data manager; WebRTC and media capture disabled in every mode; DNS prefetch and hyperlink auditing off | CSP + owned sink-hole proxy set on the data store (verified); WebRTC disabled in every mode through WebKit's peer-connection preference, which is private WebKit API (`_setPeerConnectionEnabled:`); if it is missing or does not stick, the player refuses to start |
+| Elevated identity refused | Not at medium integrity | Root, or real and effective user or group IDs differ | same as Linux |
+| OS sandbox | None | None (WebKitGTK's bubblewrap sandbox is not enabled) | None (the app is unsigned and not App Sandboxed) |
+
+WebRTC is off in network mode too on Linux and macOS, so games that need WebRTC do not work there. On macOS, game saves are not counted in the library's "game data" size because WebKit stores them outside the library.
+
 ## Per-game origin, storage, and files
 
 Each game is served from `https://gamestrike<uuid>.localhost/` through a Wry custom protocol, with its own WebView2 user-data folder under `LIBRARY/profiles/<uuid>`. Origins and profiles never overlap, so `localStorage`, IndexedDB, and cookies are separate per game and persist across launches.
@@ -48,6 +67,22 @@ These come from `tests/player_isolation.rs`, which drives the real player agains
 | Second player for a locked game | refused ("already open") | — |
 
 A manual run of the real app also confirmed save persistence across exit and relaunch, offline loading of a wrapped ZIP's relative assets, and rejection of zip-slip and corrupt archives. See the README's Verification section.
+
+### Linux and macOS measurements
+
+The same test, run by the cross-platform workflow in [run 39198332877](https://github.com/Gerbzz/GameStrike/actions/runs/39198332877) (Ubuntu 24.04 with WebKitGTK 2.52.6 under Xvfb; macOS 26.6 on Apple silicon). These are CI results only; no one has tested the Linux or macOS builds by hand.
+
+| Probe | Linux offline | Linux network | macOS offline | macOS network |
+| --- | --- | --- | --- | --- |
+| TCP connections reaching the harness | **0** | 7 | **0** | 7 |
+| UDP packets reaching the harness | **0** | 0 (WebRTC unavailable) | **0** | 0 (WebRTC unavailable) |
+| `csp` (violation events) | enforced | none | enforced | none |
+| `fetch`, XHR, image to loopback | rejected / error / error | resolved / loaded / error | rejected / error / error | resolved / loaded / error |
+| `file://` fetch, other game origin | rejected, rejected | rejected, rejected | rejected, rejected | rejected, rejected |
+| `window.open`, `window.ipc`, `window.webkit` | null, undefined, undefined | same | null, undefined, undefined | same |
+| `RTCPeerConnection` | unavailable | unavailable | unavailable | unavailable |
+| Reported origin | `gamestrike<id>://localhost`, different per game | | same | |
+| Saves | 1, 2, then 3 after game 2 ran; 1 again after clearing saves | game 2 starts at 1 | same | same |
 
 ## Open items
 
