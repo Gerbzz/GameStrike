@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/branding/gamestrike-mark.svg" alt="GameStrike mark: two layered game cards with a control pad" width="128" height="128">
+  <img src="docs/assets/gamestrike-approved-icon.svg" alt="GameStrike mark: a game cartridge with a pixel character and an offset library bar" width="128" height="128">
 </p>
 
 <h1 align="center">GameStrike</h1>
